@@ -37,7 +37,7 @@
 - [x] 6.1 Install fastlane (`brew install fastlane`); create `fastlane/Appfile`, `Fastfile` (lanes: `bump`, `build_tvos`, `build_ios`, `beta`, `metadata`, `release_check`), `Deliverfile`, and `.env.example` documenting the App Store Connect API key variables
 - [x] 6.2 Write full `fastlane/metadata/en-US/` content per design D8: name `JellyTV`, subtitle `Client for Jellyfin servers`, description, keywords, release notes, review notes, categories (Entertainment), age-rating answers (all None → 4+), App Privacy = Data Not Collected
 - [x] 6.3 **(Francisco, in browser)** Create an App Store Connect API key (App Manager role), download the `.p8`, store it outside the repo, fill in `fastlane/.env`
-- [ ] 6.4 Register bundle ID `net.graficx.jellytv` and create the single app record with **both** tvOS and iOS platforms via `fastlane produce` (manual App Store Connect fallback documented in README); check "JellyTV" name availability, fall back per design if taken
+- [x] 6.4 Register bundle ID `net.graficx.jellytv` and create the single app record with **both** tvOS and iOS platforms via `fastlane produce` (manual App Store Connect fallback documented in README); check "JellyTV" name availability, fall back per design if taken
 - [x] 6.5 Generate placeholder screenshots from the running simulators (Apple TV 1920×1080; current iPhone and 13" iPad sizes) into `fastlane/screenshots/`
 - [ ] 6.6 Run the `metadata` lane in verify mode (`release_check`) and fix every validation error until clean
 
