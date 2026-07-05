@@ -48,10 +48,11 @@ platform :ios do
     if existing
       UI.success("Bundle ID already registered: #{APP_IDENTIFIER}")
     else
+      # IOS covers tvOS too — both share the iOS bundle-ID namespace.
       Spaceship::ConnectAPI::BundleId.create(
         name: "JellyTV",
         identifier: APP_IDENTIFIER,
-        platform: Spaceship::ConnectAPI::BundleIdPlatform::UNIVERSAL
+        platform: Spaceship::ConnectAPI::BundleIdPlatform::IOS
       )
       UI.success("Registered bundle ID: #{APP_IDENTIFIER}")
     end
