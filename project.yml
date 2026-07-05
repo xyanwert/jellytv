@@ -1,0 +1,111 @@
+name: JellyTV
+
+options:
+  bundleIdPrefix: net.graficx
+  createIntermediateGroups: true
+  deploymentTarget:
+    tvOS: "17.0"
+    iOS: "17.0"
+  groupSortPosition: top
+
+# Shared across every target. Version numbers live here ONCE so the tvOS app and
+# its iOS companion can never drift apart (required for universal purchase).
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: "44RDME8NMM"
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    SWIFT_EMIT_LOC_STRINGS: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GCC_WARN_ABOUT_RETURN_TYPE: YES_ERROR
+
+packages:
+  JellyTVKit:
+    path: Packages/JellyTVKit
+
+targets:
+  # ---------------- tvOS app ----------------
+  JellyTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: Apps/JellyTV/Sources
+      - path: Apps/JellyTV/Resources
+    dependencies:
+      - package: JellyTVKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.graficx.jellytv
+        PRODUCT_NAME: JellyTV
+        TARGETED_DEVICE_FAMILY: "3"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: Apps/JellyTV/Support/Info.plist
+      properties:
+        CFBundleDisplayName: JellyTV
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.entertainment
+        ITSAppUsesNonExemptEncryption: false
+        UIUserInterfaceStyle: Dark
+
+  # ---------------- iOS/iPadOS companion ----------------
+  Remote:
+    type: application
+    platform: iOS
+    sources:
+      - path: Apps/Remote/Sources
+      - path: Apps/Remote/Resources
+    dependencies:
+      - package: JellyTVKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.graficx.jellytv
+        PRODUCT_NAME: JellyTV
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: Apps/Remote/Support/Info.plist
+      properties:
+        CFBundleDisplayName: JellyTV
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.entertainment
+        ITSAppUsesNonExemptEncryption: false
+        UIUserInterfaceStyle: Dark
+        UILaunchScreen:
+          UIColorName: ""
+        NSLocalNetworkUsageDescription: "JellyTV Remote finds and controls your Apple TV and Jellyfin server on your local network."
+        NSBonjourServices:
+          - _jellytv._tcp
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+
+schemes:
+  JellyTV:
+    build:
+      targets:
+        JellyTV: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  Remote:
+    build:
+      targets:
+        Remote: all
+    run:
+      config: Debug
+    archive:
+      config: Release

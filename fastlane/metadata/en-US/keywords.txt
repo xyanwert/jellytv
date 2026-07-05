@@ -1,0 +1,1 @@
+jellyfin,media server,home media,self-hosted,streaming,movies,tv shows,emby,remote,player

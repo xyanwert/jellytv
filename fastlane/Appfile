@@ -1,0 +1,8 @@
+app_identifier("net.graficx.jellytv")
+apple_id("francisco.berridi@gmail.com")
+
+# Apple Developer Portal team (individual — "Francisco Berridi Nava").
+team_id("44RDME8NMM")
+
+# Note: release lanes authenticate with an App Store Connect API key
+# (see fastlane/.env, from fastlane/.env.example), not the Apple ID above.

@@ -1,0 +1,43 @@
+# ---- Xcode / build products ----
+# The .xcodeproj is generated from project.yml by XcodeGen — never commit it.
+*.xcodeproj
+DerivedData/
+build/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# XcodeGen-generated Info.plist files (source of truth is project.yml)
+Apps/*/Support/Info.plist
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# ---- Swift Package Manager ----
+.build/
+.swiftpm/
+Packages/*/.build/
+
+# ---- macOS ----
+.DS_Store
+
+# ---- Claude Code (user-local settings) ----
+.claude/settings.local.json
+
+# ---- Secrets / signing (NEVER commit) ----
+fastlane/.env
+fastlane/*.env
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+AuthKey_*.p8
+
+# ---- fastlane ----
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/
+fastlane/README.md

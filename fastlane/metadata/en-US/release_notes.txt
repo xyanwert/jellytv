@@ -1,0 +1,1 @@
+First TestFlight build of JellyTV — the native Apple TV client for Jellyfin, with its iPhone/iPad remote companion.

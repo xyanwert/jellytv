@@ -1,0 +1,102 @@
+# JellyTV release automation.
+#
+# Version/build numbers live in project.yml (single source of truth). Release
+# lanes authenticate with an App Store Connect API key loaded from fastlane/.env
+# (copy fastlane/.env.example). Nothing here reads a committed secret.
+
+default_platform(:ios)
+
+APP_IDENTIFIER = "net.graficx.jellytv".freeze
+PROJECT        = "JellyTV.xcodeproj".freeze
+
+# Build the App Store Connect API-key object from environment variables.
+def asc_api_key
+  app_store_connect_api_key(
+    key_id:       ENV.fetch("ASC_KEY_ID"),
+    issuer_id:    ENV.fetch("ASC_ISSUER_ID"),
+    key_filepath: ENV.fetch("ASC_KEY_PATH"),
+    in_house:     false
+  )
+end
+
+# Regenerate the Xcode project from project.yml before any build.
+def regenerate_project
+  sh("cd .. && xcodegen generate")
+end
+
+platform :ios do
+  desc "Increment the shared build number in project.yml, then regenerate the project"
+  lane :bump do
+    path = File.expand_path("../project.yml", __dir__)
+    yml  = File.read(path)
+    current = yml[/CURRENT_PROJECT_VERSION:\s*"?(\d+)"?/, 1].to_i
+    nextver = current + 1
+    yml = yml.sub(/CURRENT_PROJECT_VERSION:\s*"?\d+"?/, %(CURRENT_PROJECT_VERSION: "#{nextver}"))
+    File.write(path, yml)
+    regenerate_project
+    UI.success("Build number #{current} → #{nextver} (both targets)")
+  end
+
+  desc "Archive + export the tvOS app (App Store)"
+  lane :build_tvos do
+    regenerate_project
+    build_app(
+      project: PROJECT,
+      scheme: "JellyTV",
+      destination: "generic/platform=tvOS",
+      export_method: "app-store",
+      output_directory: "build",
+      output_name: "JellyTV-tvOS"
+    )
+  end
+
+  desc "Archive + export the iOS/iPadOS companion (App Store)"
+  lane :build_ios do
+    regenerate_project
+    build_app(
+      project: PROJECT,
+      scheme: "Remote",
+      destination: "generic/platform=iOS",
+      export_method: "app-store",
+      output_directory: "build",
+      output_name: "JellyTV-iOS"
+    )
+  end
+
+  desc "Build both targets and upload them to TestFlight"
+  lane :beta do
+    api = asc_api_key
+    build_tvos
+    upload_to_testflight(
+      api_key: api,
+      ipa: "build/JellyTV-tvOS.ipa",
+      skip_waiting_for_build_processing: true
+    )
+    build_ios
+    upload_to_testflight(
+      api_key: api,
+      ipa: "build/JellyTV-iOS.ipa",
+      skip_waiting_for_build_processing: true
+    )
+  end
+
+  desc "Upload App Store metadata + screenshots (no binary)"
+  lane :metadata do
+    deliver(
+      api_key: asc_api_key,
+      skip_binary_upload: true,
+      force: true
+    )
+  end
+
+  desc "Validate metadata + screenshots without uploading (dry run)"
+  lane :release_check do
+    deliver(
+      api_key: asc_api_key,
+      skip_binary_upload: true,
+      verify_only: true,
+      force: true,
+      run_precheck_before_submit: false
+    )
+  end
+end

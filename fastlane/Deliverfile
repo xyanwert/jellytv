@@ -1,0 +1,12 @@
+app_identifier "net.graficx.jellytv"
+
+# Metadata + screenshots are read from the default locations:
+#   fastlane/metadata/     (app-level + en-US text)
+#   fastlane/screenshots/  (per-locale, per-device images)
+
+# Don't auto-submit for review; we upload and review manually in App Store Connect.
+submit_for_review false
+automatic_release false
+
+# The app collects no data — advertising identifier is not used.
+submission_information({ add_id_info_uses_idfa: false })

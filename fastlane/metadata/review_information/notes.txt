@@ -1,0 +1,5 @@
+JellyTV is a native Apple TV client for self-hosted Jellyfin media servers, with an iPhone/iPad companion that acts as a remote control.
+
+This build is an early shell distributed via TestFlight and does not yet include the server-connection and playback features, so no demo account or Jellyfin server is required to launch it — the app opens to a branded placeholder screen. A Jellyfin server will be required once those features ship.
+
+The companion app requests Local Network access solely to discover and control the Apple TV app and the user's Jellyfin server on the same network. The apps collect no data and contain no analytics or tracking.
