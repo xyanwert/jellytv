@@ -24,7 +24,7 @@
 ## 4. Bootstrap script
 
 - [x] 4.1 Write `Scripts/bootstrap.sh`: check/install XcodeGen + fastlane via Homebrew, run icon generation, run `xcodegen generate`; exit non-zero with a clear message on missing Xcode
-- [ ] 4.2 Verify bootstrap from a pristine state: `git clean -xdf` dry-run inspection, then run the script in a temp clone and confirm one command yields an openable, buildable project
+- [x] 4.2 Verify bootstrap from a pristine state: `git clean -xdf` dry-run inspection, then run the script in a temp clone and confirm one command yields an openable, buildable project
 
 ## 5. GitHub + privacy policy
 
