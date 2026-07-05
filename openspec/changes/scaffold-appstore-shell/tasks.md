@@ -4,7 +4,7 @@
 
 - [x] 1.1 Add Swift/Xcode `.gitignore` (excludes `*.xcodeproj`, DerivedData, build artifacts, `fastlane/.env`, `*.p8`, `fastlane/report.xml`, `fastlane/test_output`)
 - [x] 1.2 Add `LICENSE` (MIT, Francisco Berridi) and initial `README.md` (project intent, bootstrap/build/release workflow — finalize in 7.3)
-- [ ] 1.3 Rename local default branch `master` → `main` and make the initial commit of existing files (`openspec/`, `.claude/`, `.mcp.json`)
+- [x] 1.3 Rename local default branch `master` → `main` and make the initial commit of existing files (`openspec/`, `.claude/`, `.mcp.json`)
 - [ ] 1.4 Restart-verify XcodeBuildMCP: confirm the `.mcp.json` server is approved and its tools respond (list simulators)
 
 ## 2. Xcode project skeleton (XcodeGen)
@@ -28,9 +28,9 @@
 
 ## 5. GitHub + privacy policy
 
-- [ ] 5.1 Create the GitHub repo and push `main` (`gh repo create` — confirm desired visibility with Francisco), set it as `origin`
-- [ ] 5.2 Write `docs/privacy/index.html` (no data collected, no analytics, traffic only to the user's own Jellyfin server) and enable GitHub Pages from `main` `/docs` (`gh api`); verify the privacy URL returns HTTP 200
-- [ ] 5.3 Record the live URL in `fastlane/metadata/en-US/privacy_url.txt` and the repo URL in `support_url` metadata
+- [x] 5.1 Create the GitHub repo and push `main` (`gh repo create` — confirm desired visibility with Francisco), set it as `origin`
+- [x] 5.2 Write `docs/privacy/index.html` (no data collected, no analytics, traffic only to the user's own Jellyfin server) and enable GitHub Pages from `main` `/docs` (`gh api`); verify the privacy URL returns HTTP 200
+- [x] 5.3 Record the live URL in `fastlane/metadata/en-US/privacy_url.txt` and the repo URL in `support_url` metadata
 
 ## 6. fastlane & App Store Connect
 
@@ -45,4 +45,4 @@
 
 - [ ] 7.1 Run the `beta` lane: archive both targets (Release, automatic signing) and upload to TestFlight; confirm both builds finish processing under one universal-purchase app record with no export-compliance prompt
 - [ ] 7.2 Walk every spec scenario in `specs/**` and check it passes (build/launch, identity match, asset validation, privacy URL live, versions in lockstep, clean `git status` after builds/lanes)
-- [ ] 7.3 Finalize `README.md` (bootstrap, xcodegen workflow, icon regeneration, release lanes, TestFlight status, guideline-4.2 note on public release) and commit everything
+- [x] 7.3 Finalize `README.md` (bootstrap, xcodegen workflow, icon regeneration, release lanes, TestFlight status, guideline-4.2 note on public release) and commit everything
