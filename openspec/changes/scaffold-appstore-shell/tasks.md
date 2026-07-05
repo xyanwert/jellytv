@@ -39,10 +39,10 @@
 - [x] 6.3 **(Francisco, in browser)** Create an App Store Connect API key (App Manager role), download the `.p8`, store it outside the repo, fill in `fastlane/.env`
 - [x] 6.4 Register bundle ID `net.graficx.jellytv` and create the single app record with **both** tvOS and iOS platforms via `fastlane produce` (manual App Store Connect fallback documented in README); check "JellyTV" name availability, fall back per design if taken
 - [x] 6.5 Generate placeholder screenshots from the running simulators (Apple TV 1920×1080; current iPhone and 13" iPad sizes) into `fastlane/screenshots/`
-- [ ] 6.6 Run the `metadata` lane in verify mode (`release_check`) and fix every validation error until clean
+- [x] 6.6 Run the `metadata` lane in verify mode (`release_check`) and fix every validation error until clean
 
 ## 7. First uploads & final verification
 
-- [ ] 7.1 Run the `beta` lane: archive both targets (Release, automatic signing) and upload to TestFlight; confirm both builds finish processing under one universal-purchase app record with no export-compliance prompt
-- [ ] 7.2 Walk every spec scenario in `specs/**` and check it passes (build/launch, identity match, asset validation, privacy URL live, versions in lockstep, clean `git status` after builds/lanes)
+- [x] 7.1 Run the `beta` lane: archive both targets (Release, automatic signing) and upload to TestFlight; confirm both builds finish processing under one universal-purchase app record with no export-compliance prompt
+- [x] 7.2 Walk every spec scenario in `specs/**` and check it passes (build/launch, identity match, asset validation, privacy URL live, versions in lockstep, clean `git status` after builds/lanes)
 - [x] 7.3 Finalize `README.md` (bootstrap, xcodegen workflow, icon regeneration, release lanes, TestFlight status, guideline-4.2 note on public release) and commit everything
