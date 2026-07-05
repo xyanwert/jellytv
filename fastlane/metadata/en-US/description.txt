@@ -1,4 +1,4 @@
-JellyTV is a native Apple TV client for Jellyfin, the free software media system you host yourself. Connect to your own Jellyfin server and enjoy your movies, shows, and music library on the big screen with a fast, modern interface built for the living room.
+Why.So.Jelly? is a native Apple TV client for Jellyfin, the free software media system you host yourself. Connect to your own Jellyfin server and enjoy your movies, shows, and music library on the big screen with a fast, modern interface built for the living room.
 
 An iPhone and iPad companion app turns your phone into a remote control for the TV app — browse and steer playback from your hand.
 
@@ -7,6 +7,6 @@ An iPhone and iPad companion app turns your phone into a remote control for the 
 • iPhone/iPad companion acts as a remote control
 • No accounts to create, no tracking, no ads
 
-JellyTV collects no personal data and talks only to the server you point it at.
+Why.So.Jelly? collects no personal data and talks only to the server you point it at.
 
-JellyTV is an unofficial, independent client and is not affiliated with or endorsed by the Jellyfin project. A Jellyfin server is required to use this app.
+Why.So.Jelly? is an unofficial, independent client and is not affiliated with or endorsed by the Jellyfin project. A Jellyfin server is required to use this app.

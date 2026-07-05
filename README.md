@@ -1,5 +1,9 @@
 # JellyTV
 
+> **App Store name:** *Why.So.Jelly?* — the store listing and on-device name are
+> "Why.So.Jelly?" (the plain "JellyTV" store name was already taken). "JellyTV" remains
+> the internal/technical name of the repo, Xcode targets, and Swift package.
+
 A native **tvOS** client for [Jellyfin](https://jellyfin.org) media servers, with an
 **iOS/iPadOS companion app** that acts as a remote control. This repository currently
 contains the App Store–ready *shell* of both apps — the branding, identity, and release

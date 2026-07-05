@@ -77,8 +77,8 @@ platform :ios do
         "Bundle ID is registered, but no App Store Connect app record exists yet.\n" \
         "The App Store Connect API cannot create apps (resource 'apps' forbids CREATE) —\n" \
         "only the website can. Create it once at https://appstoreconnect.apple.com →\n" \
-        "Apps → (+) → New App: check BOTH iOS and tvOS, Name 'JellyTV', Primary Language\n" \
-        "English (U.S.), Bundle ID net.graficx.jellytv, SKU jellytv. Then re-run this lane."
+        "Apps → (+) → New App: check BOTH iOS and tvOS, Name 'Why.So.Jelly?', Primary\n" \
+        "Language English (U.S.), Bundle ID net.graficx.jellytv, SKU y.so.jelly. Then re-run."
       )
     end
   end

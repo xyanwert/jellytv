@@ -7,6 +7,6 @@ final class JellyTVKitTests: XCTestCase {
     }
 
     func testDisplayName() {
-        XCTAssertEqual(JellyTVKit.displayName, "JellyTV")
+        XCTAssertEqual(JellyTVKit.displayName, "Why.So.Jelly?")
     }
 }

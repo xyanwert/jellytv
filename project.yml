@@ -45,7 +45,7 @@ targets:
     info:
       path: Apps/JellyTV/Support/Info.plist
       properties:
-        CFBundleDisplayName: JellyTV
+        CFBundleDisplayName: "Why.So.Jelly?"
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.entertainment
@@ -71,7 +71,7 @@ targets:
     info:
       path: Apps/Remote/Support/Info.plist
       properties:
-        CFBundleDisplayName: JellyTV
+        CFBundleDisplayName: "Why.So.Jelly?"
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.entertainment
