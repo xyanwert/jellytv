@@ -28,7 +28,7 @@ struct ContinueCard: View {
 
     var body: some View {
         let card = Button {} label: { label }
-            .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.12))
+            .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.16))
         if let focus, let focusTag {
             card.focused(focus, equals: focusTag)
         } else {
@@ -138,6 +138,6 @@ struct PosterCard: View {
             }
             .frame(width: 168)
         }
-        .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.14))
+        .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.18))
     }
 }

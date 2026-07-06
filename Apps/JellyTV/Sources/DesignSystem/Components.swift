@@ -53,12 +53,12 @@ struct CardFocusStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .saturation(focused ? 1.15 : 0.9)
-                .brightness(focused ? 0.03 : -0.05)
-                .contrast(focused ? 1.05 : 1.0)
-                .scaleEffect((focused ? scale : 1) * (configuration.isPressed ? 0.97 : 1))
-                .shadow(color: glow.opacity(focused ? 0.5 : 0), radius: focused ? 22 : 0, y: 8)
-                .shadow(color: .black.opacity(focused ? 0.5 : 0.28), radius: focused ? 26 : 12, y: focused ? 16 : 8)
+                .saturation(focused ? 1.28 : 0.7)
+                .brightness(focused ? 0.05 : -0.13)
+                .contrast(focused ? 1.12 : 0.95)
+                .scaleEffect((focused ? scale : 0.96) * (configuration.isPressed ? 0.97 : 1))
+                .shadow(color: glow.opacity(focused ? 0.8 : 0), radius: focused ? 32 : 0, y: 10)
+                .shadow(color: .black.opacity(focused ? 0.6 : 0.25), radius: focused ? 36 : 10, y: focused ? 22 : 6)
                 .animation(.easeOut(duration: 0.2), value: focused)
         }
     }
