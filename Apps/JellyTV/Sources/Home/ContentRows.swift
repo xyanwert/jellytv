@@ -17,15 +17,24 @@ struct LibraryChipsRow: View {
 /// Continue Watching row.
 struct ContinueWatchingRow: View {
     let items: [ContinueWatchingItem]
+    var firstCardFocus: FocusState<HomeFocus?>.Binding?
+    var firstCardTag: HomeFocus?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader(title: "Continue Watching")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 20) {
-                    ForEach(items) { ContinueCard(item: $0) }
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        ContinueCard(
+                            item: item,
+                            focus: index == 0 ? firstCardFocus : nil,
+                            focusTag: index == 0 ? firstCardTag : nil
+                        )
+                    }
                 }
                 .padding(.horizontal, 80)
-                .padding(.vertical, 12)
+                .padding(.vertical, 16)
             }
             .scrollClipDisabled()
         }

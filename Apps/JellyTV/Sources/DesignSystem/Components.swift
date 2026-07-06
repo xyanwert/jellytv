@@ -34,6 +34,36 @@ struct FocusScaleStyle: ButtonStyle {
     }
 }
 
+/// Focus treatment for media cards: no white ring — the focused card grows and
+/// gains a little saturation/contrast plus a glow in its own color, while
+/// unfocused cards sit slightly dimmer, so the focused one clearly reads as active.
+struct CardFocusStyle: ButtonStyle {
+    var glow: Color
+    var scale: CGFloat = 1.12
+
+    func makeBody(configuration: Configuration) -> some View {
+        Content(configuration: configuration, glow: glow, scale: scale)
+    }
+
+    private struct Content: View {
+        @Environment(\.isFocused) private var focused: Bool
+        let configuration: CardFocusStyle.Configuration
+        let glow: Color
+        let scale: CGFloat
+
+        var body: some View {
+            configuration.label
+                .saturation(focused ? 1.15 : 0.9)
+                .brightness(focused ? 0.03 : -0.05)
+                .contrast(focused ? 1.05 : 1.0)
+                .scaleEffect((focused ? scale : 1) * (configuration.isPressed ? 0.97 : 1))
+                .shadow(color: glow.opacity(focused ? 0.5 : 0), radius: focused ? 22 : 0, y: 8)
+                .shadow(color: .black.opacity(focused ? 0.5 : 0.28), radius: focused ? 26 : 12, y: focused ? 16 : 8)
+                .animation(.easeOut(duration: 0.2), value: focused)
+        }
+    }
+}
+
 /// Left-aligned row/section title.
 struct SectionHeader: View {
     let title: String

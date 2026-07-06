@@ -4,6 +4,7 @@ import JellyTVKit
 /// Focus targets on the Home screen that we drive explicitly.
 enum HomeFocus: Hashable {
     case heroResume
+    case continueFirst
 }
 
 /// The Home screen: top bar, libraries, hero, and content rows over the design
@@ -14,6 +15,12 @@ struct HomeView: View {
     @State private var activeTab = 0
     @FocusState private var focus: HomeFocus?
     @EnvironmentObject private var theme: Theme
+
+    // Default focus target; JT_FOCUS=continue lands on the first Continue card
+    // (used to screenshot the focused state), otherwise the hero Resume action.
+    private var initialFocus: HomeFocus {
+        ProcessInfo.processInfo.environment["JT_FOCUS"] == "continue" ? .continueFirst : .heroResume
+    }
 
     var body: some View {
         ZStack {
@@ -37,7 +44,8 @@ struct HomeView: View {
                     LibraryChipsRow(libraries: SampleCatalog.libraries)
                         .padding(.top, 18)
                     HeroView(hero: SampleCatalog.hero, resumeFocus: $focus)
-                    ContinueWatchingRow(items: SampleCatalog.continueWatching)
+                    ContinueWatchingRow(items: SampleCatalog.continueWatching,
+                                        firstCardFocus: $focus, firstCardTag: .continueFirst)
                         .padding(.top, 80)
                     RecommendedRow(items: SampleCatalog.recommended)
                         .padding(.top, 35)
@@ -48,7 +56,7 @@ struct HomeView: View {
                 }
             }
         }
-        .defaultFocus($focus, .heroResume)
+        .defaultFocus($focus, initialFocus)
     }
 
     /// The featured episode still: spans the full width across the top, with a
