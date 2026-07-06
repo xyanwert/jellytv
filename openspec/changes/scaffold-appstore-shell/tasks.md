@@ -5,7 +5,7 @@
 - [x] 1.1 Add Swift/Xcode `.gitignore` (excludes `*.xcodeproj`, DerivedData, build artifacts, `fastlane/.env`, `*.p8`, `fastlane/report.xml`, `fastlane/test_output`)
 - [x] 1.2 Add `LICENSE` (MIT, Francisco Berridi) and initial `README.md` (project intent, bootstrap/build/release workflow — finalize in 7.3)
 - [x] 1.3 Rename local default branch `master` → `main` and make the initial commit of existing files (`openspec/`, `.claude/`, `.mcp.json`)
-- [ ] 1.4 Restart-verify XcodeBuildMCP: confirm the `.mcp.json` server is approved and its tools respond (list simulators)
+- [x] 1.4 Restart-verify XcodeBuildMCP: confirm the `.mcp.json` server is approved and its tools respond (list simulators)
 
 ## 2. Xcode project skeleton (XcodeGen)
 
