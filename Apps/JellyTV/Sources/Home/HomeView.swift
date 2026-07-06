@@ -51,39 +51,41 @@ struct HomeView: View {
         .defaultFocus($focus, .heroResume)
     }
 
-    /// The featured episode still, placed top-right and faded into the
-    /// background on the left (where the hero text sits) and along top/bottom.
+    /// The featured episode still: spans the full width across the top, with a
+    /// left-side scrim so the hero text stays readable and a long fade to the
+    /// background along the bottom.
     private var heroBackdrop: some View {
         Image("HeroBackdrop")
             .resizable()
             .scaledToFill()
-            .frame(width: 1280, height: 680)
+            .frame(height: 820)
+            .frame(maxWidth: .infinity)
             .clipped()
-            .opacity(0.6)
+            .opacity(0.7)
             .overlay {
-                // fade the left edge into the background
+                // darken the left, where the hero text sits
                 LinearGradient(
                     stops: [
                         .init(color: Palette.screen, location: 0.0),
-                        .init(color: Palette.screen.opacity(0.72), location: 0.30),
-                        .init(color: Palette.screen.opacity(0.0), location: 0.78),
+                        .init(color: Palette.screen.opacity(0.6), location: 0.30),
+                        .init(color: Palette.screen.opacity(0.0), location: 0.64),
                     ],
                     startPoint: .leading, endPoint: .trailing
                 )
             }
             .overlay {
-                // fade top and bottom
+                // slight top darken (legibility) + long fade-out at the bottom
                 LinearGradient(
                     stops: [
-                        .init(color: Palette.screen.opacity(0.85), location: 0.0),
-                        .init(color: .clear, location: 0.22),
-                        .init(color: .clear, location: 0.55),
+                        .init(color: Palette.screen.opacity(0.5), location: 0.0),
+                        .init(color: .clear, location: 0.16),
+                        .init(color: .clear, location: 0.52),
                         .init(color: Palette.screen, location: 1.0),
                     ],
                     startPoint: .top, endPoint: .bottom
                 )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .ignoresSafeArea()
     }
 }
