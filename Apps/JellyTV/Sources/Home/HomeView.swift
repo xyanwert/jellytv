@@ -18,7 +18,7 @@ struct HomeView: View {
     var body: some View {
         ZStack {
             Palette.background.ignoresSafeArea()
-            backdropGlow
+            heroBackdrop
             content
         }
     }
@@ -51,14 +51,39 @@ struct HomeView: View {
         .defaultFocus($focus, .heroResume)
     }
 
-    /// Subtle accent glow in the top-right, echoing the design's backdrop.
-    private var backdropGlow: some View {
-        RadialGradient(
-            colors: [Color(OKLCH(l: 0.38, c: 0.08, h: 230)).opacity(0.55), .clear],
-            center: UnitPoint(x: 0.82, y: 0.14),
-            startRadius: 0,
-            endRadius: 950
-        )
-        .ignoresSafeArea()
+    /// The featured episode still, placed top-right and faded into the
+    /// background on the left (where the hero text sits) and along top/bottom.
+    private var heroBackdrop: some View {
+        Image("HeroBackdrop")
+            .resizable()
+            .scaledToFill()
+            .frame(width: 1280, height: 680)
+            .clipped()
+            .opacity(0.6)
+            .overlay {
+                // fade the left edge into the background
+                LinearGradient(
+                    stops: [
+                        .init(color: Palette.screen, location: 0.0),
+                        .init(color: Palette.screen.opacity(0.72), location: 0.30),
+                        .init(color: Palette.screen.opacity(0.0), location: 0.78),
+                    ],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            }
+            .overlay {
+                // fade top and bottom
+                LinearGradient(
+                    stops: [
+                        .init(color: Palette.screen.opacity(0.85), location: 0.0),
+                        .init(color: .clear, location: 0.22),
+                        .init(color: .clear, location: 0.55),
+                        .init(color: Palette.screen, location: 1.0),
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .ignoresSafeArea()
     }
 }
