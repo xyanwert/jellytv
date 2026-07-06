@@ -1,0 +1,57 @@
+<!-- Reference design exported from Claude Design project
+     "Jellyfin Apple TV client design" (owner: Francisco Berridi)
+     https://claude.ai/design/p/3ea3d153-f74d-4ca9-aef4-94f2f1b9a808
+     Screens: 1a Home · 1b Detail · 1c Settings — target 1920×1080 tvOS.
+     Used as the visual spec for the tvos-home-settings-ui change. -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<section style="display: flex; flex-direction: column; gap: 64px; padding: 80px; font-family: 'Schibsted Grotesk', sans-serif; background:#07080C;">
+<!--
+DESIGN TOKENS
+  font:        Schibsted Grotesk (Google Fonts, SIL OFL)
+  page bg:     #07080C   screen bg: #0B0D13 / #0D1220 gradients
+  panel bg:    rgba(20,22,30,0.96)
+  text:        #F4F5F7 primary; rgba(255,255,255, .75/.65/.55/.5/.48/.4) tiers
+  accent:      #F0525F (coral) DEFAULT — options: #F0525F, #E8B44A (amber),
+               #4AA8E8 (blue), #3FBF8F (green)  [section "Brand"]
+  radius:      screens 24px; cards 14px; pills 999px; panel 20px; icon tile 14px
+
+HOME (1a):
+  top bar:  logo tile (white 52px, jelly mark) + wordmark "jelly<accent·>tv";
+            center nav pill [Home(active: white bg/black text), Movies, Shows, Search];
+            right: clock "9:41 PM" + circular gradient avatar "M".
+  libraries row: chips [Movies, TV Shows, Anime, Documentaries, Music, Home Videos,
+            After Dark(18+), Uncut Films(18+)]; adult chips accent-tinted + "18+" badge.
+  hero (left ~860px): eyebrow accent line + "Featured · New Season";
+            title 74px/900; meta [TV-MA, 2026, Sci-Fi Drama, S3·E4 "Trench", 4K HDR];
+            description; buttons "Resume · E4"(white, focused/glow), "Details", "+";
+            hero pager: 5 dots, active is wide animated timer bar.
+  Continue Watching: 280×140 cards, title overlay, accent progress bar, pie remaining, ep label.
+  Recommended for You: 168×248 posters, title overlay + meta; focused poster scale 1.08 + white outline.
+
+SETTINGS (1c): dimmed+blurred Home behind; dimmed top bar (logo+wordmark @0.4).
+  right account panel (620px, rgba(20,22,30,.96), radius 20):
+    profile header: 76px gradient avatar "M", "Marina", "marina@home.local · Administrator";
+    rows (icon tile 52px + label + desc + optional value + chevron):
+      Profile  — "Name, avatar, PIN lock"                     value "Marina"
+      Settings — "Playback, subtitles, parental controls"
+      Theme    — "Appearance & accent color"                  value "Dark · Coral"  (icon accent)
+      Server   — "reef.local · v10.9.2"                       value "Connected" (green)
+    Sign Out (accent, log-out icon).
+
+Full source HTML/CSS with the DCLogic sample-data script is preserved below verbatim.
+-->
+</section>
+<!--
+NOTE: The interactive source (sc-for loops, oklch gradients, and the DCLogic
+renderVals() sample dataset — heroTitle "The Deep Signal", continueRow, posters,
+libraries, settingsItems, accent options) is captured in the change's design.md
+and specs. The canonical live copy stays in the Claude Design project linked above.
+-->
+</body>
+</html>

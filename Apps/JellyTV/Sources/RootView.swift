@@ -1,29 +1,27 @@
 import SwiftUI
 import JellyTVKit
 
-/// Branded placeholder shown until the Jellyfin browsing/playback features land.
+/// App shell: hosts the Home screen and presents the Settings panel over a
+/// dimmed, blurred Home. Owns and injects the shared `Theme`.
 struct RootView: View {
+    @StateObject private var theme = Theme()
+    // Opens Settings at launch only when JT_SHOW_SETTINGS=1 (screenshot/testing hook).
+    @State private var showSettings = ProcessInfo.processInfo.environment["JT_SHOW_SETTINGS"] == "1"
+
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.16, green: 0.10, blue: 0.29),
-                    Color(red: 0.43, green: 0.23, blue: 0.82),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            HomeView(onOpenSettings: { withAnimation(.easeOut(duration: 0.2)) { showSettings = true } })
+                .disabled(showSettings)
+                .blur(radius: showSettings ? 8 : 0)
 
-            VStack(spacing: 24) {
-                Text(JellyTVKit.displayName)
-                    .font(.system(size: 96, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                Text("Client for Jellyfin — v\(JellyTVKit.version)")
-                    .font(.title2)
-                    .foregroundStyle(.white.opacity(0.7))
+            if showSettings {
+                SettingsPanel(onDismiss: { withAnimation(.easeOut(duration: 0.2)) { showSettings = false } })
+                    .transition(.opacity)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: showSettings)
+        .environmentObject(theme)
+        .preferredColorScheme(.dark)
     }
 }
 

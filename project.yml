@@ -51,6 +51,8 @@ targets:
         LSApplicationCategoryType: public.app-category.entertainment
         ITSAppUsesNonExemptEncryption: false
         UIUserInterfaceStyle: Dark
+        UIAppFonts:
+          - SchibstedGrotesk.ttf
 
   # ---------------- iOS/iPadOS companion ----------------
   Remote:
