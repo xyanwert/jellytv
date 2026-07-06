@@ -6,12 +6,15 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
     public var title: String
     /// Secondary line, e.g. "Movie · Thriller".
     public var meta: String
+    /// Optional artwork image asset name; falls back to `artwork` gradient.
+    public var image: String?
     public var artwork: Artwork
 
-    public init(id: String, title: String, meta: String, artwork: Artwork) {
+    public init(id: String, title: String, meta: String, image: String? = nil, artwork: Artwork) {
         self.id = id
         self.title = title
         self.meta = meta
+        self.image = image
         self.artwork = artwork
     }
 }
@@ -70,15 +73,18 @@ public struct ContinueWatchingItem: Equatable, Sendable, Hashable, Identifiable 
     public var remaining: String      // "31 min"
     /// Watched fraction, 0...1.
     public var progress: Double
+    /// Optional artwork image asset name; falls back to `artwork` gradient.
+    public var image: String?
     public var artwork: Artwork
 
     public init(id: String, title: String, episodeLabel: String, remaining: String,
-                progress: Double, artwork: Artwork) {
+                progress: Double, image: String? = nil, artwork: Artwork) {
         self.id = id
         self.title = title
         self.episodeLabel = episodeLabel
         self.remaining = remaining
         self.progress = progress
+        self.image = image
         self.artwork = artwork
     }
 }
