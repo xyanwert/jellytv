@@ -1,16 +1,44 @@
 import SwiftUI
 import JellyTVKit
 
-/// The featured hero block: eyebrow, title, meta line, synopsis, actions, pager.
+/// The featured hero block: eyebrow, title, meta line, synopsis, actions, and a
+/// horizontal pill timer. The text crossfades per slide; the actions stay put so
+/// Resume keeps focus across slides.
 struct HeroView: View {
     let hero: HeroFeature
+    let heroCount: Int
+    let heroIndex: Int
+    let slideStartTime: Date
+    let rotationSeconds: Double
     var resumeFocus: FocusState<HomeFocus?>.Binding
 
     @EnvironmentObject private var theme: Theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // eyebrow
+            // Per-slide text crossfades (keyed on the slide id).
+            textBlock
+                .id(hero.id)
+                .transition(.opacity)
+
+            actions
+
+            HeroPillTimer(
+                count: heroCount,
+                activeIndex: heroIndex,
+                slideStartTime: slideStartTime,
+                interval: rotationSeconds
+            )
+            .padding(.top, 8)
+        }
+        .padding(.horizontal, 80)
+        .padding(.top, 40)
+        .frame(maxWidth: 900, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var textBlock: some View {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 14) {
                 Rectangle().fill(theme.accent).frame(width: 34, height: 2)
                 Text(hero.eyebrow.uppercased())
@@ -31,13 +59,7 @@ struct HeroView: View {
                 .foregroundStyle(Palette.text(0.72))
                 .lineSpacing(6)
                 .frame(maxWidth: 760, alignment: .leading)
-
-            actions
         }
-        .padding(.horizontal, 80)
-        .padding(.top, 40)
-        .frame(maxWidth: 900, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var metaLine: some View {
@@ -89,20 +111,8 @@ struct HeroView: View {
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
             }
             .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
-
-            pager.padding(.leading, 22)
         }
         .padding(.top, 6)
-    }
-
-    private var pager: some View {
-        HStack(spacing: 10) {
-            ForEach(0..<hero.pageCount, id: \.self) { i in
-                Capsule()
-                    .fill(i == hero.activePage ? theme.accent : Palette.text(0.22))
-                    .frame(width: i == hero.activePage ? 110 : 12, height: 12)
-            }
-        }
     }
 
     private func badge(_ text: String) -> some View {

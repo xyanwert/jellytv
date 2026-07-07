@@ -32,8 +32,10 @@ public struct Library: Equatable, Sendable, Hashable, Identifiable {
     }
 }
 
-/// The featured hero on the Home screen.
-public struct HeroFeature: Equatable, Sendable, Hashable {
+/// A featured hero slide. The Home hero rotates through a list of these.
+public struct HeroFeature: Equatable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public var image: String          // backdrop asset name
     public var eyebrow: String        // "Featured · New Season"
     public var title: String          // "The Deep Signal"
     public var certification: String  // "TV-MA"
@@ -43,13 +45,13 @@ public struct HeroFeature: Equatable, Sendable, Hashable {
     public var qualityBadge: String   // "4K HDR"
     public var synopsis: String
     public var resumeLabel: String    // "Resume · E4"
-    public var pageCount: Int         // pager dots
-    public var activePage: Int
     public var artwork: Artwork
 
-    public init(eyebrow: String, title: String, certification: String, year: String,
-                genre: String, episode: String, qualityBadge: String, synopsis: String,
-                resumeLabel: String, pageCount: Int, activePage: Int, artwork: Artwork) {
+    public init(id: String, image: String, eyebrow: String, title: String,
+                certification: String, year: String, genre: String, episode: String,
+                qualityBadge: String, synopsis: String, resumeLabel: String, artwork: Artwork) {
+        self.id = id
+        self.image = image
         self.eyebrow = eyebrow
         self.title = title
         self.certification = certification
@@ -59,8 +61,6 @@ public struct HeroFeature: Equatable, Sendable, Hashable {
         self.qualityBadge = qualityBadge
         self.synopsis = synopsis
         self.resumeLabel = resumeLabel
-        self.pageCount = pageCount
-        self.activePage = activePage
         self.artwork = artwork
     }
 }

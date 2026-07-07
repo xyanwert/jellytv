@@ -32,6 +32,10 @@ struct SettingsPanel: View {
                 )
                 divider
             }
+            transitionRow
+            divider
+            rotationRow
+            divider
             signOut
         }
         .frame(width: 620)
@@ -55,6 +59,30 @@ struct SettingsPanel: View {
             Spacer(minLength: 0)
         }
         .padding(32)
+    }
+
+    private var transitionRow: some View {
+        SettingsSegmentedRow(
+            icon: "wand.and.stars",
+            label: "Transition",
+            subtitle: "Hero backdrop animation",
+            options: HeroTransitionStyle.allCases,
+            optionLabel: { $0.label },
+            isSelected: { $0 == theme.transitionStyle },
+            onSelect: { theme.transitionStyle = $0 }
+        )
+    }
+
+    private var rotationRow: some View {
+        SettingsSegmentedRow(
+            icon: "timer",
+            label: "Rotation",
+            subtitle: "Hero auto-advance interval",
+            options: HeroRotation.allCases,
+            optionLabel: { $0.label },
+            isSelected: { $0 == theme.rotationInterval },
+            onSelect: { theme.rotationInterval = $0 }
+        )
     }
 
     private var signOut: some View {

@@ -62,3 +62,48 @@ struct SettingsRow: View {
         }
     }
 }
+
+/// A settings row whose value is a segmented picker: icon + label + description
+/// on the left, a row of focusable option pills on the right (active = accent).
+struct SettingsSegmentedRow<T: Hashable>: View {
+    let icon: String
+    let label: String
+    let subtitle: String
+    let options: [T]
+    let optionLabel: (T) -> String
+    let isSelected: (T) -> Bool
+    let onSelect: (T) -> Void
+
+    @EnvironmentObject private var theme: Theme
+
+    var body: some View {
+        HStack(spacing: 22) {
+            IconTile(systemName: icon, color: Palette.text(0.85))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(Typography.rowTitle)
+                    .foregroundStyle(Palette.textPrimary)
+                Text(subtitle)
+                    .font(Typography.font(18, .medium))
+                    .foregroundStyle(Palette.text(0.48))
+            }
+            Spacer(minLength: 12)
+            HStack(spacing: 8) {
+                ForEach(options, id: \.self) { opt in
+                    let selected = isSelected(opt)
+                    Button { onSelect(opt) } label: {
+                        Text(optionLabel(opt))
+                            .font(Typography.font(18, .semibold))
+                            .foregroundStyle(selected ? Palette.screen : Palette.text(0.6))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(selected ? theme.accent : Palette.text(0.08), in: Capsule())
+                    }
+                    .buttonStyle(FocusScaleStyle(scale: 1.1, cornerRadius: 999))
+                }
+            }
+        }
+        .padding(.horizontal, 32)
+        .padding(.vertical, 22)
+    }
+}

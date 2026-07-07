@@ -21,8 +21,25 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertEqual(hero.title, "The Deep Signal")
         XCTAssertEqual(hero.certification, "TV-MA")
         XCTAssertEqual(hero.qualityBadge, "4K HDR")
-        XCTAssertEqual(hero.pageCount, 5)
+        XCTAssertEqual(hero.image, "HeroBackdrop")
         XCTAssertTrue(hero.resumeLabel.contains("Resume"))
+    }
+
+    func testHeroCarousel() {
+        XCTAssertEqual(SampleCatalog.heroes.count, 2)
+        XCTAssertEqual(SampleCatalog.heroes.first?.id, SampleCatalog.hero.id)
+        XCTAssertEqual(SampleCatalog.heroes[1].image, "HeroBob")
+        XCTAssertEqual(SampleCatalog.heroes[1].title, "Bob's Burgers")
+        // ids are unique (carousel keys off them)
+        XCTAssertEqual(Set(SampleCatalog.heroes.map(\.id)).count, SampleCatalog.heroes.count)
+    }
+
+    func testHeroPrefEnums() {
+        XCTAssertEqual(HeroTransitionStyle.allCases.count, 2)
+        XCTAssertEqual(HeroTransitionStyle.default, .crumble)
+        XCTAssertEqual(HeroRotation.allCases.count, 3)
+        XCTAssertEqual(HeroRotation.default, .s15)
+        XCTAssertEqual(HeroRotation.s30.seconds, 30)
     }
 
     func testContinueProgressInRange() {

@@ -7,14 +7,22 @@ enum HomeFocus: Hashable {
     case continueFirst
 }
 
-/// The Home screen: top bar, libraries, hero, and content rows over the design
-/// background. Opens Settings from the top-bar avatar.
+/// The Home screen: top bar, libraries, hero carousel, and content rows over the
+/// design background. Opens Settings from the top-bar avatar.
 struct HomeView: View {
     let onOpenSettings: () -> Void
 
     @State private var activeTab = 0
     @FocusState private var focus: HomeFocus?
     @EnvironmentObject private var theme: Theme
+
+    // Hero carousel state.
+    @State private var heroIndex = 0
+    @State private var slideStartTime = Date()
+    @State private var rotateTask: Task<Void, Never>?
+
+    private var heroes: [HeroFeature] { SampleCatalog.heroes }
+    private var currentHero: HeroFeature { heroes[heroIndex % heroes.count] }
 
     // Default focus target; JT_FOCUS=continue lands on the first Continue card
     // (used to screenshot the focused state), otherwise the hero Resume action.
@@ -28,6 +36,9 @@ struct HomeView: View {
             heroBackdrop
             content
         }
+        // Restart rotation when the interval changes; cancel on teardown.
+        .task(id: theme.rotationInterval) { startHeroRotation() }
+        .onDisappear { rotateTask?.cancel() }
     }
 
     private var content: some View {
@@ -43,7 +54,14 @@ struct HomeView: View {
                 if activeTab == 0 {
                     LibraryChipsRow(libraries: SampleCatalog.libraries)
                         .padding(.top, 18)
-                    HeroView(hero: SampleCatalog.hero, resumeFocus: $focus)
+                    HeroView(
+                        hero: currentHero,
+                        heroCount: heroes.count,
+                        heroIndex: heroIndex,
+                        slideStartTime: slideStartTime,
+                        rotationSeconds: theme.rotationInterval.seconds,
+                        resumeFocus: $focus
+                    )
                     ContinueWatchingRow(items: SampleCatalog.continueWatching,
                                         firstCardFocus: $focus, firstCardTag: .continueFirst)
                         .padding(.top, 80)
@@ -59,19 +77,33 @@ struct HomeView: View {
         .defaultFocus($focus, initialFocus)
     }
 
-    /// The featured episode still: spans the full width across the top, with a
-    /// left-side scrim so the hero text stays readable and a long fade to the
-    /// background along the bottom.
+    /// The hero backdrop: the current slide's still spans the top, crumbling (or
+    /// fading) to the next slide on advance, with stable scrims on top so the
+    /// hero text stays readable and the image fades into the background.
     private var heroBackdrop: some View {
-        Image("HeroBackdrop")
-            .resizable()
-            .scaledToFill()
-            .frame(height: 820)
-            .frame(maxWidth: .infinity)
-            .clipped()
-            .opacity(0.7)
+        GeometryReader { geo in
+            ZStack {
+                Image(currentHero.image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geo.size.width, height: 820)
+                    .clipped()
+                    .opacity(0.7)
+                    .id(currentHero.id)
+                    .transition(theme.transitionStyle.anyTransition(canvasWidth: geo.size.width))
+
+                scrims
+            }
+            .frame(width: geo.size.width, height: 820, alignment: .top)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .ignoresSafeArea()
+    }
+
+    /// Stable framing gradients layered over the (transitioning) image.
+    private var scrims: some View {
+        Color.clear
             .overlay {
-                // darken the left, where the hero text sits
                 LinearGradient(
                     stops: [
                         .init(color: Palette.screen, location: 0.0),
@@ -82,7 +114,6 @@ struct HomeView: View {
                 )
             }
             .overlay {
-                // slight top darken (legibility) + long fade-out at the bottom
                 LinearGradient(
                     stops: [
                         .init(color: Palette.screen.opacity(0.5), location: 0.0),
@@ -93,7 +124,26 @@ struct HomeView: View {
                     startPoint: .top, endPoint: .bottom
                 )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .ignoresSafeArea()
+            .frame(height: 820)
+            .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Rotation
+
+    private func startHeroRotation() {
+        rotateTask?.cancel()
+        slideStartTime = Date()
+        guard heroes.count > 1 else { return }
+        let seconds = theme.rotationInterval.seconds
+        rotateTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(seconds))
+                if Task.isCancelled { break }
+                withAnimation(.easeInOut(duration: 1.0)) {
+                    heroIndex = (heroIndex + 1) % heroes.count
+                }
+                slideStartTime = Date()
+            }
+        }
     }
 }
