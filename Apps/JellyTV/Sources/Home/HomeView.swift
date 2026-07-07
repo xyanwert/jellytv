@@ -139,7 +139,7 @@ struct HomeView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(seconds))
                 if Task.isCancelled { break }
-                withAnimation(.easeInOut(duration: 1.0)) {
+                withAnimation(.easeInOut(duration: 0.8)) {
                     heroIndex = (heroIndex + 1) % heroes.count
                 }
                 slideStartTime = Date()

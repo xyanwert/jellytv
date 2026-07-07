@@ -15,25 +15,29 @@ struct HeroView: View {
     @EnvironmentObject private var theme: Theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            // Per-slide text crossfades (keyed on the slide id).
-            textBlock
-                .id(hero.id)
-                .transition(.opacity)
+        HStack(alignment: .center, spacing: 40) {
+            VStack(alignment: .leading, spacing: 18) {
+                // Per-slide text crossfades (keyed on the slide id).
+                textBlock
+                    .id(hero.id)
+                    .transition(.opacity)
 
-            actions
+                actions
+            }
+            .frame(maxWidth: 900, alignment: .leading)
 
+            Spacer(minLength: 0)
+
+            // Right-edge vertical pill timer, centered against the hero.
             HeroPillTimer(
                 count: heroCount,
                 activeIndex: heroIndex,
                 slideStartTime: slideStartTime,
                 interval: rotationSeconds
             )
-            .padding(.top, 8)
         }
         .padding(.horizontal, 80)
         .padding(.top, 40)
-        .frame(maxWidth: 900, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

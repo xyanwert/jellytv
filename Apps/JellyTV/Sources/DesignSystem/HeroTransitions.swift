@@ -41,8 +41,9 @@ private struct HexCrumbleModifier: ViewModifier, Animatable {
                 .float(invertDelay ? 1.0 : 0.0),
                 .float(Float(canvasWidth))
             ),
-            // Must cover the shader's max tile drift (~440px) or tiles clip.
-            maxSampleOffset: CGSize(width: 600, height: 200)
+            // Must cover the shader's max tile drift (~320px) or tiles clip.
+            // Kept tight so SwiftUI's shader backing texture stays small.
+            maxSampleOffset: CGSize(width: 440, height: 160)
         )
     }
 }

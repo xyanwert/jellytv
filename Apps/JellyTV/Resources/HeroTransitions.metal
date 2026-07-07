@@ -50,7 +50,9 @@ half4 hexCrumble(float2 position,
     float side = (tileCenter.x < canvasWidth * 0.5) ? -1.0 : 1.0;
     float vertJitter = (hRot - 0.5) * 0.25;
     float2 dir = normalize(float2(side, vertJitter));
-    const float driftDistance = 440.0;
+    // Drift kept modest so the sampled area (and thus the GPU-processed
+    // backing texture set by maxSampleOffset) stays small.
+    const float driftDistance = 320.0;
     float2 offset = dir * scatter * driftDistance;
 
     float rotAngle = (hRot - 0.5) * 1.2 * scatter;

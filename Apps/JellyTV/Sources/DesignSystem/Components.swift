@@ -22,13 +22,12 @@ struct FocusScaleStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .scaleEffect((focused ? scale : 1) * (configuration.isPressed ? 0.97 : 1))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .inset(by: -4)
-                        .stroke(Color.white.opacity(outline && focused ? 0.9 : 0), lineWidth: 3)
-                )
-                .shadow(color: .black.opacity(focused ? 0.6 : 0.35),
-                        radius: focused ? 30 : 14, y: focused ? 18 : 8)
+                // Soft white halo instead of a hard ring (the design's
+                // "0 0 0 6px rgba(255,255,255,0.18)") — reads cleanly even on
+                // the white Resume button — plus a dark lift shadow.
+                .shadow(color: .white.opacity(outline && focused ? 0.28 : 0), radius: focused ? 12 : 0)
+                .shadow(color: .black.opacity(focused ? 0.5 : 0.3),
+                        radius: focused ? 22 : 10, y: focused ? 12 : 6)
                 .animation(.easeOut(duration: 0.18), value: focused)
         }
     }
