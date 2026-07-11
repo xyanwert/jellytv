@@ -20,7 +20,7 @@ struct ContinueWatchingRow: View {
                         )
                     }
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, 56)
                 .padding(.vertical, 16)
             }
             .scrollClipDisabled()
@@ -38,7 +38,7 @@ struct RecommendedRow: View {
                 HStack(spacing: 20) {
                     ForEach(items) { PosterCard(item: $0) }
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, 56)
                 .padding(.vertical, 16)
             }
             .scrollClipDisabled()

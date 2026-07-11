@@ -73,20 +73,18 @@ struct NavRail: View {
     @ViewBuilder
     private func railButton<Icon: View>(_ target: RailTarget, @ViewBuilder icon: @escaping (Color) -> Icon) -> some View {
         let active = activeTarget == target
-        HStack(spacing: 0) {
+        Button { onSelect(target) } label: {
+            icon(active ? .white : Palette.text(0.5))
+        }
+        .buttonStyle(RailIconButtonStyle(isActive: active, accent: theme.accent))
+        .frame(width: 118)
+        .overlay(alignment: .leading) {
             Capsule()
                 .fill(theme.accent)
                 .frame(width: 4, height: 30)
                 .opacity(active ? 1 : 0)
-                .padding(.leading, 8)
-            Spacer(minLength: 8)
-            Button { onSelect(target) } label: {
-                icon(active ? .white : Palette.text(0.5))
-            }
-            .buttonStyle(RailIconButtonStyle(isActive: active, accent: theme.accent))
-            Spacer(minLength: 8)
+                .padding(.leading, 12)
         }
-        .frame(width: 118)
     }
 }
 

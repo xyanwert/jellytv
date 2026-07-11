@@ -70,7 +70,7 @@ struct SectionHeader: View {
         Text(title)
             .font(Typography.section)
             .foregroundStyle(Palette.textPrimary)
-            .padding(.horizontal, 80)
+            .padding(.horizontal, 56)
     }
 }
 

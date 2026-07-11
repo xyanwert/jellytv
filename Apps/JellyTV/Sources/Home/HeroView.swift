@@ -36,7 +36,7 @@ struct HeroView: View {
                 interval: rotationSeconds
             )
         }
-        .padding(.horizontal, 80)
+        .padding(.horizontal, 56)
         .padding(.top, 40)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
