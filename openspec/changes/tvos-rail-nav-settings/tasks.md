@@ -42,4 +42,4 @@
 - [x] 6.1 `xcodegen generate`; build the `JellyTV` scheme for a tvOS simulator (via XcodeBuildMCP) with no warnings-as-errors; `swift test` passes in `Packages/JellyTVKit`
 - [x] 6.2 Launch on the tvOS simulator; drive the focus engine: rail icons focusable and show active/inactive treatment correctly, status dot renders connected (green/pulsing), Libraries submenu opens/dims Home/closes, Settings opens full-screen from the rail cog and each category switches its detail pane, Playback controls and Account's theme/transition/rotation pickers still work live; capture screenshots of Home, Home+Libraries-submenu, and Settings
 - [x] 6.3 Walk every scenario in `specs/**` for this change (`tvos-nav-rail`, and the modified `tvos-home-screen`/`tvos-settings-menu`/`tvos-sample-content` requirements) and confirm each passes
-- [ ] 6.4 Commit on a feature branch with the Design reference; clean `git status` after build (generated project handled per `.gitignore`)
+- [x] 6.4 Commit on a feature branch with the Design reference; clean `git status` after build (generated project handled per `.gitignore`)
