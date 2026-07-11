@@ -53,6 +53,7 @@ struct HomeView: View {
                     }
                 }
             }
+            .ignoresSafeArea()
             .animation(.easeOut(duration: 0.2), value: isLibrariesOpen)
         }
         // Restart rotation when the interval changes; cancel on teardown.

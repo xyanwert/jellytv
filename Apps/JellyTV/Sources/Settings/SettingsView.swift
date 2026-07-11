@@ -29,6 +29,7 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.background.ignoresSafeArea())
+        .ignoresSafeArea()
         .defaultFocus($focusedCategory, .playback)
         .onExitCommand { onSelectRail(.home) }
     }
