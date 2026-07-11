@@ -71,17 +71,15 @@ public enum SampleCatalog {
     ]
 
     public static let libraries: [Library] = [
-        .init(id: "lib-movies", name: "Movies"),
-        .init(id: "lib-tv", name: "TV Shows"),
-        .init(id: "lib-anime", name: "Anime"),
-        .init(id: "lib-docs", name: "Documentaries"),
-        .init(id: "lib-music", name: "Music"),
-        .init(id: "lib-home-videos", name: "Home Videos"),
-        .init(id: "lib-after-dark", name: "After Dark", isAdult: true),
-        .init(id: "lib-uncut", name: "Uncut Films", isAdult: true),
+        .init(id: "lib-movies", name: "Movies", itemCount: "428"),
+        .init(id: "lib-tv", name: "TV Shows", itemCount: "96"),
+        .init(id: "lib-anime", name: "Anime", itemCount: "213"),
+        .init(id: "lib-docs", name: "Documentaries", itemCount: "154"),
+        .init(id: "lib-music", name: "Music", itemCount: "1.2k"),
+        .init(id: "lib-home-videos", name: "Home Videos", itemCount: "37"),
+        .init(id: "lib-after-dark", name: "After Dark", isAdult: true, itemCount: "62"),
+        .init(id: "lib-uncut", name: "Uncut Films", isAdult: true, itemCount: "18"),
     ]
-
-    public static let navTabs = ["Home", "Movies", "Shows", "Search"]
 
     public static let profile = UserProfile(
         name: "Marina", email: "marina@home.local", role: "Administrator"
@@ -91,12 +89,29 @@ public enum SampleCatalog {
         name: "reef.local", version: "v10.9.2", isConnected: true
     )
 
-    /// Settings rows. Theme's value is refreshed live from the current accent,
-    /// and Server's from `server`, at the view layer.
-    public static let settingsEntries: [SettingsEntry] = [
-        .init(kind: .profile, label: "Profile", subtitle: "Name, avatar, PIN lock", value: "Marina"),
-        .init(kind: .settings, label: "Settings", subtitle: "Playback, subtitles, parental controls", value: ""),
-        .init(kind: .theme, label: "Theme", subtitle: "Appearance & accent color", value: "Dark · Coral"),
-        .init(kind: .server, label: "Server", subtitle: "reef.local · v10.9.2", value: "Connected"),
+    /// The Settings screen's category list.
+    public static let settingsCategories: [SettingsCategory] = [
+        .init(kind: .playback, label: "Playback", description: "Quality, auto-play"),
+        .init(kind: .subtitles, label: "Subtitles", description: "Language, size"),
+        .init(kind: .audio, label: "Audio", description: "Output, passthrough"),
+        .init(kind: .parental, label: "Parental", description: "PIN, 18+ libraries"),
+        .init(kind: .server, label: "Server", description: "Connection, sync"),
+        .init(kind: .account, label: "Account", description: "Profile, sign out"),
+        .init(kind: .about, label: "About", description: "Version, licenses"),
+    ]
+
+    /// Playback category: streaming-quality options (last is the sample default).
+    public static let playbackQualityOptions = ["Auto", "1080p", "4K"]
+    public static let defaultPlaybackQuality = "4K"
+
+    /// Playback category: playback-method options (first is the sample default).
+    public static let playbackMethodOptions = ["Direct Play", "Transcode"]
+    public static let defaultPlaybackMethod = "Direct Play"
+
+    /// Playback category: toggle rows.
+    public static let playbackToggles: [PlaybackToggle] = [
+        .init(label: "Auto-play next episode", description: "Start the next episode automatically", isOnByDefault: true),
+        .init(label: "Skip intros", description: "Detect and skip recaps & title sequences", isOnByDefault: true),
+        .init(label: "HDR passthrough", description: "Send HDR metadata to your display", isOnByDefault: false),
     ]
 }

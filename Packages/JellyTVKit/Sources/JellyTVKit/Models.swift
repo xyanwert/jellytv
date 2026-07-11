@@ -19,16 +19,20 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
     }
 }
 
-/// A user library shown as a chip in the Home libraries row.
+/// A user library shown as a chip in the Home libraries row and as a row in the
+/// rail's Libraries submenu.
 public struct Library: Equatable, Sendable, Hashable, Identifiable {
     public let id: String
     public var name: String
     public var isAdult: Bool
+    /// Display-ready item count, e.g. `"428"` or `"1.2k"`.
+    public var itemCount: String
 
-    public init(id: String, name: String, isAdult: Bool = false) {
+    public init(id: String, name: String, isAdult: Bool = false, itemCount: String) {
         self.id = id
         self.name = name
         self.isAdult = isAdult
+        self.itemCount = itemCount
     }
 }
 
@@ -118,22 +122,35 @@ public struct ServerStatus: Equatable, Sendable, Hashable {
     }
 }
 
-/// A row in the Settings account panel.
-public struct SettingsEntry: Equatable, Sendable, Hashable, Identifiable {
-    public enum Kind: String, Sendable { case profile, settings, theme, server }
+/// A category row in the Settings screen's category list.
+public struct SettingsCategory: Equatable, Sendable, Hashable, Identifiable {
+    public enum Kind: String, Sendable, CaseIterable {
+        case playback, subtitles, audio, parental, server, account, about
+    }
 
     public var kind: Kind
     public var label: String
-    public var subtitle: String
-    /// Trailing value (may be overridden live, e.g. Theme reflects the accent).
-    public var value: String
+    public var description: String
 
     public var id: String { kind.rawValue }
 
-    public init(kind: Kind, label: String, subtitle: String, value: String) {
+    public init(kind: Kind, label: String, description: String) {
         self.kind = kind
         self.label = label
-        self.subtitle = subtitle
-        self.value = value
+        self.description = description
+    }
+}
+
+/// A toggle row in the Settings Playback detail pane.
+public struct PlaybackToggle: Equatable, Sendable, Hashable, Identifiable {
+    public var id: String { label }
+    public var label: String
+    public var description: String
+    public var isOnByDefault: Bool
+
+    public init(label: String, description: String, isOnByDefault: Bool) {
+        self.label = label
+        self.description = description
+        self.isOnByDefault = isOnByDefault
     }
 }

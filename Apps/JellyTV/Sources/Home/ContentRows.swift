@@ -1,19 +1,6 @@
 import SwiftUI
 import JellyTVKit
 
-/// Horizontally-centered libraries chip row.
-struct LibraryChipsRow: View {
-    let libraries: [Library]
-    var body: some View {
-        HStack(spacing: 12) {
-            ForEach(libraries) { LibraryChip(library: $0) }
-        }
-        .padding(.horizontal, 80)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)   // center the chip group
-    }
-}
-
 /// Continue Watching row.
 struct ContinueWatchingRow: View {
     let items: [ContinueWatchingItem]

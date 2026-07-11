@@ -36,15 +36,4 @@ final class Theme: ObservableObject {
 
     /// The current accent as a SwiftUI color.
     var accent: Color { Color(hex: option.hex) }
-
-    /// The Theme row's trailing value, e.g. "Dark · Coral".
-    var appearanceValue: String { "Dark · \(option.displayName)" }
-
-    /// Advance to the next accent (used by the Theme row on select).
-    func cycleAccent() {
-        let all = AccentOption.allCases
-        if let i = all.firstIndex(of: option) {
-            option = all[(i + 1) % all.count]
-        }
-    }
 }

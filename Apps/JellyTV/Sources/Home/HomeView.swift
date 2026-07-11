@@ -7,12 +7,14 @@ enum HomeFocus: Hashable {
     case continueFirst
 }
 
-/// The Home screen: top bar, libraries, hero carousel, and content rows over the
-/// design background. Opens Settings from the top-bar avatar.
+/// The Home screen: rail, hero carousel, and content rows over the design
+/// background. Opens Settings from the readout row's avatar; the rail's own
+/// icons are handled by `onSelectRail` (routed up to `RootView`).
 struct HomeView: View {
+    let isLibrariesOpen: Bool
+    let onSelectRail: (RailTarget) -> Void
     let onOpenSettings: () -> Void
 
-    @State private var activeTab = 0
     @FocusState private var focus: HomeFocus?
     @EnvironmentObject private var theme: Theme
 
@@ -34,44 +36,52 @@ struct HomeView: View {
         ZStack {
             Palette.background.ignoresSafeArea()
             heroBackdrop
-            content
+            HStack(spacing: 0) {
+                NavRail(
+                    destination: .home,
+                    isLibrariesOpen: isLibrariesOpen,
+                    isServerConnected: SampleCatalog.server.isConnected,
+                    onSelect: onSelectRail
+                )
+                ZStack(alignment: .leading) {
+                    content
+                        .opacity(isLibrariesOpen ? 0.5 : 1)
+                        .allowsHitTesting(!isLibrariesOpen)
+                    if isLibrariesOpen {
+                        LibrariesSubmenu(libraries: SampleCatalog.libraries)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: isLibrariesOpen)
         }
         // Restart rotation when the interval changes; cancel on teardown.
         .task(id: theme.rotationInterval) { startHeroRotation() }
         .onDisappear { rotateTask?.cancel() }
+        // Menu/Back closes the Libraries submenu when it's open; otherwise let
+        // the press fall through to the system's default behavior (nil action).
+        .onExitCommand(perform: isLibrariesOpen ? { onSelectRail(.home) } : nil)
     }
 
     private var content: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                TopBar(
-                    tabs: SampleCatalog.navTabs,
-                    activeTab: $activeTab,
-                    profile: SampleCatalog.profile,
-                    onOpenSettings: onOpenSettings
-                )
+                TopBar(profile: SampleCatalog.profile, onOpenSettings: onOpenSettings)
 
-                if activeTab == 0 {
-                    LibraryChipsRow(libraries: SampleCatalog.libraries)
-                        .padding(.top, 18)
-                    HeroView(
-                        hero: currentHero,
-                        heroCount: heroes.count,
-                        heroIndex: heroIndex,
-                        slideStartTime: slideStartTime,
-                        rotationSeconds: theme.rotationInterval.seconds,
-                        resumeFocus: $focus
-                    )
-                    ContinueWatchingRow(items: SampleCatalog.continueWatching,
-                                        firstCardFocus: $focus, firstCardTag: .continueFirst)
-                        .padding(.top, 80)
-                    RecommendedRow(items: SampleCatalog.recommended)
-                        .padding(.top, 35)
-                        .padding(.bottom, 80)
-                } else {
-                    ComingSoon(title: SampleCatalog.navTabs[activeTab])
-                        .padding(.top, 40)
-                }
+                HeroView(
+                    hero: currentHero,
+                    heroCount: heroes.count,
+                    heroIndex: heroIndex,
+                    slideStartTime: slideStartTime,
+                    rotationSeconds: theme.rotationInterval.seconds,
+                    resumeFocus: $focus
+                )
+                ContinueWatchingRow(items: SampleCatalog.continueWatching,
+                                    firstCardFocus: $focus, firstCardTag: .continueFirst)
+                    .padding(.top, 80)
+                RecommendedRow(items: SampleCatalog.recommended)
+                    .padding(.top, 35)
+                    .padding(.bottom, 80)
             }
         }
         .defaultFocus($focus, initialFocus)

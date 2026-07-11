@@ -74,60 +74,6 @@ struct SectionHeader: View {
     }
 }
 
-/// A library chip; adult libraries get the accent-tinted treatment + 18+ badge.
-struct LibraryChip: View {
-    let library: Library
-    @EnvironmentObject private var theme: Theme
-
-    var body: some View {
-        Button {} label: {
-            HStack(spacing: 10) {
-                Text(library.name)
-                    .font(Typography.font(19, .semibold))
-                    .foregroundStyle(library.isAdult ? Color(hex: "#FFD9DC") : Palette.text(0.75))
-                if library.isAdult {
-                    Text("18+")
-                        .font(Typography.font(13, .black))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(theme.accent, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-            }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 9)
-            .background(library.isAdult ? theme.accent.opacity(0.12) : Palette.text(0.06), in: Capsule())
-            .overlay(Capsule().stroke(library.isAdult ? theme.accent.opacity(0.4) : Palette.text(0.1), lineWidth: 1))
-        }
-        .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 999))
-    }
-}
-
-/// The centered top-bar navigation pill.
-struct NavPill: View {
-    let tabs: [String]
-    @Binding var active: Int
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ForEach(Array(tabs.enumerated()), id: \.offset) { index, label in
-                Button { active = index } label: {
-                    Text(label)
-                        .font(Typography.font(22, .semibold))
-                        .foregroundStyle(index == active ? Palette.screen : Palette.text(0.65))
-                        .padding(.horizontal, 30)
-                        .padding(.vertical, 12)
-                        .background(index == active ? Color.white : Color.clear, in: Capsule())
-                }
-                .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 999))
-            }
-        }
-        .padding(8)
-        .background(Palette.text(0.06), in: Capsule())
-        .overlay(Capsule().stroke(Palette.text(0.08), lineWidth: 1))
-    }
-}
-
 /// Gradient circular avatar with the user's initial.
 struct Avatar: View {
     let initial: String

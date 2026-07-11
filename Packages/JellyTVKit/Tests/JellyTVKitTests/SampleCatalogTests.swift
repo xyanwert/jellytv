@@ -7,13 +7,30 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertEqual(SampleCatalog.continueWatching.count, 5)
         XCTAssertEqual(SampleCatalog.recommended.count, 7)
         XCTAssertEqual(SampleCatalog.libraries.count, 8)
-        XCTAssertEqual(SampleCatalog.settingsEntries.count, 4)
-        XCTAssertEqual(SampleCatalog.navTabs, ["Home", "Movies", "Shows", "Search"])
+        XCTAssertEqual(SampleCatalog.settingsCategories.count, 7)
     }
 
     func testAdultLibraries() {
         let adult = SampleCatalog.libraries.filter(\.isAdult).map(\.name)
         XCTAssertEqual(adult, ["After Dark", "Uncut Films"])
+    }
+
+    func testLibraryItemCounts() {
+        XCTAssertTrue(SampleCatalog.libraries.allSatisfy { !$0.itemCount.isEmpty })
+        XCTAssertEqual(SampleCatalog.libraries.first?.itemCount, "428")
+    }
+
+    func testSettingsCategories() {
+        let kinds = Set(SampleCatalog.settingsCategories.map(\.kind))
+        XCTAssertEqual(kinds, Set(SettingsCategory.Kind.allCases))
+    }
+
+    func testPlaybackSampleData() {
+        XCTAssertEqual(SampleCatalog.playbackQualityOptions, ["Auto", "1080p", "4K"])
+        XCTAssertTrue(SampleCatalog.playbackQualityOptions.contains(SampleCatalog.defaultPlaybackQuality))
+        XCTAssertEqual(SampleCatalog.playbackMethodOptions, ["Direct Play", "Transcode"])
+        XCTAssertTrue(SampleCatalog.playbackMethodOptions.contains(SampleCatalog.defaultPlaybackMethod))
+        XCTAssertEqual(SampleCatalog.playbackToggles.count, 3)
     }
 
     func testHeroFields() {
