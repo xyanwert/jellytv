@@ -1,8 +1,9 @@
 import SwiftUI
 import JellyTVKit
 
-/// Shared tvOS focus treatment: scale up, white outline, and elevated shadow
-/// when focused — matching the design's focused-state cards/buttons.
+/// Shared tvOS focus treatment: a punchy scale-up, a bright accent-colored glow
+/// ring, and a springy pop — deliberately loud so focus reads at a glance from
+/// across a room, not a subtle nudge you have to look for.
 struct FocusScaleStyle: ButtonStyle {
     var scale: CGFloat = 1.06
     var cornerRadius: CGFloat = 14
@@ -14,6 +15,7 @@ struct FocusScaleStyle: ButtonStyle {
 
     private struct Content: View {
         @Environment(\.isFocused) private var focused: Bool
+        @EnvironmentObject private var theme: Theme
         let configuration: FocusScaleStyle.Configuration
         let scale: CGFloat
         let cornerRadius: CGFloat
@@ -21,14 +23,57 @@ struct FocusScaleStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .scaleEffect((focused ? scale : 1) * (configuration.isPressed ? 0.97 : 1))
-                // Soft white halo instead of a hard ring (the design's
-                // "0 0 0 6px rgba(255,255,255,0.18)") — reads cleanly even on
-                // the white Resume button — plus a dark lift shadow.
-                .shadow(color: .white.opacity(outline && focused ? 0.28 : 0), radius: focused ? 12 : 0)
-                .shadow(color: .black.opacity(focused ? 0.5 : 0.3),
-                        radius: focused ? 22 : 10, y: focused ? 12 : 6)
-                .animation(.easeOut(duration: 0.18), value: focused)
+                .scaleEffect((focused ? scale : 1) * (configuration.isPressed ? 0.95 : 1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(theme.accent, lineWidth: 3)
+                        .opacity(outline && focused ? 1 : 0)
+                )
+                // Bright accent glow (when `outline`) layered on a white halo that
+                // always shows on focus, so even non-outlined controls still pop.
+                .shadow(color: theme.accent.opacity(outline && focused ? 0.9 : 0), radius: focused ? 28 : 0)
+                .shadow(color: .white.opacity(focused ? 0.35 : 0), radius: focused ? 14 : 0)
+                .shadow(color: .black.opacity(focused ? 0.55 : 0.3),
+                        radius: focused ? 26 : 10, y: focused ? 14 : 6)
+                .animation(.spring(response: 0.26, dampingFraction: 0.6), value: focused)
+        }
+    }
+}
+
+/// Focus highlight for full-width list rows (Settings categories, Sign Out):
+/// an accent-tinted background lift plus a left accent bar, layered on top of
+/// any persistent "this is the selected one" state (`isActive`) a caller wants.
+struct RowFocusStyle: ButtonStyle {
+    var isActive: Bool = false
+    var cornerRadius: CGFloat = 14
+
+    func makeBody(configuration: Configuration) -> some View {
+        Content(configuration: configuration, isActive: isActive, cornerRadius: cornerRadius)
+    }
+
+    private struct Content: View {
+        @Environment(\.isFocused) private var focused: Bool
+        @EnvironmentObject private var theme: Theme
+        let configuration: ButtonStyle.Configuration
+        let isActive: Bool
+        let cornerRadius: CGFloat
+
+        var body: some View {
+            configuration.label
+                .scaleEffect(focused ? 1.03 : 1, anchor: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(focused ? theme.accent.opacity(0.22) : (isActive ? Palette.text(0.06) : .clear))
+                )
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(theme.accent)
+                        .frame(width: 4, height: 28)
+                        .opacity(focused || isActive ? 1 : 0)
+                        .padding(.leading, 4)
+                }
+                .shadow(color: theme.accent.opacity(focused ? 0.55 : 0), radius: focused ? 24 : 0)
+                .animation(.spring(response: 0.25, dampingFraction: 0.65), value: focused)
         }
     }
 }

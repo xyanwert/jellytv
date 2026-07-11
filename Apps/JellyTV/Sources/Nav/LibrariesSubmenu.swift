@@ -87,6 +87,6 @@ private struct LibraryRow: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(FocusScaleStyle(scale: 1.02, cornerRadius: 14, outline: false))
+        .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 14))
     }
 }

@@ -44,47 +44,22 @@ private struct CategoryRow: View {
     let isActive: Bool
     let action: () -> Void
 
-    @EnvironmentObject private var theme: Theme
-
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 0) {
-                Capsule()
-                    .fill(theme.accent)
-                    .frame(width: 4, height: 28)
-                    .opacity(isActive ? 1 : 0)
-                    .padding(.trailing, 12)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(category.label)
-                        .font(Typography.font(23, .bold))
-                        .foregroundStyle(isActive ? Palette.textPrimary : Palette.text(0.75))
-                    Text(category.description)
-                        .font(Typography.font(16, .medium))
-                        .foregroundStyle(isActive ? Palette.text(0.55) : Palette.text(0.35))
-                }
-                Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(category.label)
+                    .font(Typography.font(23, .bold))
+                    .foregroundStyle(isActive ? Palette.textPrimary : Palette.text(0.75))
+                Text(category.description)
+                    .font(Typography.font(16, .medium))
+                    .foregroundStyle(isActive ? Palette.text(0.55) : Palette.text(0.35))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 12)
-            .padding(.horizontal, 8)
-            .background(isActive ? Palette.text(0.06) : .clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.leading, 20)
+            .padding(.trailing, 8)
             .contentShape(Rectangle())
         }
-        .buttonStyle(SettingsRowFocusStyle())
-    }
-}
-
-/// Focus highlight for full-width rows: a subtle background wash (no scale).
-private struct SettingsRowFocusStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Row(configuration: configuration)
-    }
-    private struct Row: View {
-        @Environment(\.isFocused) private var focused: Bool
-        let configuration: ButtonStyle.Configuration
-        var body: some View {
-            configuration.label
-                .background(Palette.text(focused ? 0.06 : 0), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .animation(.easeOut(duration: 0.15), value: focused)
-        }
+        .buttonStyle(RowFocusStyle(isActive: isActive))
     }
 }

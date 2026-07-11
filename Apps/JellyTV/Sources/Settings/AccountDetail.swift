@@ -83,9 +83,10 @@ struct AccountDetail: View {
                     .foregroundStyle(theme.accent)
             }
             .padding(.vertical, 26)
+            .padding(.horizontal, 8)
             .contentShape(Rectangle())
         }
-        .buttonStyle(FocusScaleStyle(scale: 1.0, cornerRadius: 0, outline: false))
+        .buttonStyle(RowFocusStyle())
     }
 }
 
@@ -102,7 +103,7 @@ private struct AccentSwatchPicker: View {
                         .frame(width: 34, height: 34)
                         .overlay(Circle().stroke(.white, lineWidth: option == selection ? 3 : 0))
                 }
-                .buttonStyle(FocusScaleStyle(scale: 1.15, cornerRadius: 999, outline: false))
+                .buttonStyle(FocusScaleStyle(scale: 1.25, cornerRadius: 999, outline: false))
             }
         }
     }

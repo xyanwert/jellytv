@@ -108,16 +108,20 @@ private struct RailIconButtonStyle: ButtonStyle {
             configuration.label
                 .frame(width: 60, height: 60)
                 .background(
-                    isActive ? accent.opacity(0.15) : .clear,
+                    focused ? accent.opacity(0.28) : (isActive ? accent.opacity(0.15) : .clear),
                     in: RoundedRectangle(cornerRadius: 17, style: .continuous)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 17, style: .continuous)
-                        .stroke(isActive ? accent.opacity(0.35) : Palette.text(0.08), lineWidth: 1)
+                        .stroke(
+                            focused ? accent : (isActive ? accent.opacity(0.35) : Palette.text(0.08)),
+                            lineWidth: focused ? 3 : 1
+                        )
                 )
-                .scaleEffect((focused ? 1.08 : 1.0) * (configuration.isPressed ? 0.96 : 1))
-                .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: focused ? 16 : 0, y: focused ? 8 : 0)
-                .animation(.easeOut(duration: 0.18), value: focused)
+                .scaleEffect((focused ? 1.18 : 1.0) * (configuration.isPressed ? 0.94 : 1))
+                .shadow(color: accent.opacity(focused ? 0.85 : 0), radius: focused ? 26 : 0)
+                .shadow(color: .black.opacity(focused ? 0.55 : 0), radius: focused ? 18 : 0, y: focused ? 10 : 0)
+                .animation(.spring(response: 0.24, dampingFraction: 0.6), value: focused)
                 .animation(.easeOut(duration: 0.18), value: isActive)
         }
     }

@@ -49,7 +49,7 @@ struct SegmentedControl: View {
                         .padding(.vertical, 11)
                         .background(active ? Color.white : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
-                .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 8))
+                .buttonStyle(FocusScaleStyle(scale: 1.1, cornerRadius: 8))
             }
         }
         .padding(5)
@@ -72,7 +72,7 @@ struct ToggleSwitch: View {
                     Circle().fill(.white).frame(width: 26, height: 26).padding(3)
                 }
         }
-        .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 999, outline: false))
+        .buttonStyle(FocusScaleStyle(scale: 1.15, cornerRadius: 999))
         .animation(.easeOut(duration: 0.15), value: isOn)
     }
 }
