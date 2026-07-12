@@ -114,4 +114,89 @@ public enum SampleCatalog {
         .init(label: "Skip intros", description: "Detect and skip recaps & title sequences", isOnByDefault: true),
         .init(label: "HDR passthrough", description: "Send HDR metadata to your display", isOnByDefault: false),
     ]
+
+    // MARK: - Show view
+
+    /// Preview assets cycled for episode thumbnails (no per-episode art needed).
+    private static let episodeImages = ["Preview1", "Preview2", "Preview3", "PreviewBob1", "PreviewBob2", "PreviewBob3"]
+
+    /// Builds the four demo seasons; season 3 holds the current/resume episode.
+    private static func demoSeasons() -> [Season] {
+        // (title, runtime) for the fully-authored Season 3.
+        let s3: [(String, String)] = [
+            ("Descent", "52m"), ("Pressure", "48m"), ("Blackwater", "55m"), ("Trench", "49m"),
+            ("The Answer", "51m"), ("Surfacing", "58m"), ("Undertow", "47m"), ("Origin", "61m"),
+        ]
+        func episodes(season: Int, count: Int, titles: [(String, String)]? = nil, currentEp: Int? = nil,
+                      hueBase: Double) -> [Episode] {
+            (1...count).map { n in
+                let t = titles?[safe: n - 1]
+                return Episode(
+                    id: "s\(season)e\(n)",
+                    number: n,
+                    title: t?.0 ?? "Episode \(n)",
+                    runtime: t?.1 ?? "\(46 + (n * 3) % 14)m",
+                    isCurrent: n == currentEp,
+                    image: episodeImages[(season * 3 + n) % episodeImages.count],
+                    artwork: .gradient(l: 0.42, c: 0.11, hue: hueBase + Double(n) * 12)
+                )
+            }
+        }
+        return [
+            Season(id: "season-1", number: 1, name: "Season 1", episodes: episodes(season: 1, count: 8, hueBase: 250)),
+            Season(id: "season-2", number: 2, name: "Season 2", episodes: episodes(season: 2, count: 8, hueBase: 220)),
+            Season(id: "season-3", number: 3, name: "Season 3", episodes: episodes(season: 3, count: 8, titles: s3, currentEp: 4, hueBase: 235)),
+            Season(id: "season-0", number: 0, name: "Specials", episodes: episodes(season: 0, count: 3, hueBase: 300)),
+        ]
+    }
+
+    /// The reference demo show ("The Deep Signal") backing design screen 2a.
+    public static let show = Show(
+        id: "show-deep-signal",
+        title: "The Deep Signal",
+        studioLine: "Series 003 // Benthic Pictures",
+        rating: "8.9",
+        certification: "TV-MA",
+        runSummary: "3 seasons · 24 ep",
+        createdBy: "Mara Ellingsen",
+        years: "2023 – 2026",
+        genreLabel: "TV Shows / Sci-Fi Drama",
+        techLine: "4K · HDR · ATMOS",
+        keyArt: "HeroBackdrop",
+        artwork: .gradient(l: 0.42, c: 0.11, hue: 250, hue2: 210),
+        resumeEpisodeLabel: "S3 · E4 — “Trench”",
+        resumeProgress: 0.62,
+        resumeRemaining: "31:04 LEFT · 62%",
+        seasons: demoSeasons()
+    )
+
+    /// A `Show` for any media item — the demo template carrying that item's
+    /// title and key art, so any Recommended poster opens as a show.
+    public static func show(for item: MediaItem) -> Show {
+        let s = show
+        return Show(
+            id: "show-\(item.id)",
+            title: item.title,
+            studioLine: s.studioLine,
+            rating: s.rating,
+            certification: s.certification,
+            runSummary: s.runSummary,
+            createdBy: s.createdBy,
+            years: s.years,
+            genreLabel: item.meta.isEmpty ? s.genreLabel : "TV Shows / \(item.meta)",
+            techLine: s.techLine,
+            keyArt: item.image ?? s.keyArt,
+            artwork: item.artwork,
+            resumeEpisodeLabel: s.resumeEpisodeLabel,
+            resumeProgress: s.resumeProgress,
+            resumeRemaining: s.resumeRemaining,
+            seasons: s.seasons
+        )
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
 }

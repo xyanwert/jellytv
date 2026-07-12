@@ -28,6 +28,8 @@ struct HomeView: View {
     // opaque base underneath, so no black shows between shattering cells.
     @State private var outgoingHero: HeroFeature?
     @State private var departProgress: Double = 1
+    // The show opened from a Recommended poster, presented full-screen over Home.
+    @State private var selectedShow: Show?
 
     private var heroes: [HeroFeature] { SampleCatalog.heroes }
     private var currentHero: HeroFeature { heroes[heroIndex % heroes.count] }
@@ -61,6 +63,18 @@ struct HomeView: View {
             }
             .ignoresSafeArea()
             .animation(.easeOut(duration: 0.2), value: isLibrariesOpen)
+
+            if let selectedShow {
+                ShowView(show: selectedShow, onDismiss: { self.selectedShow = nil })
+                    .transition(.opacity)
+                    .zIndex(2)
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: selectedShow)
+        .onAppear {
+            if ProcessInfo.processInfo.environment["JT_SHOW_DEMO"] == "1", selectedShow == nil {
+                selectedShow = SampleCatalog.show(for: SampleCatalog.recommended[5])
+            }
         }
         // Restart rotation when the interval changes; cancel on teardown.
         .task(id: theme.rotationInterval) { startHeroRotation() }
@@ -86,7 +100,8 @@ struct HomeView: View {
                 ContinueWatchingRow(items: SampleCatalog.continueWatching,
                                     firstCardFocus: $focus, firstCardTag: .continueFirst)
                     .padding(.top, 80)
-                RecommendedRow(items: SampleCatalog.recommended)
+                RecommendedRow(items: SampleCatalog.recommended,
+                               onSelect: { selectedShow = SampleCatalog.show(for: $0) })
                     .padding(.top, 35)
                     .padding(.bottom, 80)
             }

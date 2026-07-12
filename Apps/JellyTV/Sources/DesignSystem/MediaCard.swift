@@ -102,9 +102,11 @@ struct ContinueCard: View {
 }
 
 /// A Recommended poster card (168×248): preview image with a bottom scrim and
-/// title; focus grows the card and glows in its dominant color.
+/// title; focus grows the card and glows in its dominant color. Selecting it
+/// opens the Show view via `onSelect`.
 struct PosterCard: View {
     let item: MediaItem
+    var onSelect: () -> Void = {}
 
     private var dominant: Color {
         if let name = item.image { return DominantColor.of(name, fallback: Color(item.artwork.top)) }
@@ -112,7 +114,7 @@ struct PosterCard: View {
     }
 
     var body: some View {
-        Button {} label: {
+        Button(action: onSelect) {
             VStack(spacing: 10) {
                 ZStack(alignment: .bottomLeading) {
                     if let name = item.image {

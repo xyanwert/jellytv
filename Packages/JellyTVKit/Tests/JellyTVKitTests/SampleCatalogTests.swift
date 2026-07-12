@@ -33,6 +33,37 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertEqual(SampleCatalog.playbackToggles.count, 3)
     }
 
+    func testSampleShow() {
+        let show = SampleCatalog.show
+        XCTAssertEqual(show.title, "The Deep Signal")
+        XCTAssertEqual(show.seasons.count, 4)
+        XCTAssertTrue(show.seasons.allSatisfy { !$0.episodes.isEmpty })
+        // exactly one current episode across the whole show
+        let current = show.seasons.flatMap(\.episodes).filter(\.isCurrent)
+        XCTAssertEqual(current.count, 1)
+        XCTAssertEqual(current.first?.number, 4)
+        // resume fields populated
+        XCTAssertFalse(show.resumeEpisodeLabel.isEmpty)
+        XCTAssertFalse(show.resumeRemaining.isEmpty)
+        XCTAssert((0...1).contains(show.resumeProgress))
+        // current episode lives in season 3 (index 2)
+        XCTAssertEqual(show.currentSeasonIndex, 2)
+    }
+
+    func testShowForItemCarriesTitle() {
+        let item = SampleCatalog.recommended[0]
+        let show = SampleCatalog.show(for: item)
+        XCTAssertEqual(show.title, item.title)
+        XCTAssertEqual(show.keyArt, item.image)
+        XCTAssertEqual(show.seasons.count, SampleCatalog.show.seasons.count)
+    }
+
+    func testEpisodeNumberLabel() {
+        XCTAssertEqual(SampleCatalog.show.seasons[2].episodes[3].numberLabel, "04")
+        XCTAssertEqual(SampleCatalog.show.seasons[3].shortLabel, "SPECIALS")
+        XCTAssertEqual(SampleCatalog.show.seasons[2].shortLabel, "S03")
+    }
+
     func testHeroFields() {
         let hero = SampleCatalog.hero
         XCTAssertEqual(hero.title, "The Deep Signal")

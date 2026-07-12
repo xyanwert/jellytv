@@ -154,3 +154,96 @@ public struct PlaybackToggle: Equatable, Sendable, Hashable, Identifiable {
         self.isOnByDefault = isOnByDefault
     }
 }
+
+/// One episode in a season's strip on the Show view.
+public struct Episode: Equatable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public var number: Int
+    public var title: String
+    public var runtime: String        // "49m"
+    public var isCurrent: Bool        // the resume/NOW episode
+    public var image: String?         // artwork asset name; falls back to `artwork`
+    public var artwork: Artwork
+
+    public init(id: String, number: Int, title: String, runtime: String,
+                isCurrent: Bool = false, image: String? = nil, artwork: Artwork) {
+        self.id = id
+        self.number = number
+        self.title = title
+        self.runtime = runtime
+        self.isCurrent = isCurrent
+        self.image = image
+        self.artwork = artwork
+    }
+
+    /// Zero-padded episode number, e.g. "04".
+    public var numberLabel: String { String(format: "%02d", number) }
+}
+
+/// A season of a show: a named group of episodes.
+public struct Season: Equatable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public var number: Int
+    public var name: String            // "Season 3" / "Specials"
+    public var episodes: [Episode]
+
+    public init(id: String, number: Int, name: String, episodes: [Episode]) {
+        self.id = id
+        self.number = number
+        self.name = name
+        self.episodes = episodes
+    }
+
+    /// Short segmented-control label, e.g. "S03" / "SPECIALS".
+    public var shortLabel: String { number == 0 ? "SPECIALS" : String(format: "S%02d", number) }
+}
+
+/// A collection (series) shown on the Show view: spec-sheet metadata, a resume
+/// point, and its seasons/episodes.
+public struct Show: Equatable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public var title: String
+    public var studioLine: String      // "Series 003 // Benthic Pictures"
+    public var rating: String          // "8.9"
+    public var certification: String   // "TV-MA"
+    public var runSummary: String      // "3 seasons · 24 ep"
+    public var createdBy: String       // "Mara Ellingsen"
+    public var years: String           // "2023 – 2026"
+    public var genreLabel: String      // spine text, "TV Shows / Sci-Fi Drama"
+    public var techLine: String        // "4K · HDR · ATMOS"
+    public var keyArt: String?         // artwork asset name; falls back to `artwork`
+    public var artwork: Artwork
+    public var resumeEpisodeLabel: String  // "S3 · E4 — Trench"
+    public var resumeProgress: Double       // 0...1
+    public var resumeRemaining: String      // "31:04 LEFT · 62%"
+    public var seasons: [Season]
+
+    public init(id: String, title: String, studioLine: String, rating: String,
+                certification: String, runSummary: String, createdBy: String,
+                years: String, genreLabel: String, techLine: String,
+                keyArt: String? = nil, artwork: Artwork,
+                resumeEpisodeLabel: String, resumeProgress: Double,
+                resumeRemaining: String, seasons: [Season]) {
+        self.id = id
+        self.title = title
+        self.studioLine = studioLine
+        self.rating = rating
+        self.certification = certification
+        self.runSummary = runSummary
+        self.createdBy = createdBy
+        self.years = years
+        self.genreLabel = genreLabel
+        self.techLine = techLine
+        self.keyArt = keyArt
+        self.artwork = artwork
+        self.resumeEpisodeLabel = resumeEpisodeLabel
+        self.resumeProgress = resumeProgress
+        self.resumeRemaining = resumeRemaining
+        self.seasons = seasons
+    }
+
+    /// Index of the season containing the current/resume episode (or the last).
+    public var currentSeasonIndex: Int {
+        seasons.firstIndex { $0.episodes.contains(where: \.isCurrent) } ?? max(0, seasons.count - 1)
+    }
+}

@@ -28,15 +28,18 @@ struct ContinueWatchingRow: View {
     }
 }
 
-/// Recommended for You poster row.
+/// Recommended for You poster row. Selecting a poster opens its Show view.
 struct RecommendedRow: View {
     let items: [MediaItem]
+    var onSelect: (MediaItem) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader(title: "Recommended for You")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 20) {
-                    ForEach(items) { PosterCard(item: $0) }
+                    ForEach(items) { item in
+                        PosterCard(item: item, onSelect: { onSelect(item) })
+                    }
                 }
                 .padding(.horizontal, 56)
                 .padding(.vertical, 16)
