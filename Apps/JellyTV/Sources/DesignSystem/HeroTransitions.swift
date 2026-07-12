@@ -1,33 +1,17 @@
 import SwiftUI
 import JellyTVKit
 
-// Bridges the `hexCrumble` Metal shader into SwiftUI's insertion/removal
-// transition system. When the hero's backdrop `.id` changes inside a
-// `withAnimation`, SwiftUI drives `progress` through the Animatable modifier
-// below, which feeds it to the shader via `.layerEffect`.
+// The hero backdrop swaps as a *reveal*: the incoming slide is drawn as a solid
+// opaque base and the outgoing slide crumbles (or fades) away on top of it,
+// driven by `progress` (1 = intact → 0 = gone). Because the new image is always
+// present underneath, no black ever shows between shattering cells.
 
-extension AnyTransition {
-    /// Honeycomb shatter. The outgoing image breaks apart along a diagonal
-    /// wave — cracks flash in the accent color, tiles pop, tumble and sag
-    /// under gravity — while the incoming image's tiles fly in just behind
-    /// the wave and settle with a small ease-out-back overshoot.
-    static func hexCrumble(canvasSize: CGSize, accent: Color) -> AnyTransition {
-        .asymmetric(
-            insertion: .modifier(
-                active: HexCrumbleModifier(progress: 0, assemble: true, canvasSize: canvasSize, accent: accent),
-                identity: HexCrumbleModifier(progress: 1, assemble: true, canvasSize: canvasSize, accent: accent)
-            ),
-            removal: .modifier(
-                active: HexCrumbleModifier(progress: 0, assemble: false, canvasSize: canvasSize, accent: accent),
-                identity: HexCrumbleModifier(progress: 1, assemble: false, canvasSize: canvasSize, accent: accent)
-            )
-        )
-    }
-}
-
-private struct HexCrumbleModifier: ViewModifier, Animatable {
-    var progress: Double        // 1 = seated/intact, 0 = fully scattered
-    var assemble: Bool
+/// Applies the outgoing slide's departure — the `hexCrumble` shader for the
+/// crumble style, plain opacity for fade. `Animatable` so `progress` tweens
+/// frame-by-frame under `withAnimation`.
+struct HeroDepartureModifier: ViewModifier, Animatable {
+    var style: HeroTransitionStyle
+    var progress: Double          // 1 = intact, 0 = fully gone
     var canvasSize: CGSize
     var accent: Color
 
@@ -37,36 +21,40 @@ private struct HexCrumbleModifier: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
-        content.layerEffect(
-            ShaderLibrary.hexCrumble(
-                .float(Float(progress)),
-                .float(assemble ? 1.0 : 0.0),
-                .float2(canvasSize),
-                .color(accent)
-            ),
-            // Must cover the shader's max tile flight (~440pt drift + gravity
-            // sag, inflated by the shrink-factor resampling) or tiles clip.
-            maxSampleOffset: CGSize(width: 540, height: 440)
-        )
+        switch style {
+        case .crumble:
+            content.layerEffect(
+                ShaderLibrary.hexCrumble(
+                    .float(Float(progress)),
+                    .float2(canvasSize),
+                    .color(accent)
+                ),
+                // Cover the shader's max tile flight (~460pt drift + gravity
+                // sag, inflated by the shrink-factor resampling) or tiles clip.
+                maxSampleOffset: CGSize(width: 600, height: 560)
+            )
+        case .fade:
+            content.opacity(progress)
+        }
     }
 }
 
 extension HeroTransitionStyle {
-    /// The SwiftUI transition backing this style.
-    func anyTransition(canvasSize: CGSize, accent: Color) -> AnyTransition {
+    /// How long the outgoing slide takes to depart. The crumble owns all its
+    /// per-tile easing internally, so the driver animates `progress` linearly;
+    /// fade wants a standard ease.
+    var duration: Double {
         switch self {
-        case .crumble: return .hexCrumble(canvasSize: canvasSize, accent: accent)
-        case .fade: return .opacity
+        case .crumble: return 1.25
+        case .fade: return 0.7
         }
     }
 
-    /// Master clock for the backdrop swap. The crumble choreographs its own
-    /// per-tile easing inside the shader, so it wants a linear master clock;
-    /// fade keeps a standard ease.
+    /// Master curve for driving `progress` 1 → 0.
     var animation: Animation {
         switch self {
-        case .crumble: return .linear(duration: 1.25)
-        case .fade: return .easeInOut(duration: 0.8)
+        case .crumble: return .linear(duration: duration)
+        case .fade: return .easeInOut(duration: duration)
         }
     }
 }

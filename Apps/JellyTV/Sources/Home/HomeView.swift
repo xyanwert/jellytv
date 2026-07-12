@@ -22,6 +22,12 @@ struct HomeView: View {
     @State private var heroIndex = 0
     @State private var slideStartTime = Date()
     @State private var rotateTask: Task<Void, Never>?
+    // The slide currently departing (crumbling/fading away) on top of the new
+    // base, and how far along its departure is (1 = intact, 0 = gone). Nil when
+    // idle. This is what makes the swap a reveal — the new slide is always the
+    // opaque base underneath, so no black shows between shattering cells.
+    @State private var outgoingHero: HeroFeature?
+    @State private var departProgress: Double = 1
 
     private var heroes: [HeroFeature] { SampleCatalog.heroes }
     private var currentHero: HeroFeature { heroes[heroIndex % heroes.count] }
@@ -88,33 +94,67 @@ struct HomeView: View {
         .defaultFocus($focus, initialFocus)
     }
 
-    /// The hero backdrop: the current slide's still spans the top, crumbling (or
-    /// fading) to the next slide on advance, with stable scrims on top so the
-    /// hero text stays readable and the image fades into the background.
+    private static let backdropHeight: CGFloat = 820
+
+    /// The hero backdrop: the incoming slide is a solid base and the outgoing
+    /// slide crumbles (or fades) away on top of it (a reveal — never any black),
+    /// with legibility scrims for the title text. The whole backdrop is masked
+    /// with a bottom fade so it dissolves smoothly into the page background.
     private var heroBackdrop: some View {
         GeometryReader { geo in
+            let size = CGSize(width: geo.size.width, height: Self.backdropHeight)
             ZStack {
-                Image(currentHero.image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geo.size.width, height: 820)
-                    .clipped()
+                imageStack(size: size)
                     .opacity(0.7)
-                    .id(currentHero.id)
-                    .transition(theme.transitionStyle.anyTransition(
-                        canvasSize: CGSize(width: geo.size.width, height: 820),
-                        accent: theme.accent
-                    ))
-
                 scrims
             }
-            .frame(width: geo.size.width, height: 820, alignment: .top)
+            .frame(width: geo.size.width, height: Self.backdropHeight, alignment: .top)
+            .mask(bottomFade)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea()
     }
 
-    /// Stable framing gradients layered over the (transitioning) image.
+    /// New slide as an opaque base, the departing slide crumbling/fading on top.
+    private func imageStack(size: CGSize) -> some View {
+        ZStack {
+            heroImage(currentHero, size: size)
+            if let outgoingHero {
+                heroImage(outgoingHero, size: size)
+                    .modifier(HeroDepartureModifier(
+                        style: theme.transitionStyle,
+                        progress: departProgress,
+                        canvasSize: size,
+                        accent: theme.accent
+                    ))
+                    .zIndex(1)
+            }
+        }
+    }
+
+    private func heroImage(_ hero: HeroFeature, size: CGSize) -> some View {
+        Image(hero.image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: size.width, height: size.height)
+            .clipped()
+    }
+
+    /// Fades the whole backdrop to transparent toward the bottom so it blends
+    /// into the page background — no hard image edge above the content rows.
+    private var bottomFade: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .white, location: 0.0),
+                .init(color: .white, location: 0.46),
+                .init(color: .clear, location: 0.82),
+            ],
+            startPoint: .top, endPoint: .bottom
+        )
+    }
+
+    /// Legibility gradients for the title text (left wash + a touch at the top).
+    /// The bottom fade to the background is handled by `bottomFade`, not here.
     private var scrims: some View {
         Color.clear
             .overlay {
@@ -131,15 +171,11 @@ struct HomeView: View {
                 LinearGradient(
                     stops: [
                         .init(color: Palette.screen.opacity(0.5), location: 0.0),
-                        .init(color: .clear, location: 0.16),
-                        .init(color: .clear, location: 0.52),
-                        .init(color: Palette.screen, location: 1.0),
+                        .init(color: .clear, location: 0.18),
                     ],
                     startPoint: .top, endPoint: .bottom
                 )
             }
-            .frame(height: 820)
-            .frame(maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - Rotation
@@ -153,10 +189,28 @@ struct HomeView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(seconds))
                 if Task.isCancelled { break }
-                withAnimation(theme.transitionStyle.animation) {
-                    heroIndex = (heroIndex + 1) % heroes.count
+                let style = theme.transitionStyle
+
+                // Snapshot the departing slide and swap the base to the next one
+                // instantly beneath it (hidden — the departing slide is intact
+                // and opaque at this instant).
+                outgoingHero = currentHero
+                departProgress = 1
+                withAnimation(.easeInOut(duration: 0.45)) {
+                    heroIndex = (heroIndex + 1) % heroes.count   // crossfades hero text
                 }
                 slideStartTime = Date()
+
+                // Crumble/fade the departing slide away, revealing the new base.
+                withAnimation(style.animation) {
+                    departProgress = 0
+                }
+
+                // Drop the spent layer once the departure completes.
+                try? await Task.sleep(for: .seconds(style.duration + 0.05))
+                if Task.isCancelled { break }
+                outgoingHero = nil
+                departProgress = 1
             }
         }
     }
