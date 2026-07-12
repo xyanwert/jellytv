@@ -7,6 +7,12 @@ enum HomeFocus: Hashable {
     case continueFirst
 }
 
+/// A detail screen presented full-screen over Home from a Recommended poster.
+private enum PresentedDetail: Equatable {
+    case show(Show)
+    case movie(Movie)
+}
+
 /// The Home screen: rail, hero carousel, and content rows over the design
 /// background. Opens Settings from the readout row's avatar; the rail's own
 /// icons are handled by `onSelectRail` (routed up to `RootView`).
@@ -28,8 +34,9 @@ struct HomeView: View {
     // opaque base underneath, so no black shows between shattering cells.
     @State private var outgoingHero: HeroFeature?
     @State private var departProgress: Double = 1
-    // The show opened from a Recommended poster, presented full-screen over Home.
-    @State private var selectedShow: Show?
+    // The detail (show or movie) opened from a Recommended poster, presented
+    // full-screen over Home.
+    @State private var presentedDetail: PresentedDetail?
 
     private var heroes: [HeroFeature] { SampleCatalog.heroes }
     private var currentHero: HeroFeature { heroes[heroIndex % heroes.count] }
@@ -64,16 +71,18 @@ struct HomeView: View {
             .ignoresSafeArea()
             .animation(.easeOut(duration: 0.2), value: isLibrariesOpen)
 
-            if let selectedShow {
-                ShowView(show: selectedShow, onDismiss: { self.selectedShow = nil })
+            if let presentedDetail {
+                detailView(presentedDetail)
                     .transition(.opacity)
                     .zIndex(2)
             }
         }
-        .animation(.easeOut(duration: 0.25), value: selectedShow)
+        .animation(.easeOut(duration: 0.25), value: presentedDetail)
         .onAppear {
-            if ProcessInfo.processInfo.environment["JT_SHOW_DEMO"] == "1", selectedShow == nil {
-                selectedShow = SampleCatalog.show(for: SampleCatalog.recommended[5])
+            switch ProcessInfo.processInfo.environment["JT_SHOW_DEMO"] {
+            case "1", "movie": presentedDetail = .movie(SampleCatalog.movie(for: SampleCatalog.recommended[0]))
+            case "show": presentedDetail = .show(SampleCatalog.show(for: SampleCatalog.recommended[5]))
+            default: break
             }
         }
         // Restart rotation when the interval changes; cancel on teardown.
@@ -82,6 +91,23 @@ struct HomeView: View {
         // Menu/Back closes the Libraries submenu when it's open; otherwise let
         // the press fall through to the system's default behavior (nil action).
         .onExitCommand(perform: isLibrariesOpen ? { onSelectRail(.home) } : nil)
+    }
+
+    /// Presents a movie or show detail for the selected Recommended poster.
+    private func present(_ item: MediaItem) {
+        presentedDetail = item.kind == .movie
+            ? .movie(SampleCatalog.movie(for: item))
+            : .show(SampleCatalog.show(for: item))
+    }
+
+    @ViewBuilder
+    private func detailView(_ detail: PresentedDetail) -> some View {
+        switch detail {
+        case .show(let show):
+            ShowView(show: show, onDismiss: { presentedDetail = nil })
+        case .movie(let movie):
+            MovieDetailView(movie: movie, onDismiss: { presentedDetail = nil })
+        }
     }
 
     private var content: some View {
@@ -100,8 +126,7 @@ struct HomeView: View {
                 ContinueWatchingRow(items: SampleCatalog.continueWatching,
                                     firstCardFocus: $focus, firstCardTag: .continueFirst)
                     .padding(.top, 80)
-                RecommendedRow(items: SampleCatalog.recommended,
-                               onSelect: { selectedShow = SampleCatalog.show(for: $0) })
+                RecommendedRow(items: SampleCatalog.recommended, onSelect: present)
                     .padding(.top, 35)
                     .padding(.bottom, 80)
             }

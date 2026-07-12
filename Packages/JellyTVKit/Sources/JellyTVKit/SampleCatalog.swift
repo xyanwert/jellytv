@@ -162,6 +162,7 @@ public enum SampleCatalog {
         years: "2023 – 2026",
         genreLabel: "TV Shows / Sci-Fi Drama",
         techLine: "4K · HDR · ATMOS",
+        synopsis: "A deep-sea research crew uncovers a signal older than the ocean itself — rhythmic, deliberate, patient. As the pings draw closer, they realize something down there is not echoing them back. It is answering.",
         keyArt: "HeroBackdrop",
         artwork: .gradient(l: 0.42, c: 0.11, hue: 250, hue2: 210),
         resumeEpisodeLabel: "S3 · E4 — “Trench”",
@@ -183,8 +184,9 @@ public enum SampleCatalog {
             runSummary: s.runSummary,
             createdBy: s.createdBy,
             years: s.years,
-            genreLabel: item.meta.isEmpty ? s.genreLabel : "TV Shows / \(item.meta)",
+            genreLabel: "TV Shows / \(genrePart(item.meta, fallback: "Sci-Fi Drama"))",
             techLine: s.techLine,
+            synopsis: s.synopsis,
             keyArt: item.image ?? s.keyArt,
             artwork: item.artwork,
             resumeEpisodeLabel: s.resumeEpisodeLabel,
@@ -193,6 +195,60 @@ public enum SampleCatalog {
             seasons: s.seasons
         )
     }
+
+    /// The reference demo movie ("Undertow") backing design screen 1b.
+    public static let movie = Movie(
+        id: "movie-undertow",
+        title: "Undertow",
+        studioLine: "Feature Film // Benthic Pictures",
+        rating: "8.6",
+        certification: "PG-13",
+        runtime: "2h 14m",
+        director: "Mara Ellingsen",
+        year: "2026",
+        genreLabel: "Movies / Thriller",
+        synopsis: "When a coastal town’s tide stops turning, a marine acoustician returns home to trace the silence — and finds her own past waiting beneath the surface. As the water grows still and the townsfolk begin to forget the sound of the sea, she must descend to the source before the quiet swallows her too. From the director of Salt Line.",
+        keyArt: "HeroBob",
+        artwork: .gradient(l: 0.40, c: 0.09, hue: 210, hue2: 250),
+        resumeLabel: "Undertow",
+        resumeProgress: 0.26,
+        resumeRemaining: "1:40:12 LEFT · 26%",
+        starring: "Ines Duval, Theo Marsh",
+        audioLine: "EN · FR · 12 subtitles",
+        moreLikeThis: recommended
+    )
+
+    /// A `Movie` for any media item — the demo template carrying that item's
+    /// title and key art, so a Recommended movie poster opens as a movie.
+    public static func movie(for item: MediaItem) -> Movie {
+        let m = movie
+        return Movie(
+            id: "movie-\(item.id)",
+            title: item.title,
+            studioLine: m.studioLine,
+            rating: m.rating,
+            certification: m.certification,
+            runtime: m.runtime,
+            director: m.director,
+            year: m.year,
+            genreLabel: "Movies / \(genrePart(item.meta, fallback: "Thriller"))",
+            synopsis: m.synopsis,
+            keyArt: item.image ?? m.keyArt,
+            artwork: item.artwork,
+            resumeLabel: item.title,
+            resumeProgress: m.resumeProgress,
+            resumeRemaining: m.resumeRemaining,
+            starring: m.starring,
+            audioLine: m.audioLine,
+            moreLikeThis: m.moreLikeThis
+        )
+    }
+}
+
+/// The genre portion of a "Movie · Thriller" / "Series · Drama" meta line.
+private func genrePart(_ meta: String, fallback: String) -> String {
+    let tail = meta.split(separator: "·").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+    return tail.isEmpty ? fallback : tail
 }
 
 private extension Array {

@@ -64,6 +64,39 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertEqual(SampleCatalog.show.seasons[2].shortLabel, "S03")
     }
 
+    func testShowSynopsis() {
+        XCTAssertFalse(SampleCatalog.show.synopsis.isEmpty)
+        XCTAssertEqual(SampleCatalog.show(for: SampleCatalog.recommended[0]).synopsis,
+                       SampleCatalog.show.synopsis)
+    }
+
+    func testMediaItemKind() {
+        let movie = SampleCatalog.recommended.first { $0.meta.hasPrefix("Movie") }
+        let series = SampleCatalog.recommended.first { $0.meta.hasPrefix("Series") }
+        XCTAssertEqual(movie?.kind, .movie)
+        XCTAssertEqual(series?.kind, .series)
+    }
+
+    func testSampleMovie() {
+        let m = SampleCatalog.movie
+        XCTAssertEqual(m.title, "Undertow")
+        XCTAssertEqual(m.certification, "PG-13")
+        XCTAssertEqual(m.runtime, "2h 14m")
+        XCTAssertFalse(m.synopsis.isEmpty)
+        XCTAssertFalse(m.starring.isEmpty)
+        XCTAssertFalse(m.moreLikeThis.isEmpty)
+        XCTAssert((0...1).contains(m.resumeProgress))
+    }
+
+    func testMovieForItemCarriesTitle() {
+        let item = SampleCatalog.recommended[0]   // "Undertow · Movie · Thriller"
+        let m = SampleCatalog.movie(for: item)
+        XCTAssertEqual(m.title, item.title)
+        XCTAssertEqual(m.keyArt, item.image)
+        XCTAssertEqual(m.resumeLabel, item.title)
+        XCTAssertTrue(m.genreLabel.hasPrefix("Movies / "))
+    }
+
     func testHeroFields() {
         let hero = SampleCatalog.hero
         XCTAssertEqual(hero.title, "The Deep Signal")

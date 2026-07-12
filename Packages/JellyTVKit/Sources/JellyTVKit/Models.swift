@@ -2,6 +2,10 @@ import Foundation
 
 /// A poster/tile item (movie or series entry).
 public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
+    /// Whether the item is a single video or a collection — drives which detail
+    /// screen it opens.
+    public enum Kind: String, Sendable { case movie, series }
+
     public let id: String
     public var title: String
     /// Secondary line, e.g. "Movie · Thriller".
@@ -16,6 +20,11 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
         self.meta = meta
         self.image = image
         self.artwork = artwork
+    }
+
+    /// Movie vs series, derived from the metadata line ("Movie · …" → movie).
+    public var kind: Kind {
+        meta.lowercased().hasPrefix("movie") ? .movie : .series
     }
 }
 
@@ -211,6 +220,7 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
     public var years: String           // "2023 – 2026"
     public var genreLabel: String      // spine text, "TV Shows / Sci-Fi Drama"
     public var techLine: String        // "4K · HDR · ATMOS"
+    public var synopsis: String
     public var keyArt: String?         // artwork asset name; falls back to `artwork`
     public var artwork: Artwork
     public var resumeEpisodeLabel: String  // "S3 · E4 — Trench"
@@ -220,7 +230,7 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
 
     public init(id: String, title: String, studioLine: String, rating: String,
                 certification: String, runSummary: String, createdBy: String,
-                years: String, genreLabel: String, techLine: String,
+                years: String, genreLabel: String, techLine: String, synopsis: String,
                 keyArt: String? = nil, artwork: Artwork,
                 resumeEpisodeLabel: String, resumeProgress: Double,
                 resumeRemaining: String, seasons: [Season]) {
@@ -234,6 +244,7 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
         self.years = years
         self.genreLabel = genreLabel
         self.techLine = techLine
+        self.synopsis = synopsis
         self.keyArt = keyArt
         self.artwork = artwork
         self.resumeEpisodeLabel = resumeEpisodeLabel
@@ -245,5 +256,52 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
     /// Index of the season containing the current/resume episode (or the last).
     public var currentSeasonIndex: Int {
         seasons.firstIndex { $0.episodes.contains(where: \.isCurrent) } ?? max(0, seasons.count - 1)
+    }
+}
+
+/// A single-video title (feature film) shown on the Movie detail screen.
+public struct Movie: Equatable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public var title: String
+    public var studioLine: String      // "Feature Film // Benthic Pictures"
+    public var rating: String          // "8.6"
+    public var certification: String   // "PG-13"
+    public var runtime: String         // "2h 14m"
+    public var director: String        // "Mara Ellingsen"
+    public var year: String            // "2026"
+    public var genreLabel: String      // spine text, "Movies / Thriller"
+    public var synopsis: String
+    public var keyArt: String?
+    public var artwork: Artwork
+    public var resumeLabel: String     // "Undertow"
+    public var resumeProgress: Double
+    public var resumeRemaining: String // "1:40:12 LEFT · 26%"
+    public var starring: String        // "Ines Duval, Theo Marsh"
+    public var audioLine: String       // "EN · FR · 12 subtitles"
+    public var moreLikeThis: [MediaItem]
+
+    public init(id: String, title: String, studioLine: String, rating: String,
+                certification: String, runtime: String, director: String, year: String,
+                genreLabel: String, synopsis: String, keyArt: String? = nil, artwork: Artwork,
+                resumeLabel: String, resumeProgress: Double, resumeRemaining: String,
+                starring: String, audioLine: String, moreLikeThis: [MediaItem]) {
+        self.id = id
+        self.title = title
+        self.studioLine = studioLine
+        self.rating = rating
+        self.certification = certification
+        self.runtime = runtime
+        self.director = director
+        self.year = year
+        self.genreLabel = genreLabel
+        self.synopsis = synopsis
+        self.keyArt = keyArt
+        self.artwork = artwork
+        self.resumeLabel = resumeLabel
+        self.resumeProgress = resumeProgress
+        self.resumeRemaining = resumeRemaining
+        self.starring = starring
+        self.audioLine = audioLine
+        self.moreLikeThis = moreLikeThis
     }
 }
