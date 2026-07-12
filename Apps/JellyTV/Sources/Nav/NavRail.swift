@@ -111,15 +111,18 @@ private struct RailIconButtonStyle: ButtonStyle {
                     focused ? accent.opacity(0.28) : (isActive ? accent.opacity(0.15) : .clear),
                     in: RoundedRectangle(cornerRadius: 17, style: .continuous)
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 17, style: .continuous)
-                        .stroke(
-                            focused ? accent : (isActive ? accent.opacity(0.35) : Palette.text(0.08)),
-                            lineWidth: focused ? 3 : 1
-                        )
-                )
+                .overlay {
+                    if focused {
+                        LEDRing(cornerRadius: 20, accent: accent)
+                            .padding(-3)
+                            .transition(.opacity)
+                    } else {
+                        RoundedRectangle(cornerRadius: 17, style: .continuous)
+                            .stroke(isActive ? accent.opacity(0.35) : Palette.text(0.08), lineWidth: 1)
+                    }
+                }
                 .scaleEffect((focused ? 1.18 : 1.0) * (configuration.isPressed ? 0.94 : 1))
-                .shadow(color: accent.opacity(focused ? 0.85 : 0), radius: focused ? 26 : 0)
+                .shadow(color: accent.opacity(focused ? 0.7 : 0), radius: focused ? 32 : 0)
                 .shadow(color: .black.opacity(focused ? 0.55 : 0), radius: focused ? 18 : 0, y: focused ? 10 : 0)
                 .animation(.spring(response: 0.24, dampingFraction: 0.6), value: focused)
                 .animation(.easeOut(duration: 0.18), value: isActive)

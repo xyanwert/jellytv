@@ -1,9 +1,29 @@
 import SwiftUI
 import JellyTVKit
 
-/// Shared tvOS focus treatment: a punchy scale-up, a bright accent-colored glow
-/// ring, and a springy pop — deliberately loud so focus reads at a glance from
-/// across a room, not a subtle nudge you have to look for.
+/// A focus ring styled as a diffused LED tube: layered, increasingly-blurred
+/// accent strokes build the outward bloom, and a near-white hot core sits on
+/// top — like a neon strip, not a hard outline. The wide accent shadow on the
+/// styles below completes it as light cast on the surrounding "wall".
+struct LEDRing: View {
+    var cornerRadius: CGFloat
+    var accent: Color
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        ZStack {
+            shape.stroke(accent.opacity(0.8), lineWidth: 11).blur(radius: 16)
+            shape.stroke(accent, lineWidth: 5.5).blur(radius: 5)
+            shape.stroke(accent.opacity(0.9), lineWidth: 3.5).blur(radius: 1.6)
+            shape.stroke(.white.opacity(0.92), lineWidth: 1.7).blur(radius: 0.5)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// Shared tvOS focus treatment: a punchy scale-up, a diffused-LED ring, and a
+/// springy pop — deliberately loud so focus reads at a glance from across a
+/// room, not a subtle nudge you have to look for.
 struct FocusScaleStyle: ButtonStyle {
     var scale: CGFloat = 1.06
     var cornerRadius: CGFloat = 14
@@ -24,15 +44,19 @@ struct FocusScaleStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .scaleEffect((focused ? scale : 1) * (configuration.isPressed ? 0.95 : 1))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(theme.accent, lineWidth: 3)
-                        .opacity(outline && focused ? 1 : 0)
-                )
-                // Bright accent glow (when `outline`) layered on a white halo that
-                // always shows on focus, so even non-outlined controls still pop.
-                .shadow(color: theme.accent.opacity(outline && focused ? 0.9 : 0), radius: focused ? 28 : 0)
-                .shadow(color: .white.opacity(focused ? 0.35 : 0), radius: focused ? 14 : 0)
+                .overlay {
+                    if outline && focused {
+                        // Outset a touch so the tube wraps the control with a
+                        // small air gap (radius grows with the outset to stay
+                        // concentric).
+                        LEDRing(cornerRadius: cornerRadius + 4, accent: theme.accent)
+                            .padding(-4)
+                            .transition(.opacity)
+                    }
+                }
+                // Soft room-glow: the lamp's light falling on the UI around it.
+                .shadow(color: theme.accent.opacity(outline && focused ? 0.7 : 0), radius: focused ? 38 : 0)
+                .shadow(color: .white.opacity(!outline && focused ? 0.35 : 0), radius: focused ? 14 : 0)
                 .shadow(color: .black.opacity(focused ? 0.55 : 0.3),
                         radius: focused ? 26 : 10, y: focused ? 14 : 6)
                 .animation(.spring(response: 0.26, dampingFraction: 0.6), value: focused)
