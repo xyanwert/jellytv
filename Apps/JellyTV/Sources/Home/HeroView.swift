@@ -18,9 +18,12 @@ struct HeroView: View {
         HStack(alignment: .center, spacing: 40) {
             VStack(alignment: .leading, spacing: 18) {
                 // Per-slide text crossfades (keyed on the slide id).
+                // Own quick curve — independent of the backdrop's slower
+                // master clock, so titles swap crisply instead of
+                // double-exposing through the whole crumble.
                 textBlock
                     .id(hero.id)
-                    .transition(.opacity)
+                    .transition(.opacity.animation(.easeInOut(duration: 0.45)))
 
                 actions
             }
