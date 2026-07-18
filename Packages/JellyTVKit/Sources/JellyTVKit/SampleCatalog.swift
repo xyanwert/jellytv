@@ -94,7 +94,10 @@ public enum SampleCatalog {
         .init(kind: .playback, label: "Playback", description: "Quality, auto-play"),
         .init(kind: .subtitles, label: "Subtitles", description: "Language, size"),
         .init(kind: .audio, label: "Audio", description: "Output, passthrough"),
+        .init(kind: .home, label: "Home", description: "Hero rotation, transitions, NSFW filter"),
+        .init(kind: .appearance, label: "Appearance", description: "Accent color"),
         .init(kind: .parental, label: "Parental", description: "PIN, 18+ libraries"),
+        .init(kind: .metadata, label: "Metadata", description: "External ratings & awards (OMDb)"),
         .init(kind: .server, label: "Server", description: "Connection, sync"),
         .init(kind: .account, label: "Account", description: "Profile, sign out"),
         .init(kind: .about, label: "About", description: "Version, licenses"),
@@ -168,15 +171,34 @@ public enum SampleCatalog {
         resumeEpisodeLabel: "S3 · E4 — “Trench”",
         resumeProgress: 0.62,
         resumeRemaining: "31:04 LEFT · 62%",
-        seasons: demoSeasons()
+        seasons: demoSeasons(),
+        cast: sampleCast,
+        tagline: "Something down there is answering.",
+        studios: ["Benthic Pictures"],
+        communityRating: 8.9,
+        criticRating: 92,
+        imdbId: "tt0000000",
+        externalRatings: ExternalRatings(imdbRating: 8.5, rottenTomatoes: 92, metacritic: 81),
+        awards: MovieAwards(oscarsWon: 0, oscarNominations: 0, wins: 8, nominations: 20,
+                            summary: "8 wins & 20 nominations total")
     )
+
+    /// Demo cast (no headshot URLs, so the monogram fallback is exercised in
+    /// previews); the first entry is the lead.
+    private static let sampleCast: [CastMember] = [
+        .init(id: "cast-1", name: "Ines Duval", role: "Dr. Maren Cole", isLead: true),
+        .init(id: "cast-2", name: "Theo Marsh", role: "Elias Vance"),
+        .init(id: "cast-3", name: "Nadia Rourke", role: "Capt. Okonkwo"),
+        .init(id: "cast-4", name: "Sam Whitlock", role: "Jonah"),
+    ]
 
     /// A `Show` for any media item — the demo template carrying that item's
     /// title and key art, so any Recommended poster opens as a show.
     public static func show(for item: MediaItem) -> Show {
         let s = show
         return Show(
-            id: "show-\(item.id)",
+            // Keep the real item id so the Show view can fetch live detail.
+            id: item.id,
             title: item.title,
             studioLine: s.studioLine,
             rating: s.rating,
@@ -193,6 +215,9 @@ public enum SampleCatalog {
             resumeProgress: s.resumeProgress,
             resumeRemaining: s.resumeRemaining,
             seasons: s.seasons
+            // Intentionally NOT carrying cast/tagline/ratings/awards: for a real
+            // item these come from the live detail fetch. Leaving them empty
+            // here means the UI shows a loading state, never fake demo data.
         )
     }
 
@@ -215,7 +240,16 @@ public enum SampleCatalog {
         resumeRemaining: "1:40:12 LEFT · 26%",
         starring: "Ines Duval, Theo Marsh",
         audioLine: "EN · FR · 12 subtitles",
-        moreLikeThis: recommended
+        moreLikeThis: recommended,
+        cast: sampleCast,
+        tagline: "The tide remembers everything.",
+        studios: ["Benthic Pictures"],
+        communityRating: 8.6,
+        criticRating: 88,
+        imdbId: "tt0000001",
+        externalRatings: ExternalRatings(imdbRating: 7.8, rottenTomatoes: 88, metacritic: 74),
+        awards: MovieAwards(oscarsWon: 2, oscarNominations: 0, wins: 15, nominations: 30,
+                            summary: "Won 2 Oscars. 15 wins & 30 nominations total")
     )
 
     /// A `Movie` for any media item — the demo template carrying that item's
@@ -223,7 +257,8 @@ public enum SampleCatalog {
     public static func movie(for item: MediaItem) -> Movie {
         let m = movie
         return Movie(
-            id: "movie-\(item.id)",
+            // Keep the real item id so the Movie view can fetch live detail.
+            id: item.id,
             title: item.title,
             studioLine: m.studioLine,
             rating: m.rating,
@@ -241,6 +276,9 @@ public enum SampleCatalog {
             starring: m.starring,
             audioLine: m.audioLine,
             moreLikeThis: m.moreLikeThis
+            // Intentionally NOT carrying cast/tagline/ratings/awards: for a real
+            // item these come from the live detail fetch. Leaving them empty
+            // here means the UI shows a loading state, never fake demo data.
         )
     }
 }

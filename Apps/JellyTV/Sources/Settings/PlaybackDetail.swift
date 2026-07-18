@@ -10,10 +10,14 @@ struct PlaybackDetail: View {
     @State private var toggleState: [String: Bool] = Dictionary(
         uniqueKeysWithValues: SampleCatalog.playbackToggles.map { ($0.label, $0.isOnByDefault) }
     )
+    @EnvironmentObject private var server: ServerConnection
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DetailHeader(title: "Playback", readout: "\(SampleCatalog.server.name) · \(SampleCatalog.server.version)")
+            DetailHeader(
+                title: "Playback",
+                readout: server.serverInfo.map { "\($0.name) · \($0.version)" }
+            )
 
             DetailRow(label: "Streaming quality", description: "Max resolution on this Apple TV") {
                 SegmentedControl(options: SampleCatalog.playbackQualityOptions, selection: $quality)

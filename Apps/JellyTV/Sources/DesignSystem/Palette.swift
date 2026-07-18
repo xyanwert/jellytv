@@ -1,5 +1,8 @@
 import SwiftUI
 import JellyTVKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 extension Color {
     /// Create a color from a `#RRGGBB` (or `#RGB`) hex string.
@@ -32,6 +35,21 @@ extension Color {
         let g = gamma(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)
         let bl = gamma(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
         self.init(.sRGB, red: r, green: g, blue: bl, opacity: 1)
+    }
+
+    /// The complementary color — hue rotated 180° at the same saturation and
+    /// brightness. Used to derive a secondary accent from whichever primary
+    /// accent is selected, for controls (like text-field focus borders) that
+    /// shouldn't compete visually with primary actions.
+    var complementary: Color {
+        #if canImport(UIKit)
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(self).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return Color(hue: Double(h + 0.5).truncatingRemainder(dividingBy: 1),
+                     saturation: Double(s), brightness: Double(b), opacity: Double(a))
+        #else
+        return self
+        #endif
     }
 }
 

@@ -14,21 +14,30 @@ private enum ShowField: Hashable {
 /// card, an episode strip for the selected season, and a season selector +
 /// control bar, over an atmospheric backdrop of the show's art.
 struct ShowView: View {
-    let show: Show
+    let initialShow: Show
     let onDismiss: () -> Void
 
+    @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var theme: Theme
     @FocusState private var focus: ShowField?
     @State private var selectedSeason: Int
+    /// Live Jellyfin + OMDb detail (cast, ratings, tagline, awards); keeps the
+    /// initial show's seasons. All reads below go through `show`.
+    @State private var detail: Show?
 
     init(show: Show, onDismiss: @escaping () -> Void) {
-        self.show = show
+        self.initialShow = show
         self.onDismiss = onDismiss
         _selectedSeason = State(initialValue: show.currentSeasonIndex)
     }
 
+    private var show: Show { detail ?? initialShow }
     private var season: Season { show.seasons[min(selectedSeason, show.seasons.count - 1)] }
     private var currentEpisode: Episode? { show.seasons.flatMap(\.episodes).first(where: \.isCurrent) }
+
+    private var imdbRating: Double? { show.externalRatings?.imdbRating ?? show.communityRating }
+    private var rottenTomatoes: Int? { show.externalRatings?.rottenTomatoes ?? show.criticRating.map { Int($0) } }
+    private var metacritic: Int? { show.externalRatings?.metacritic }
 
     var body: some View {
         ZStack {
@@ -42,7 +51,20 @@ struct ShowView: View {
         }
         .background(Color(hex: "#070A10").ignoresSafeArea())
         .defaultFocus($focus, .resume)
+        .task { await loadDetail() }
         .onExitCommand(perform: onDismiss)
+    }
+
+    /// Enriches the show with live cast/ratings/tagline (keeps its seasons),
+    /// then merges OMDb awards/RT. No-ops before the server is up.
+    private func loadDetail() async {
+        guard var s = await appState.enrichedShow(initialShow) else { return }
+        detail = s
+        if let enrichment = await appState.omdbEnrichment(imdbId: s.imdbId) {
+            s.externalRatings = enrichment.ratings
+            s.awards = enrichment.awards
+            detail = s
+        }
     }
 
     private var content: some View {
@@ -60,11 +82,16 @@ struct ShowView: View {
             }
             .padding(.top, 8)
 
-            Spacer(minLength: 20)
+            Spacer(minLength: 14)
+
+            if !show.cast.isEmpty {
+                castRow
+                Spacer(minLength: 14)
+            }
 
             episodeStrip
 
-            Spacer(minLength: 18)
+            Spacer(minLength: 14)
 
             bottomBar
         }
@@ -78,27 +105,58 @@ struct ShowView: View {
                 .font(Typography.font(16, .heavy)).tracking(4).foregroundStyle(theme.accent)
                 .padding(.bottom, 18)
 
+            if let tagline = show.tagline, !tagline.isEmpty {
+                Text("“\(tagline)”")
+                    .font(Typography.font(19, .medium)).italic()
+                    .foregroundStyle(Palette.text(0.6))
+                    .lineLimit(2)
+                    .padding(.bottom, 10)
+            }
+
             Text(show.title)
                 .font(Typography.font(72, .black)).foregroundStyle(Palette.textPrimary)
                 .lineLimit(3).minimumScaleFactor(0.5).lineSpacing(-6)
 
+            HStack(spacing: 12) {
+                RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
+                if show.awards?.badge != nil { AwardsBadge(awards: show.awards) }
+            }
+            .padding(.top, 18)
+
             SpecSheet {
-                SpecCell(label: "Rating") { SpecRating(rating: show.rating, certification: show.certification) }
-            } topRight: {
                 SpecCell(label: "Run") { SpecValue(show.runSummary) }
-            } bottomLeft: {
+            } topRight: {
                 SpecCell(label: "Created by") { SpecValue(show.createdBy) }
+            } bottomLeft: {
+                SpecCell(label: "Studio") { SpecValue(show.studios.first ?? show.createdBy) }
             } bottomRight: {
                 SpecCell(label: "Years") { SpecValue(show.years) }
             }
-            .padding(.top, 28)
+            .padding(.top, 24)
 
             Text(show.synopsis)
                 .font(Typography.font(21, .regular)).foregroundStyle(Palette.text(0.72))
                 .lineSpacing(6).frame(maxWidth: 560, alignment: .leading)
-                .padding(.top, 24)
+                .lineLimit(3)
+                .padding(.top, 20)
         }
         .frame(maxWidth: 600, alignment: .leading)
+    }
+
+    private var castRow: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("CAST")
+                .font(Typography.font(15, .heavy)).tracking(2).foregroundStyle(Palette.text(0.5))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 18) {
+                    ForEach(show.cast) { member in
+                        CastAvatar(member: member, size: 72)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .scrollClipDisabled()
+        }
     }
 
     private var episodeStrip: some View {

@@ -6,6 +6,7 @@ let package = Package(
     platforms: [
         .tvOS(.v17),
         .iOS(.v17),
+        .macOS(.v13),
     ],
     products: [
         .library(name: "JellyTVKit", targets: ["JellyTVKit"]),

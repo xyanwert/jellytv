@@ -53,6 +53,10 @@ targets:
         UIUserInterfaceStyle: Dark
         UIAppFonts:
           - SchibstedGrotesk.ttf
+        # Local-network discovery of Jellyfin servers (unicast /24 sweep).
+        NSLocalNetworkUsageDescription: "Why.So.Jelly? scans your local network to find your Jellyfin server automatically."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
 
   # ---------------- iOS/iPadOS companion ----------------
   Remote:

@@ -7,7 +7,35 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertEqual(SampleCatalog.continueWatching.count, 5)
         XCTAssertEqual(SampleCatalog.recommended.count, 7)
         XCTAssertEqual(SampleCatalog.libraries.count, 8)
-        XCTAssertEqual(SampleCatalog.settingsCategories.count, 7)
+        XCTAssertEqual(SampleCatalog.settingsCategories.count, 10)
+    }
+
+    func testSampleMovieEnrichment() {
+        let m = SampleCatalog.movie
+        XCTAssertFalse(m.cast.isEmpty)
+        XCTAssertTrue(m.cast.first?.isLead ?? false)
+        XCTAssertNotNil(m.tagline)
+        XCTAssertNotNil(m.awards)
+        XCTAssertEqual(m.awards?.oscarsWon, 2)
+        XCTAssertNotNil(m.externalRatings?.rottenTomatoes)
+    }
+
+    func testSampleShowEnrichment() {
+        let s = SampleCatalog.show
+        XCTAssertFalse(s.cast.isEmpty)
+        XCTAssertNotNil(s.tagline)
+        XCTAssertNotNil(s.externalRatings)
+    }
+
+    func testMovieForItemIsBareForLiveFetch() {
+        let item = SampleCatalog.recommended[0]
+        let m = SampleCatalog.movie(for: item)
+        XCTAssertEqual(m.id, item.id)           // real id preserved for detail fetch
+        // Bare: enrichment comes from the live fetch, not the demo template,
+        // so the UI never flashes fake cast/awards while loading.
+        XCTAssertTrue(m.cast.isEmpty)
+        XCTAssertNil(m.awards)
+        XCTAssertNil(m.externalRatings)
     }
 
     func testAdultLibraries() {

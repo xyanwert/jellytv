@@ -38,3 +38,12 @@ enum Typography {
     static var eyebrow: Font { font(20, .heavy) }
     static var badge: Font { font(17, .heavy) }
 }
+
+/// Monospaced type for the technical "readout" voice in the design (eyebrows,
+/// status lines, port/host, API keys). Uses the system monospaced face — the
+/// design's Space Mono isn't bundled.
+enum Mono {
+    static func font(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+}

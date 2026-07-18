@@ -12,11 +12,22 @@ private enum MovieField: Hashable {
 /// row, and a bottom bar of cast credits + Play/Trailer/audio/subtitle/add
 /// controls, over an atmospheric backdrop of the movie's art.
 struct MovieDetailView: View {
-    let movie: Movie
+    let initialMovie: Movie
     let onDismiss: () -> Void
 
+    @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var theme: Theme
     @FocusState private var focus: MovieField?
+    /// Live Jellyfin + OMDb detail; replaces the initial (often sample-derived)
+    /// movie once it resolves. All `movie.*` reads below go through `movie`.
+    @State private var detail: Movie?
+
+    init(movie: Movie, onDismiss: @escaping () -> Void) {
+        self.initialMovie = movie
+        self.onDismiss = onDismiss
+    }
+
+    private var movie: Movie { detail ?? initialMovie }
 
     var body: some View {
         ZStack {
@@ -30,7 +41,21 @@ struct MovieDetailView: View {
         }
         .background(Color(hex: "#070A10").ignoresSafeArea())
         .defaultFocus($focus, .resume)
+        .task { await loadDetail() }
         .onExitCommand(perform: onDismiss)
+    }
+
+    /// Fetches full detail (cast, ratings, tagline, director) then merges OMDb
+    /// awards/RT. No-ops gracefully before the server is up (keeps the initial).
+    private func loadDetail() async {
+        guard var m = await appState.movieDetail(for: initialMovie.id) else { return }
+        m.moreLikeThis = initialMovie.moreLikeThis   // keep the row we were opened with
+        detail = m
+        if let enrichment = await appState.omdbEnrichment(imdbId: m.imdbId) {
+            m.externalRatings = enrichment.ratings
+            m.awards = enrichment.awards
+            detail = m
+        }
     }
 
     private var content: some View {
@@ -48,11 +73,16 @@ struct MovieDetailView: View {
             }
             .padding(.top, 8)
 
-            Spacer(minLength: 20)
+            Spacer(minLength: 14)
+
+            if !movie.cast.isEmpty {
+                castRow
+                Spacer(minLength: 14)
+            }
 
             moreLikeThis
 
-            Spacer(minLength: 18)
+            Spacer(minLength: 14)
 
             bottomBar
         }
@@ -64,29 +94,64 @@ struct MovieDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(movie.studioLine.uppercased())
                 .font(Typography.font(16, .heavy)).tracking(4).foregroundStyle(theme.accent)
-                .padding(.bottom, 18)
+                .padding(.bottom, movie.tagline == nil ? 18 : 6)
+
+            if let tagline = movie.tagline, !tagline.isEmpty {
+                Text("“\(tagline)”")
+                    .font(Typography.font(20, .medium)).italic()
+                    .foregroundStyle(Palette.text(0.6))
+                    .lineLimit(2)
+                    .padding(.bottom, 14)
+            }
 
             Text(movie.title)
                 .font(Typography.font(88, .black)).foregroundStyle(Palette.textPrimary)
                 .lineLimit(2).minimumScaleFactor(0.5).lineSpacing(-8)
 
-            SpecSheet {
-                SpecCell(label: "Rating") { SpecRating(rating: movie.rating, certification: movie.certification) }
-            } topRight: {
-                SpecCell(label: "Runtime") { SpecValue(movie.runtime) }
-            } bottomLeft: {
-                SpecCell(label: "Director") { SpecValue(movie.director) }
-            } bottomRight: {
-                SpecCell(label: "Year") { SpecValue(movie.year) }
+            HStack(spacing: 12) {
+                RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
+                if movie.awards?.badge != nil { AwardsBadge(awards: movie.awards) }
             }
-            .padding(.top, 26)
+            .padding(.top, 20)
+
+            SpecSheet {
+                SpecCell(label: "Director") { SpecValue(movie.director.isEmpty ? "—" : movie.director) }
+            } topRight: {
+                SpecCell(label: "Runtime") { SpecValue(movie.runtime.isEmpty ? "—" : movie.runtime) }
+            } bottomLeft: {
+                SpecCell(label: "Studio") { SpecValue(movie.studios.first ?? "—") }
+            } bottomRight: {
+                SpecCell(label: "Year") { SpecValue(movie.year.isEmpty ? "—" : movie.year) }
+            }
+            .padding(.top, 22)
 
             Text(movie.synopsis)
                 .font(Typography.font(21, .regular)).foregroundStyle(Palette.text(0.74))
                 .lineSpacing(7).frame(maxWidth: 580, alignment: .leading)
-                .padding(.top, 24)
+                .lineLimit(3)
+                .padding(.top, 20)
         }
         .frame(maxWidth: 620, alignment: .leading)
+    }
+
+    private var imdbRating: Double? { movie.externalRatings?.imdbRating ?? movie.communityRating }
+    private var rottenTomatoes: Int? { movie.externalRatings?.rottenTomatoes ?? movie.criticRating.map { Int($0) } }
+    private var metacritic: Int? { movie.externalRatings?.metacritic }
+
+    private var castRow: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("CAST")
+                .font(Typography.font(15, .heavy)).tracking(2).foregroundStyle(Palette.text(0.5))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 18) {
+                    ForEach(movie.cast) { member in
+                        CastAvatar(member: member, size: 72)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .scrollClipDisabled()
+        }
     }
 
     private var moreLikeThis: some View {
@@ -112,8 +177,12 @@ struct MovieDetailView: View {
     private var bottomBar: some View {
         HStack(alignment: .center, spacing: 24) {
             HStack(spacing: 44) {
-                credit(label: "Starring", value: movie.starring)
-                credit(label: "Audio", value: movie.audioLine)
+                if !movie.studios.isEmpty {
+                    credit(label: "Studio", value: movie.studios.prefix(2).joined(separator: ", "))
+                }
+                if !movie.audioLine.isEmpty {
+                    credit(label: "Audio", value: movie.audioLine)
+                }
             }
             Spacer()
             controls

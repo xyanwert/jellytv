@@ -64,7 +64,9 @@ struct DetailBackground: View {
     }
 
     @ViewBuilder private var backdrop: some View {
-        if let image {
+        if let image, image.hasPrefix("http"), let url = URL(string: image) {
+            JellyfinAsyncImage(url: url, fallback: artwork.gradient)
+        } else if let image {
             Image(image).resizable().scaledToFill()
         } else {
             artwork.gradient
@@ -102,9 +104,10 @@ struct DetailSpine: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Image(systemName: "drop.fill")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(theme.accent)
+            Image("AppMark")
+                .resizable()
+                .scaledToFit()
+                .padding(7)
                 .frame(width: 54, height: 54)
                 .background(.white, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 .shadow(color: .black.opacity(0.5), radius: 20, y: 6)
@@ -257,7 +260,9 @@ struct KeyArtPanel<Resume: View>: View {
     }
 
     @ViewBuilder private var art: some View {
-        if let image {
+        if let image, image.hasPrefix("http"), let url = URL(string: image) {
+            JellyfinAsyncImage(url: url, fallback: artwork.gradient)
+        } else if let image {
             Image(image).resizable().scaledToFill()
         } else {
             artwork.gradient

@@ -11,7 +11,11 @@ struct ContinueWatchingRow: View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeader(title: "Continue Watching")
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 20) {
+                // .top — without this, HStack centers each card by its total
+                // height (image + caption), so a card whose episode label
+                // wraps to 2 lines ends up taller than its neighbors and its
+                // artwork shifts upward to stay vertically centered.
+                HStack(alignment: .top, spacing: 20) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         ContinueCard(
                             item: item,

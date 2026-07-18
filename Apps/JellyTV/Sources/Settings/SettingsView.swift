@@ -14,7 +14,6 @@ struct SettingsView: View {
             NavRail(
                 destination: .settings,
                 isLibrariesOpen: false,
-                isServerConnected: SampleCatalog.server.isConnected,
                 onSelect: onSelectRail
             )
             SettingsCategoryList(
@@ -38,11 +37,14 @@ struct SettingsView: View {
     private var detail: some View {
         switch selected {
         case .playback: PlaybackDetail()
-        case .account: AccountDetail()
-        case .server: ServerDetail()
         case .subtitles: PlaceholderDetail(title: "Subtitles")
         case .audio: PlaceholderDetail(title: "Audio")
+        case .home: HomeDetail()
+        case .appearance: AppearanceDetail()
         case .parental: PlaceholderDetail(title: "Parental")
+        case .metadata: MetadataDetail()
+        case .server: ServerDetail()
+        case .account: AccountDetail()
         case .about: PlaceholderDetail(title: "About")
         }
     }

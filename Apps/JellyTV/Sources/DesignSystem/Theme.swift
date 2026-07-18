@@ -36,4 +36,9 @@ final class Theme: ObservableObject {
 
     /// The current accent as a SwiftUI color.
     var accent: Color { Color(hex: option.hex) }
+
+    /// A secondary accent, complementary to `accent` — for controls (like
+    /// text-field focus borders) that shouldn't compete with primary actions
+    /// but should still track the chosen theme color.
+    var secondaryAccent: Color { accent.complementary }
 }

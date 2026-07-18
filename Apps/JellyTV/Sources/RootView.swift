@@ -1,35 +1,62 @@
 import SwiftUI
 import JellyTVKit
 
-/// App shell: routes the rail's selections between Home, Settings, and the
-/// placeholder destinations, and owns the Libraries submenu's open/closed
-/// state (always paired with `.home`, never with Settings/placeholders — see
-/// design.md). Owns and injects the shared `Theme`.
 struct RootView: View {
     @StateObject private var theme = Theme()
-    // Opens Settings at launch only when JT_SHOW_SETTINGS=1 (screenshot/testing hook).
+    @StateObject private var server = ServerConnection()
+    @StateObject private var appState = AppState()
     @State private var destination: NavDestination =
         ProcessInfo.processInfo.environment["JT_SHOW_SETTINGS"] == "1" ? .settings : .home
-    // Opens the Libraries submenu at launch only when JT_SHOW_LIBRARIES=1 (screenshot/testing hook).
     @State private var isLibrariesOpen = ProcessInfo.processInfo.environment["JT_SHOW_LIBRARIES"] == "1"
 
     var body: some View {
         Group {
-            switch destination {
-            case .home:
-                HomeView(
-                    isLibrariesOpen: isLibrariesOpen,
-                    onSelectRail: handleRailSelection,
-                    onOpenSettings: { destination = .settings }
-                )
-            case .settings:
-                SettingsView(onSelectRail: handleRailSelection)
-            case .search, .movies, .tv:
-                placeholder
+            if server.isConnected {
+                mainContent
+            } else if case .connecting = server.status {
+                SetupView(server: server)
+            } else {
+                SetupView(server: server)
             }
         }
         .environmentObject(theme)
+        .environmentObject(server)
+        .environmentObject(appState)
         .preferredColorScheme(.dark)
+        .onChange(of: server.isConnected) { _, connected in
+            if connected, let info = server.serverInfo {
+                appState.configure(
+                    baseURL: info.baseURL,
+                    apiKey: info.apiKey,
+                    deviceId: server.deviceId,
+                    userId: info.userId
+                )
+                Task { await appState.refresh() }
+                appState.startRefreshTimer()
+            } else {
+                appState.stopRefreshTimer()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        switch destination {
+        case .home:
+            HomeView(
+                isLibrariesOpen: isLibrariesOpen,
+                onSelectRail: handleRailSelection,
+                onOpenSettings: { destination = .settings }
+            )
+        case .settings:
+            SettingsView(onSelectRail: handleRailSelection)
+        case .search:
+            placeholder
+        case .movies:
+            MoviesLibraryView(onSelectRail: handleRailSelection)
+        case .tv:
+            MetaLibraryView(collectionType: "tvshows", onSelectRail: handleRailSelection)
+        }
     }
 
     private var placeholder: some View {
@@ -37,7 +64,6 @@ struct RootView: View {
             NavRail(
                 destination: destination,
                 isLibrariesOpen: false,
-                isServerConnected: SampleCatalog.server.isConnected,
                 onSelect: handleRailSelection
             )
             ComingSoon(title: placeholderTitle)

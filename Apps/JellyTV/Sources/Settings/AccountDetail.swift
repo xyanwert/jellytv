@@ -1,52 +1,17 @@
 import SwiftUI
 import JellyTVKit
 
-/// Settings → Account: profile, sign out, and the personalization pickers that
-/// don't have a dedicated category in the design (accent theme, hero
-/// transition/rotation) — see design.md's category-mapping decision.
+/// Settings → Account: profile info and sign out. Theme/hero controls have
+/// moved to their own categories (Appearance, Home).
 struct AccountDetail: View {
     @EnvironmentObject private var theme: Theme
+    @EnvironmentObject private var server: ServerConnection
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DetailHeader(title: "Account")
 
             profileRow
-            DetailDivider()
-
-            DetailRow(label: "Theme", description: "Appearance & accent color") {
-                AccentSwatchPicker(selection: $theme.option)
-            }
-            DetailDivider()
-
-            DetailRow(label: "Transition", description: "Hero backdrop animation") {
-                SegmentedControl(
-                    options: HeroTransitionStyle.allCases.map(\.label),
-                    selection: Binding(
-                        get: { theme.transitionStyle.label },
-                        set: { label in
-                            if let match = HeroTransitionStyle.allCases.first(where: { $0.label == label }) {
-                                theme.transitionStyle = match
-                            }
-                        }
-                    )
-                )
-            }
-            DetailDivider()
-
-            DetailRow(label: "Rotation", description: "Hero auto-advance interval") {
-                SegmentedControl(
-                    options: HeroRotation.allCases.map(\.label),
-                    selection: Binding(
-                        get: { theme.rotationInterval.label },
-                        set: { label in
-                            if let match = HeroRotation.allCases.first(where: { $0.label == label }) {
-                                theme.rotationInterval = match
-                            }
-                        }
-                    )
-                )
-            }
             DetailDivider()
 
             signOutRow
@@ -57,12 +22,12 @@ struct AccountDetail: View {
 
     private var profileRow: some View {
         HStack(spacing: 20) {
-            Avatar(initial: SampleCatalog.profile.initial, size: 64)
+            Avatar(initial: profileInitial, size: 64)
             VStack(alignment: .leading, spacing: 4) {
-                Text(SampleCatalog.profile.name)
+                Text(profileName)
                     .font(Typography.font(24, .bold))
                     .foregroundStyle(Palette.textPrimary)
-                Text("\(SampleCatalog.profile.email) · \(SampleCatalog.profile.role)")
+                Text(profileEmail)
                     .font(Typography.font(17, .medium))
                     .foregroundStyle(Palette.text(0.5))
             }
@@ -71,8 +36,28 @@ struct AccountDetail: View {
         .padding(.vertical, 26)
     }
 
+    private var profileInitial: String {
+        if let info = server.serverInfo {
+            return String(info.userId.prefix(1))
+        }
+        return SampleCatalog.profile.initial
+    }
+
+    private var profileName: String {
+        server.serverInfo != nil ? "User" : SampleCatalog.profile.name
+    }
+
+    private var profileEmail: String {
+        if let info = server.serverInfo {
+            return "Connected to \(info.name)"
+        }
+        return "\(SampleCatalog.profile.email) · \(SampleCatalog.profile.role)"
+    }
+
     private var signOutRow: some View {
-        Button {} label: {
+        Button {
+            server.signOut()
+        } label: {
             HStack {
                 Text("Sign Out")
                     .font(Typography.font(24, .bold))
@@ -87,24 +72,5 @@ struct AccountDetail: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(RowFocusStyle())
-    }
-}
-
-/// Four color swatches; the selected accent gets a white ring.
-private struct AccentSwatchPicker: View {
-    @Binding var selection: AccentOption
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ForEach(AccentOption.allCases) { option in
-                Button { selection = option } label: {
-                    Circle()
-                        .fill(Color(hex: option.hex))
-                        .frame(width: 34, height: 34)
-                        .overlay(Circle().stroke(.white, lineWidth: option == selection ? 3 : 0))
-                }
-                .buttonStyle(FocusScaleStyle(scale: 1.25, cornerRadius: 999, outline: false))
-            }
-        }
     }
 }

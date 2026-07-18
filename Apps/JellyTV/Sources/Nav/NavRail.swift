@@ -9,12 +9,10 @@ enum RailTarget: Hashable {
 }
 
 /// The persistent 118pt-wide left navigation rail, present on Home and Settings:
-/// an app-mark tile with the server-status dot, five nav icons, and a pinned
-/// settings icon at the bottom.
+/// an app-mark tile, five nav icons, and a pinned settings icon at the bottom.
 struct NavRail: View {
     let destination: NavDestination
     let isLibrariesOpen: Bool
-    let isServerConnected: Bool
     let onSelect: (RailTarget) -> Void
 
     @EnvironmentObject private var theme: Theme
@@ -54,20 +52,17 @@ struct NavRail: View {
     }
 
     private var railBackground: Color {
-        Color(hex: "#06080E").opacity(isLibrariesOpen ? 0.85 : 0.5)
+        Color(hex: "#06080E").opacity(isLibrariesOpen ? 0.85 : 0.2)
     }
 
     private var appMark: some View {
-        ZStack(alignment: .topLeading) {
-            Image(systemName: "drop.fill")
-                .font(.system(size: 26, weight: .bold))
-                .foregroundStyle(theme.accent)
-                .frame(width: 66, height: 66)
-                .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .shadow(color: .black.opacity(0.45), radius: 20, y: 6)
-            StatusDot(isConnected: isServerConnected)
-                .offset(x: 6, y: 6)
-        }
+        Image("AppMark")
+            .resizable()
+            .scaledToFit()
+            .padding(8)
+            .frame(width: 66, height: 66)
+            .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: .black.opacity(0.45), radius: 20, y: 6)
     }
 
     @ViewBuilder

@@ -12,6 +12,10 @@ struct ContinueCard: View {
     var focusTag: HomeFocus?
 
     @EnvironmentObject private var theme: Theme
+    // Dominant color of the actual downloaded artwork (remote images only —
+    // it can't be known until the pixels are in hand). Until it resolves,
+    // `dominant` falls back to the artwork gradient's top color.
+    @State private var remoteDominant: Color?
 
     init(item: ContinueWatchingItem,
          focus: FocusState<HomeFocus?>.Binding? = nil,
@@ -21,7 +25,9 @@ struct ContinueCard: View {
         self.focusTag = focusTag
     }
 
+    private var isRemote: Bool { item.image?.hasPrefix("http") == true }
     private var dominant: Color {
+        if isRemote { return remoteDominant ?? Color(item.artwork.top) }
         if let name = item.image { return DominantColor.of(name, fallback: Color(item.artwork.top)) }
         return Color(item.artwork.top)
     }
@@ -29,6 +35,10 @@ struct ContinueCard: View {
     var body: some View {
         let card = Button {} label: { label }
             .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.16))
+            .task(id: item.image) {
+                guard isRemote, let image = item.image, let url = URL(string: image) else { return }
+                remoteDominant = await DominantColor.of(url: url, fallback: Color(item.artwork.top))
+            }
         if let focus, let focusTag {
             card.focused(focus, equals: focusTag)
         } else {
@@ -73,7 +83,7 @@ struct ContinueCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(dominant, lineWidth: 3)
+                    .stroke(dominant, lineWidth: 6)
             )
 
             Text(item.episodeLabel)
@@ -85,7 +95,14 @@ struct ContinueCard: View {
     }
 
     @ViewBuilder private var artwork: some View {
-        if let name = item.image {
+        if let image = item.image, isRemote, let url = URL(string: image) {
+            ZStack {
+                JellyfinAsyncImage(url: url, fallback: item.artwork.gradient)
+                LinearGradient(colors: [.clear, .clear, .black.opacity(0.55)],
+                               startPoint: .top, endPoint: .bottom)   // bottom scrim for the title
+            }
+            .compositingGroup()
+        } else if let name = item.image {
             ZStack {
                 Image(name).resizable().scaledToFill()
                 dominant.opacity(0.38).blendMode(.color)          // duotone tint toward the dominant color
@@ -108,8 +125,9 @@ struct PosterCard: View {
     let item: MediaItem
     var onSelect: () -> Void = {}
 
+    private var isRemote: Bool { item.image?.hasPrefix("http") == true }
     private var dominant: Color {
-        if let name = item.image { return DominantColor.of(name, fallback: Color(item.artwork.top)) }
+        if let name = item.image, !isRemote { return DominantColor.of(name, fallback: Color(item.artwork.top)) }
         return Color(item.artwork.top)
     }
 
@@ -117,7 +135,9 @@ struct PosterCard: View {
         Button(action: onSelect) {
             VStack(spacing: 10) {
                 ZStack(alignment: .bottomLeading) {
-                    if let name = item.image {
+                    if let image = item.image, isRemote, let url = URL(string: image) {
+                        JellyfinAsyncImage(url: url, fallback: item.artwork.gradient)
+                    } else if let name = item.image {
                         Image(name).resizable().scaledToFill()
                     } else {
                         item.artwork.gradient

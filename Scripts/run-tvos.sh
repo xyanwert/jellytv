@@ -31,23 +31,33 @@ command -v xcodegen >/dev/null 2>&1 || die "XcodeGen not found — run Scripts/b
 udid_of() { grep -oE '[0-9A-Fa-f-]{36}' | head -1; }
 SIM="${JELLY_TV_SIM:-}"
 if [ -z "${SIM}" ]; then
-  SIM="$(xcrun simctl list devices available | grep 'Apple TV' | grep '(Booted)' | head -1 | udid_of)"
+  # grep exits 1 on no match (e.g. nothing booted yet) — under `set -e` that
+  # would silently kill the whole script right here, before any output, so
+  # these two lookups must not be allowed to trip errexit.
+  SIM="$(xcrun simctl list devices available | grep 'Apple TV' | grep '(Booted)' | head -1 | udid_of || true)"
 fi
 if [ -z "${SIM}" ]; then
-  SIM="$(xcrun simctl list devices available | grep 'Apple TV' | head -1 | udid_of)"
+  SIM="$(xcrun simctl list devices available | grep 'Apple TV' | head -1 | udid_of || true)"
 fi
 [ -n "${SIM}" ] || die "No Apple TV simulator found. Create one in Xcode → Settings → Platforms, or Window → Devices and Simulators."
 info "Simulator: ${SIM}"
 
 # 2. Generate the project and build for that simulator.
 info "Generating project…"
-xcodegen generate >/dev/null
+xcodegen generate
 
 info "Building JellyTV (Debug, tvOS Simulator)…"
+# Prefer a pretty formatter for readable per-file progress; fall back to raw
+# xcodebuild output (which still streams) when none is installed. pipefail (set
+# at the top) makes a build failure propagate through the pipe.
+BEAUTIFY=(cat)
+if command -v xcbeautify >/dev/null 2>&1; then BEAUTIFY=(xcbeautify)
+elif command -v xcpretty >/dev/null 2>&1; then BEAUTIFY=(xcpretty)
+fi
 xcodebuild -project JellyTV.xcodeproj -scheme JellyTV \
   -destination "id=${SIM}" -configuration Debug \
   -derivedDataPath "${DERIVED}" \
-  CODE_SIGNING_ALLOWED=NO build >/dev/null
+  CODE_SIGNING_ALLOWED=NO build | "${BEAUTIFY[@]}"
 
 APP="$(/usr/bin/find "${DERIVED}/Build/Products" -maxdepth 3 -name 'JellyTV.app' | head -1)"
 [ -n "${APP}" ] || die "Build succeeded but JellyTV.app was not found under ${DERIVED}."
@@ -55,13 +65,19 @@ APP="$(/usr/bin/find "${DERIVED}/Build/Products" -maxdepth 3 -name 'JellyTV.app'
 # 3. Boot the simulator, bring the Simulator app forward, install, and launch.
 info "Booting simulator + opening Simulator.app…"
 open -a Simulator
-xcrun simctl bootstatus "${SIM}" -b >/dev/null 2>&1
+xcrun simctl bootstatus "${SIM}" -b
 
-info "Installing + launching…"
+info "Installing…"
 xcrun simctl install "${SIM}" "${APP}"
 xcrun simctl terminate "${SIM}" "${BUNDLE_ID}" >/dev/null 2>&1 || true
-env "${LAUNCH_ENV[@]}" xcrun simctl launch "${SIM}" "${BUNDLE_ID}"
 
-echo
-info "Running. Use the Simulator's remote (Ctrl/⌘ + arrow keys) to move focus."
-info "In Xcode you can also just press Run (⌘R) on the JellyTV scheme."
+# Terminate the app if this script is interrupted, so we don't leave it running.
+cleanup() { echo; info "Stopping app…"; xcrun simctl terminate "${SIM}" "${BUNDLE_ID}" >/dev/null 2>&1 || true; }
+trap cleanup INT TERM
+
+info "Launching (attached — press Ctrl-C to stop)…"
+info "Streaming the app console below. Use the Simulator's remote (Ctrl/⌘ + arrows)."
+# --console-pty attaches to the app's stdout/stderr and blocks until the app
+# exits, so the script keeps running and shows live output instead of returning
+# the instant the app is spawned.
+env ${LAUNCH_ENV:+"${LAUNCH_ENV[@]}"} xcrun simctl launch --console-pty "${SIM}" "${BUNDLE_ID}"

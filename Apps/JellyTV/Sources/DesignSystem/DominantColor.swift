@@ -14,14 +14,34 @@ enum DominantColor {
 
     static func of(_ imageName: String, fallback: Color = .gray) -> Color {
         if let cached = cache[imageName] { return cached }
-        let color = compute(imageName) ?? fallback
+        #if canImport(UIKit)
+        let color = compute(UIImage(named: imageName)) ?? fallback
+        #else
+        let color = fallback
+        #endif
         cache[imageName] = color
         return color
     }
 
+    /// Same extraction, but for a remotely-hosted (Jellyfin) image — fetched
+    /// once and cached by URL so repeat lookups (card re-renders, revisiting
+    /// Home) don't re-download or recompute.
+    static func of(url: URL, fallback: Color = .gray) async -> Color {
+        let key = url.absoluteString
+        if let cached = cache[key] { return cached }
+        #if canImport(UIKit)
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return fallback }
+        let color = compute(UIImage(data: data)) ?? fallback
+        #else
+        let color = fallback
+        #endif
+        cache[key] = color
+        return color
+    }
+
     #if canImport(UIKit)
-    private static func compute(_ name: String) -> Color? {
-        guard let image = UIImage(named: name), let cg = image.cgImage else { return nil }
+    private static func compute(_ image: UIImage?) -> Color? {
+        guard let image, let cg = image.cgImage else { return nil }
         let w = 32, h = 32
         let space = CGColorSpaceCreateDeviceRGB()
         var data = [UInt8](repeating: 0, count: w * h * 4)
@@ -64,7 +84,5 @@ enum DominantColor {
         if mx > 0 { let f = 0.78 / mx; r *= f; g *= f; b *= f }
         return Color(.sRGB, red: r, green: g, blue: b, opacity: 1)
     }
-    #else
-    private static func compute(_ name: String) -> Color? { nil }
     #endif
 }
