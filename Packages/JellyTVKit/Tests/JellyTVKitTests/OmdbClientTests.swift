@@ -11,13 +11,13 @@ final class OmdbClientTests: XCTestCase {
         XCTAssertEqual(a?.oscarNominations, 0)
         XCTAssertEqual(a?.wins, 15)
         XCTAssertEqual(a?.nominations, 30)
-        XCTAssertEqual(a?.badge, "★ 2 OSCARS")
+        XCTAssertEqual(a?.academyAwardsLabel, "Won 2 Academy Awards")
     }
 
     func testParseSingleOscarWinnerBadge() {
         let a = MovieAwards.parse("Won 1 Oscar. 3 wins & 2 nominations total")
         XCTAssertEqual(a?.oscarsWon, 1)
-        XCTAssertEqual(a?.badge, "★ ACADEMY AWARD WINNER")
+        XCTAssertEqual(a?.academyAwardsLabel, "Won 1 Academy Award")
     }
 
     func testParseNominatedForOscars() {
@@ -25,14 +25,16 @@ final class OmdbClientTests: XCTestCase {
         XCTAssertEqual(a?.oscarsWon, 0)
         XCTAssertEqual(a?.oscarNominations, 3)
         XCTAssertEqual(a?.wins, 5)
-        XCTAssertEqual(a?.badge, "★ 3 OSCAR NOMS")
+        // Oscar *nominations* (no win) surface no Academy-Awards headline.
+        XCTAssertNil(a?.academyAwardsLabel)
     }
 
     func testParseWinsOnlyBadge() {
         let a = MovieAwards.parse("8 wins & 20 nominations total")
         XCTAssertEqual(a?.oscarsWon, 0)
         XCTAssertEqual(a?.wins, 8)
-        XCTAssertEqual(a?.badge, "8 WINS")
+        // Non-Oscar festival wins are intentionally not surfaced.
+        XCTAssertNil(a?.academyAwardsLabel)
     }
 
     func testParseEmptyAndNA() {

@@ -486,13 +486,16 @@ private struct SelectedMovieBand: View {
 
     @EnvironmentObject private var theme: Theme
 
-    private static let height: CGFloat = 452
+    private static let height: CGFloat = 536
 
     var body: some View {
         HStack(alignment: .center, spacing: 40) {
             info
             Spacer(minLength: 20)
-            SignalDossier(movie: movie, isLoading: isLoading)
+            VStack(alignment: .leading, spacing: 16) {
+                StatsCastPanel(movie: movie, isLoading: isLoading)
+                MetaPanel(movie: movie, isLoading: isLoading)
+            }
         }
         .padding(.horizontal, 100)
         .frame(maxWidth: .infinity)
@@ -551,32 +554,35 @@ private struct SelectedMovieBand: View {
     private var dot: some View { Text("·").foregroundStyle(Palette.text(0.4)) }
 }
 
-/// The selected-movie dossier card: rating chips (IMDb / Rotten Tomatoes /
-/// Metacritic), an awards badge, real cast headshots, and crew rows. Rich data
-/// is fetched per selection (Jellyfin detail + optional OMDb); anything absent
-/// simply doesn't render, so the card degrades cleanly on sparse metadata.
-private struct SignalDossier: View {
+/// The dossier's top panel (design 4a): the "SIGNAL DOSSIER / DECODED" header,
+/// two big rating stat boxes (critics / audience), and a two-column cast grid
+/// with Oscar-winner medals. Rich data is fetched per selection (Jellyfin
+/// detail + optional OMDb); anything absent simply doesn't render, so the
+/// panel degrades cleanly on sparse metadata.
+private struct StatsCastPanel: View {
     let movie: Movie
     var isLoading: Bool = false
 
     @EnvironmentObject private var theme: Theme
 
-    /// Fixed footprint so the panel never resizes/jumps as content changes
-    /// (loading → loaded, rich → sparse); content is top-aligned inside it.
-    private static let size = CGSize(width: 380, height: 432)
+    /// Fixed footprint — independent of `MetaPanel`'s — so this panel never
+    /// resizes/jumps as content changes (loading → loaded, rich → sparse);
+    /// content is top-aligned inside it.
+    static let size = CGSize(width: 440, height: 380)
 
-    private var imdb: Double? { movie.externalRatings?.imdbRating ?? movie.communityRating }
-    private var rottenTomatoes: Int? { movie.externalRatings?.rottenTomatoes ?? movie.criticRating.map { Int($0) } }
-    private var metacritic: Int? { movie.externalRatings?.metacritic }
+    /// Audience score (IMDb / community), 0–10.
+    private var audience: Double? { movie.externalRatings?.imdbRating ?? movie.communityRating }
+    /// Critics score (Rotten Tomatoes / Jellyfin critic), a percentage.
+    private var critics: Int? { movie.externalRatings?.rottenTomatoes ?? movie.criticRating.map { Int($0) } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             header
             if isLoading {
                 loadingBody
             } else {
-                loadedBody
-                Spacer(minLength: 0)
+                statBoxes
+                castSection
             }
         }
         .padding(20)
@@ -615,47 +621,128 @@ private struct SignalDossier: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder private var loadedBody: some View {
-        RatingChips(imdb: imdb, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
+    // MARK: - Ratings
 
-        if let awards = movie.awards, awards.badge != nil {
-            AwardsBadge(awards: awards)
-        }
-
-        divider
-
-        if !movie.cast.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("CAST")
-                    .font(Mono.font(12, .bold))
-                    .tracking(2)
-                    .foregroundStyle(Palette.text(0.42))
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 14) {
-                        ForEach(movie.cast.prefix(3)) { member in
-                            CastAvatar(member: member, size: 62)
-                        }
-                    }
-                }
+    @ViewBuilder private var statBoxes: some View {
+        if critics != nil || audience != nil {
+            HStack(spacing: 12) {
+                if let critics { statBox(value: "\(critics)%", label: "CRITICS", accent: true) }
+                if let audience { statBox(value: String(format: "%.1f", audience), label: "AUDIENCE", accent: false) }
             }
-            divider
-        }
-
-        VStack(alignment: .leading, spacing: 7) {
-            if !movie.director.isEmpty { crewRow(label: "Director", value: movie.director) }
-            if !movie.studios.isEmpty { crewRow(label: "Studio", value: movie.studios.prefix(2).joined(separator: ", ")) }
-            if !movie.runtime.isEmpty { crewRow(label: "Runtime", value: movie.runtime) }
-            crewRow(label: "Certified", value: movie.certification.isEmpty ? "—" : movie.certification)
         }
     }
 
-    private var divider: some View { Rectangle().fill(Palette.text(0.1)).frame(height: 1) }
+    private func statBox(value: String, label: String, accent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value)
+                .font(Typography.font(34, .black))
+                .foregroundStyle(accent ? theme.accent : Palette.textPrimary)
+            Text(label)
+                .font(Mono.font(11, .bold)).tracking(1.5)
+                .foregroundStyle(Palette.text(0.42))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 13).padding(.horizontal, 16)
+        .background(Palette.text(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.1), lineWidth: 1))
+    }
+
+    // MARK: - Cast (two-column grid)
+
+    @ViewBuilder private var castSection: some View {
+        if !movie.cast.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("CAST")
+                    .font(Mono.font(12, .bold)).tracking(2)
+                    .foregroundStyle(Palette.text(0.42))
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)],
+                    alignment: .leading, spacing: 14
+                ) {
+                    ForEach(movie.cast.prefix(6)) { member in
+                        CastListItem(member: member, portrait: 42)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The dossier's bottom panel (design 4a): director / studio / runtime crew
+/// rows, in its own fixed-size card below `StatsCastPanel`. The director's
+/// name renders upper-case. When the film has actually *won* an Oscar (other
+/// awards are ignored per the product decision — see `MovieAwards.academyAwardsLabel`),
+/// the panel gets a quiet trophy-art background at 40% opacity instead of the
+/// flat panel color, as a subtle Oscar signal rather than another text badge.
+private struct MetaPanel: View {
+    let movie: Movie
+    var isLoading: Bool = false
+
+    @EnvironmentObject private var theme: Theme
+
+    /// Fixed footprint — independent of `StatsCastPanel`'s — so this panel
+    /// never resizes/jumps as content changes.
+    static let size = CGSize(width: 440, height: 140)
+
+    private static let oscarArtURL = URL(string: "https://w.wallhaven.cc/full/4y/wallhaven-4yzo3d.jpg")
+    private var wonOscar: Bool { (movie.awards?.oscarsWon ?? 0) > 0 }
+
+    var body: some View {
+        Group {
+            if isLoading { loadingBody } else { metaRows }
+        }
+        .padding(20)
+        .frame(width: Self.size.width, height: Self.size.height, alignment: .top)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Palette.text(0.12), lineWidth: 1))
+        .shadow(color: .black.opacity(0.55), radius: 30, y: 16)
+    }
+
+    /// This panel's own decode indicator — smaller than `StatsCastPanel`'s
+    /// (there's less vertical room here), but the same visual language, so
+    /// both dossier windows read as "still decoding" rather than one loading
+    /// and the other going blank.
+    private var loadingBody: some View {
+        HStack(spacing: 10) {
+            ProgressView().tint(theme.accent)
+            Text("Decoding…")
+                .font(Mono.font(13, .medium)).tracking(1)
+                .foregroundStyle(Palette.text(0.4))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var metaRows: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !movie.director.isEmpty { crewRow(label: "Director", value: movie.director.uppercased()) }
+            if !movie.studios.isEmpty { crewRow(label: "Studio", value: movie.studios.prefix(2).joined(separator: ", ")) }
+            if !movie.runtime.isEmpty { crewRow(label: "Runtime", value: movie.runtime) }
+        }
+    }
 
     private func crewRow(label: String, value: String) -> some View {
         HStack {
             Text(label.uppercased()).font(Mono.font(13, .semibold)).tracking(1).foregroundStyle(Palette.text(0.42))
             Spacer(minLength: 12)
             Text(value).font(Typography.font(15, .bold)).foregroundStyle(Palette.textPrimary).lineLimit(1)
+        }
+    }
+
+    @ViewBuilder private var background: some View {
+        ZStack {
+            Color(hex: "#0E121A").opacity(0.7)
+            if wonOscar, let oscarArtURL = Self.oscarArtURL {
+                AsyncImage(url: oscarArtURL) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().aspectRatio(contentMode: .fill)
+                            .frame(width: Self.size.width, height: Self.size.height)
+                            .opacity(0.4)
+                    }
+                }
+                .frame(width: Self.size.width, height: Self.size.height)
+                .clipped()
+            }
         }
     }
 }

@@ -9,7 +9,7 @@ enum RailTarget: Hashable {
 }
 
 /// The persistent 118pt-wide left navigation rail, present on Home and Settings:
-/// an app-mark tile, five nav icons, and a pinned settings icon at the bottom.
+/// five nav icons and a pinned settings icon at the bottom.
 struct NavRail: View {
     let destination: NavDestination
     let isLibrariesOpen: Bool
@@ -30,7 +30,6 @@ struct NavRail: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            appMark
             Spacer(minLength: 36)
             VStack(spacing: 14) {
                 railButton(.home) { NavIcons.home(color: $0) }
@@ -53,16 +52,6 @@ struct NavRail: View {
 
     private var railBackground: Color {
         Color(hex: "#06080E").opacity(isLibrariesOpen ? 0.85 : 0.2)
-    }
-
-    private var appMark: some View {
-        Image("AppMark")
-            .resizable()
-            .scaledToFit()
-            .padding(8)
-            .frame(width: 66, height: 66)
-            .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: .black.opacity(0.45), radius: 20, y: 6)
     }
 
     @ViewBuilder

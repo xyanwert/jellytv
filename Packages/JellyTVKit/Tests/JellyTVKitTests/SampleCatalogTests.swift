@@ -14,9 +14,11 @@ final class SampleCatalogTests: XCTestCase {
         let m = SampleCatalog.movie
         XCTAssertFalse(m.cast.isEmpty)
         XCTAssertTrue(m.cast.first?.isLead ?? false)
+        XCTAssertTrue(m.cast.contains { $0.wonOscar })   // Oscar-winner decorator previews
         XCTAssertNotNil(m.tagline)
         XCTAssertNotNil(m.awards)
         XCTAssertEqual(m.awards?.oscarsWon, 2)
+        XCTAssertEqual(m.awards?.academyAwardsLabel, "Won 2 Academy Awards")
         XCTAssertNotNil(m.externalRatings?.rottenTomatoes)
     }
 

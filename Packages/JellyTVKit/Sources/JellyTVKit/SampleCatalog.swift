@@ -186,10 +186,12 @@ public enum SampleCatalog {
     /// Demo cast (no headshot URLs, so the monogram fallback is exercised in
     /// previews); the first entry is the lead.
     private static let sampleCast: [CastMember] = [
-        .init(id: "cast-1", name: "Ines Duval", role: "Dr. Maren Cole", isLead: true),
+        .init(id: "cast-1", name: "Ines Duval", role: "Dr. Maren Cole", isLead: true, wonOscar: true),
         .init(id: "cast-2", name: "Theo Marsh", role: "Elias Vance"),
         .init(id: "cast-3", name: "Nadia Rourke", role: "Capt. Okonkwo"),
         .init(id: "cast-4", name: "Sam Whitlock", role: "Jonah"),
+        .init(id: "cast-5", name: "Priya Anand", role: "Dr. Reyes"),
+        .init(id: "cast-6", name: "Callum Reid", role: "The Signal"),
     ]
 
     /// A `Show` for any media item — the demo template carrying that item's

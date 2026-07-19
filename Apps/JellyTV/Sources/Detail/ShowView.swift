@@ -119,7 +119,7 @@ struct ShowView: View {
 
             HStack(spacing: 12) {
                 RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
-                if show.awards?.badge != nil { AwardsBadge(awards: show.awards) }
+                if show.awards?.academyAwardsLabel != nil { AwardsBadge(awards: show.awards) }
             }
             .padding(.top, 18)
 

@@ -5,8 +5,12 @@ struct RootView: View {
     @StateObject private var theme = Theme()
     @StateObject private var server = ServerConnection()
     @StateObject private var appState = AppState()
-    @State private var destination: NavDestination =
-        ProcessInfo.processInfo.environment["JT_SHOW_SETTINGS"] == "1" ? .settings : .home
+    @State private var destination: NavDestination = {
+        let env = ProcessInfo.processInfo.environment
+        if env["JT_SHOW_SETTINGS"] == "1" { return .settings }
+        if env["JT_SHOW_MOVIES"] == "1" { return .movies }
+        return .home
+    }()
     @State private var isLibrariesOpen = ProcessInfo.processInfo.environment["JT_SHOW_LIBRARIES"] == "1"
 
     var body: some View {

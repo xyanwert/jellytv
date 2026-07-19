@@ -57,8 +57,32 @@ legibility) + top-darken (header legibility) + a pre-darken toward black at the 
 hard-cutting. A blurred copy masked to the top softens busy art under the header.
 
 **Panels don't jump.** Give info panels a fixed frame (`.frame(width:height:, alignment: .top)`)
-with top-aligned content so they hold one size across loading / sparse / rich states (e.g.
-`SignalDossier`). Prefer this over letting a panel resize to its content.
+with top-aligned content so they hold one size across loading / sparse / rich states. Prefer this
+over letting a panel resize to its content. If a panel's content keeps growing (more sections
+added over iterations), **split it into multiple independently-fixed-size panels** stacked with a
+gap rather than growing one tall panel — see the Movies dossier's `StatsCastPanel` +
+`MetaPanel` (design 4a). Every such panel needs its **own** loading/decode indicator sized to
+its own footprint — a sibling panel finishing first while another sits blank reads as broken, even
+if each panel's fixed-size rule is individually satisfied.
+
+**Cast/person portraits are rounded squares, not circles** (`CastPortrait` in
+`MetadataComponents.swift`): a deterministic per-person gradient monogram fallback (hash the id
+into a hue), an accent-colored ring for a lead/featured role, and a distinct gold ring + a small
+gold medal badge tucked into a corner for a special/decorated status (e.g. an Oscar-winning
+actor). Reuse this shared component rather than a one-off circular avatar.
+
+**Award callouts are narrow and literal.** When a product decision says "surface X, ignore
+everything else" (e.g. Oscar *wins* only — not nominations, not other festivals' wins), encode
+that as the single gate a view checks (`MovieAwards.academyAwardsLabel`), not a chain of
+fallbacks that also surfaces the ignored cases. When a panel already carries several visual
+indicators (rating chips, badges, medals), prefer a **quiet atmospheric treatment** — a relevant
+image as the panel's own background at low opacity (~40%), centered and clipped to the panel's
+shape — over stacking another text badge.
+
+**External (non-Jellyfin) images** — anything not served by the user's Jellyfin instance (a
+static reference/decorative image, a third-party artwork URL) — load with plain SwiftUI
+`AsyncImage(url:)` directly. Reserve `JellyfinAsyncImage` for the server's own token-less image
+endpoints.
 
 **Layout regions.** On a browse screen, pin the header/filters/selected-item band and scroll only
 the catalog (put the grid in its own inner `ScrollView`, everything else outside it). Don't wrap a

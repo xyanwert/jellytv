@@ -1,35 +1,27 @@
 import SwiftUI
 import JellyTVKit
 
-/// A circular cast headshot with a monogram fallback and a lead-actor accent
-/// ring — adapted from the v1 app's `ItemDetailView.castCell`/`castMonogram`/
-/// `headshotRing`. Used across the Movies dossier and the detail screens.
-struct CastAvatar: View {
+/// The cast headshot itself: a soft rounded square (deliberately *not* a
+/// circle), with a per-person gradient monogram fallback, a lead/Oscar accent
+/// border, and a gold Academy-Award medal tucked into the lower-left corner for
+/// Oscar-winning actors. Shared by the vertical `CastAvatar` (detail rows) and
+/// the horizontal `CastListItem` (Movies dossier).
+struct CastPortrait: View {
     let member: CastMember
-    var size: CGFloat = 96
+    var size: CGFloat = 72
 
     @EnvironmentObject private var theme: Theme
 
-    var body: some View {
-        VStack(spacing: 8) {
-            headshot
-                .frame(width: size, height: size)
-                .clipShape(Circle())
-                .overlay(ring)
-                .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
+    private static let gold = Color(hex: "#E8B44A")
+    private var corner: CGFloat { size * 0.3 }
 
-            Text(member.name)
-                .font(Typography.font(16, .bold))
-                .foregroundStyle(Palette.textPrimary)
-                .lineLimit(1)
-            if let role = member.role, !role.isEmpty {
-                Text(role)
-                    .font(Typography.font(14, .medium))
-                    .foregroundStyle(Palette.text(0.5))
-                    .lineLimit(1)
-            }
-        }
-        .frame(width: size + 40)
+    var body: some View {
+        headshot
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            .overlay(border)
+            .overlay(alignment: .bottomLeading) { medal }
+            .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
     }
 
     @ViewBuilder private var headshot: some View {
@@ -46,23 +38,101 @@ struct CastAvatar: View {
         }
     }
 
+    /// A deterministic two-tone gradient (hue seeded from the id) behind the
+    /// initials, so each fallback tile gets its own colour rather than flat grey.
     private var monogram: some View {
-        ZStack {
-            Circle().fill(Palette.text(0.08))
+        let hue = Double(abs(member.id.hashValue) % 360)
+        return ZStack {
+            LinearGradient(
+                colors: [Color(OKLCH(l: 0.56, c: 0.13, h: hue)),
+                         Color(OKLCH(l: 0.38, c: 0.11, h: hue + 26))],
+                startPoint: .topLeading, endPoint: .bottomTrailing)
             Text(member.initials)
-                .font(Typography.font(size * 0.3, .heavy))
-                .foregroundStyle(Palette.text(0.55))
+                .font(Typography.font(size * 0.32, .heavy))
+                .foregroundStyle(.white.opacity(0.92))
         }
     }
 
-    @ViewBuilder private var ring: some View {
-        if member.isLead {
-            Circle().stroke(
-                LinearGradient(colors: [theme.accent, theme.accent.opacity(0.35)],
-                               startPoint: .top, endPoint: .bottom),
-                lineWidth: 2.5)
+    @ViewBuilder private var border: some View {
+        let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
+        if member.wonOscar {
+            shape.stroke(
+                LinearGradient(colors: [Self.gold, Self.gold.opacity(0.45)],
+                               startPoint: .top, endPoint: .bottom), lineWidth: 2.5)
+        } else if member.isLead {
+            shape.stroke(
+                LinearGradient(colors: [theme.accent, theme.accent.opacity(0.3)],
+                               startPoint: .top, endPoint: .bottom), lineWidth: 2)
         } else {
-            Circle().stroke(Palette.text(0.14), lineWidth: 1)
+            shape.stroke(Palette.text(0.14), lineWidth: 1)
+        }
+    }
+
+    /// The Oscar medal — a gold star on a dark disc, overlapping the lower-left
+    /// corner (matching the design). Only for Academy-Award winners.
+    @ViewBuilder private var medal: some View {
+        if member.wonOscar {
+            let d = size * 0.4
+            ZStack {
+                Circle().fill(Color(hex: "#0E121A"))
+                Circle().stroke(Self.gold, lineWidth: 1.5)
+                Image(systemName: "star.fill")
+                    .font(.system(size: d * 0.48, weight: .bold))
+                    .foregroundStyle(Self.gold)
+            }
+            .frame(width: d, height: d)
+            .offset(x: -d * 0.32, y: d * 0.32)
+        }
+    }
+}
+
+/// A vertical cast cell (portrait above, name/character below) — the horizontal
+/// cast strip on the Movie and Show detail screens.
+struct CastAvatar: View {
+    let member: CastMember
+    var size: CGFloat = 96
+
+    var body: some View {
+        VStack(spacing: 8) {
+            CastPortrait(member: member, size: size)
+
+            Text(member.name)
+                .font(Typography.font(16, .bold))
+                .foregroundStyle(Palette.textPrimary)
+                .lineLimit(1)
+            if let role = member.role, !role.isEmpty {
+                Text(role)
+                    .font(Typography.font(14, .medium))
+                    .foregroundStyle(Palette.text(0.5))
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: size + 40)
+    }
+}
+
+/// A horizontal cast entry (portrait beside name/character) for the Movies
+/// dossier's two-column cast grid.
+struct CastListItem: View {
+    let member: CastMember
+    var portrait: CGFloat = 42
+
+    var body: some View {
+        HStack(spacing: 10) {
+            CastPortrait(member: member, size: portrait)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.name)
+                    .font(Typography.font(15, .bold))
+                    .foregroundStyle(Palette.textPrimary)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                if let role = member.role, !role.isEmpty {
+                    Text(role)
+                        .font(Mono.font(12, .medium))
+                        .foregroundStyle(Palette.text(0.45))
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }
+            }
+            Spacer(minLength: 0)
         }
     }
 }
@@ -113,22 +183,23 @@ struct RatingChips: View {
     }
 }
 
-/// A gold awards badge (e.g. "★ 2 OSCARS" / "★ OSCAR NOMINEE" / "12 WINS").
-/// Renders nothing when there's no notable awards data.
+/// A compact gold "★ Won N Academy Awards" capsule for the detail screens.
+/// Renders only for actual Oscar wins (nothing for nominations / other awards).
 struct AwardsBadge: View {
     let awards: MovieAwards?
 
     private static let gold = Color(hex: "#E8B44A")
 
     var body: some View {
-        if let badge = awards?.badge {
-            Text(badge)
-                .font(Mono.font(13, .bold))
-                .tracking(1.5)
-                .foregroundStyle(Self.gold)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Self.gold.opacity(0.12), in: Capsule())
-                .overlay(Capsule().stroke(Self.gold.opacity(0.4), lineWidth: 1))
+        if let label = awards?.academyAwardsLabel {
+            HStack(spacing: 7) {
+                Image(systemName: "star.fill").font(.system(size: 12, weight: .bold))
+                Text(label).font(Typography.font(15, .bold))
+            }
+            .foregroundStyle(Self.gold)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(Self.gold.opacity(0.12), in: Capsule())
+            .overlay(Capsule().stroke(Self.gold.opacity(0.4), lineWidth: 1))
         }
     }
 }

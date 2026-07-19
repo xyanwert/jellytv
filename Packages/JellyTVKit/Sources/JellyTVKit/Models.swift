@@ -493,14 +493,19 @@ public struct CastMember: Equatable, Sendable, Hashable, Identifiable {
     public var role: String?        // character name, for actors
     public var imageURL: String?    // headshot URL; falls back to a monogram
     public var isLead: Bool
+    /// Whether this actor has won an Academy Award — drives the gold star medal
+    /// on their portrait. Not derivable from Jellyfin/OMDb (both are film-level),
+    /// so it stays `false` for live data until a person-awards source is wired.
+    public var wonOscar: Bool
 
     public init(id: String, name: String, role: String? = nil,
-                imageURL: String? = nil, isLead: Bool = false) {
+                imageURL: String? = nil, isLead: Bool = false, wonOscar: Bool = false) {
         self.id = id
         self.name = name
         self.role = role
         self.imageURL = imageURL
         self.isLead = isLead
+        self.wonOscar = wonOscar
     }
 
     /// Up-to-two-letter monogram for the headshot fallback.
@@ -545,13 +550,13 @@ public struct MovieAwards: Equatable, Sendable, Hashable {
         self.summary = summary
     }
 
-    /// A short headline badge for the dossier, or nil when there's nothing
-    /// worth calling out.
-    public var badge: String? {
-        if oscarsWon > 0 { return oscarsWon == 1 ? "★ ACADEMY AWARD WINNER" : "★ \(oscarsWon) OSCARS" }
-        if oscarNominations > 0 { return oscarNominations == 1 ? "★ OSCAR NOMINEE" : "★ \(oscarNominations) OSCAR NOMS" }
-        if wins > 0 { return "\(wins) WIN\(wins == 1 ? "" : "S")" }
-        return nil
+    /// An Academy-Awards headline (e.g. "Won 3 Academy Awards"), shown only
+    /// when the film actually *won* Oscars. Per the product decision to surface
+    /// Oscar wins only — not nominations, and not other festival wins — this is
+    /// nil for everything else.
+    public var academyAwardsLabel: String? {
+        guard oscarsWon > 0 else { return nil }
+        return oscarsWon == 1 ? "Won 1 Academy Award" : "Won \(oscarsWon) Academy Awards"
     }
 
     /// Parses OMDb's Awards string, e.g. "Won 2 Oscars. 15 wins & 30
