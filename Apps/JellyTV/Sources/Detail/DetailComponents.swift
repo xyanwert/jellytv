@@ -92,8 +92,8 @@ struct DetailBackground: View {
     }
 }
 
-/// The detail screens' left spine: logo tile, vertical genre label, a focusable
-/// back control, and a small index marker (e.g. "EP 04" / "FILM 001").
+/// The detail screens' left spine: vertical genre label, a focusable back
+/// control, and a small index marker (e.g. "EP 04" / "FILM 001").
 struct DetailSpine: View {
     let genreLabel: String
     let markerTop: String
@@ -104,14 +104,6 @@ struct DetailSpine: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Image("AppMark")
-                .resizable()
-                .scaledToFit()
-                .padding(7)
-                .frame(width: 54, height: 54)
-                .background(.white, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                .shadow(color: .black.opacity(0.5), radius: 20, y: 6)
-
             Spacer()
 
             Text(genreLabel.uppercased())
@@ -177,7 +169,7 @@ struct SpecCell<Value: View>: View {
     @ViewBuilder var value: () -> Value
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(label.uppercased())
                 .font(Typography.font(13, .semibold))
                 .tracking(2)
@@ -185,7 +177,7 @@ struct SpecCell<Value: View>: View {
             value()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 18)
+        .padding(.vertical, 6)
         .padding(.horizontal, 20)
     }
 }
@@ -247,14 +239,14 @@ struct KeyArtPanel<Resume: View>: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             art
-                .frame(width: 780, height: 460)
+                .frame(width: 780, height: 439)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.text(0.1), lineWidth: 1))
                 .overlay(alignment: .topLeading) { cornerTick(topLeading: true) }
                 .overlay(alignment: .bottomTrailing) { cornerTick(topLeading: false) }
                 .shadow(color: .black.opacity(0.6), radius: 40, y: 24)
 
-            resume().offset(x: -32, y: 40)
+            resume().offset(x: -32, y: 34)
         }
         .padding(.trailing, 4)
     }
@@ -283,6 +275,61 @@ struct KeyArtPanel<Resume: View>: View {
     }
 }
 
+/// Show-specific season art — bigger than the shared `KeyArtPanel` and
+/// deliberately edge-less: a left + bottom fade dissolves it into the page
+/// instead of a hard-bordered "TV screen" box, so it reads as an atmospheric
+/// backdrop sitting behind the title rather than a discrete side panel.
+struct SeasonBackdropPanel<Resume: View>: View {
+    let image: String?
+    let artwork: Artwork
+    @ViewBuilder var resume: () -> Resume
+
+    private let width: CGFloat = 860
+    private let height: CGFloat = 484
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            art
+                .frame(width: width, height: height)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(fadeMask)
+                .shadow(color: .black.opacity(0.5), radius: 50, y: 20)
+
+            resume().offset(x: -32, y: 34)
+        }
+    }
+
+    @ViewBuilder private var art: some View {
+        if let image, image.hasPrefix("http"), let url = URL(string: image) {
+            JellyfinAsyncImage(url: url, fallback: artwork.gradient)
+        } else if let image {
+            Image(image).resizable().scaledToFill()
+        } else {
+            artwork.gradient
+        }
+    }
+
+    /// Pre-darken toward the page background at the left/bottom edges
+    /// (rather than an alpha cut) — the pre-darken is what makes the image
+    /// dissolve into the page instead of hard-cutting.
+    private var fadeMask: some View {
+        ZStack {
+            LinearGradient(stops: [
+                .init(color: Palette.screen, location: 0),
+                .init(color: Palette.screen.opacity(0.5), location: 0.14),
+                .init(color: .clear, location: 0.36),
+            ], startPoint: .leading, endPoint: .trailing)
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0.66),
+                .init(color: Palette.screen.opacity(0.55), location: 0.92),
+                .init(color: Palette.screen, location: 1.0),
+            ], startPoint: .top, endPoint: .bottom)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .allowsHitTesting(false)
+    }
+}
+
 /// The floating resume card (progress ring + play disc + labels) used by both
 /// detail screens.
 struct ResumeCard: View {
@@ -295,26 +342,26 @@ struct ResumeCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 16) {
+            HStack(spacing: 14) {
                 ZStack {
-                    Circle().stroke(Palette.text(0.14), lineWidth: 6)
+                    Circle().stroke(Palette.text(0.14), lineWidth: 5)
                     Circle().trim(from: 0, to: progress)
-                        .stroke(theme.accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        .stroke(theme.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Circle().fill(theme.accent).frame(width: 52, height: 52)
-                        .overlay(Image(systemName: "play.fill").font(.system(size: 20)).foregroundStyle(.white))
+                    Circle().fill(theme.accent).frame(width: 44, height: 44)
+                        .overlay(Image(systemName: "play.fill").font(.system(size: 17)).foregroundStyle(.white))
                 }
-                .frame(width: 92, height: 92)
+                .frame(width: 78, height: 78)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text("RESUME").font(Typography.font(12, .heavy)).tracking(2).foregroundStyle(theme.accent)
-                    Text(title).font(Typography.font(22, .heavy)).foregroundStyle(Palette.textPrimary).lineLimit(1)
-                    Text(remaining).font(Typography.font(15, .medium)).foregroundStyle(Palette.text(0.55))
+                    Text(title).font(Typography.font(20, .heavy)).foregroundStyle(Palette.textPrimary).lineLimit(1)
+                    Text(remaining).font(Typography.font(14, .medium)).foregroundStyle(Palette.text(0.55))
                 }
                 Spacer(minLength: 0)
             }
-            .padding(16)
-            .frame(width: 430)
+            .padding(13)
+            .frame(width: 410)
             .background(Color(hex: "#0E1218").opacity(0.92), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Palette.text(0.12), lineWidth: 1))
             .shadow(color: .black.opacity(0.6), radius: 30, y: 18)
@@ -336,10 +383,27 @@ struct DetailPill: View {
                 Text(label)
             }
             .font(Typography.font(18, .semibold)).foregroundStyle(Palette.text(0.85))
-            .padding(.horizontal, 22).padding(.vertical, 15)
+            .padding(.horizontal, 22).padding(.vertical, 12)
             .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
         }
         .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 13))
+    }
+}
+
+extension View {
+    /// Soft alpha fade at the leading/trailing edges of a horizontally
+    /// scrolling strip — content dissolves as it nears the edge instead of
+    /// hard-cutting at the scroll view's bounds.
+    func horizontalEdgeFade(width: CGFloat = 36) -> some View {
+        mask(
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: width)
+                Rectangle().fill(.black)
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: width)
+            }
+        )
     }
 }

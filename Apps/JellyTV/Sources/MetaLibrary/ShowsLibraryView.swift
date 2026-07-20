@@ -1,40 +1,43 @@
 import SwiftUI
 import JellyTVKit
 
-/// The Movies library screen (design 4a): rail + search/Play/Random header,
-/// sort/genre filter chips, a "currently selected" band that tracks grid
-/// focus, and a poster grid for the whole library. Shows a loading state
-/// while the server's movies load — never sample data standing in for the
-/// real grid.
-struct MoviesLibraryView: View {
+/// The TV Shows library screen: rail + search/Play/Random header, sort/genre
+/// filter chips, a "currently selected" band that tracks grid focus, and a
+/// poster grid for the whole library. A structural sibling of
+/// `MoviesLibraryView` (shared chrome lives in `LibraryComponents.swift`);
+/// its own dossier panels (`ShowStatsCastPanel`/`ShowMetaPanel`) swap in
+/// network branding and season/year/critics in place of the movie dossier's
+/// stat boxes and director/studio/runtime rows. Shows a loading state while
+/// the server's shows load — never sample data standing in for the real grid.
+struct ShowsLibraryView: View {
     let onSelectRail: (RailTarget) -> Void
 
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var theme: Theme
 
-    @State private var movies: [MediaItem] = []
-    /// True once `movies` has been populated at least once (even if the
+    @State private var shows: [MediaItem] = []
+    /// True once `shows` has been populated at least once (even if the
     /// result was empty) — distinguishes "still loading" from "genuinely no
-    /// movies" so the grid never has to borrow the sample catalog to fill
+    /// shows" so the grid never has to borrow the sample catalog to fill
     /// the gap. Deliberately never reset to `false` again: a re-sort keeps
     /// showing the previous real results until the new ones land, rather
     /// than blanking the screen on every filter chip tap.
-    @State private var hasLoadedMovies = false
+    @State private var hasLoadedShows = false
     @State private var sort: LibrarySort = .newest
     @State private var selectedGenre: String?
     @State private var searchText = ""
-    @State private var presentedMovie: Movie?
-    /// Real detail (cast, ratings, tagline, awards) fetched for the selected
-    /// item; shown in place of the sample fallback once it arrives.
-    @State private var selectedDetail: Movie?
+    @State private var presentedShow: Show?
+    /// Real detail (cast, ratings, season count, network) fetched for the
+    /// selected item; shown in place of the sample fallback once it arrives.
+    @State private var selectedDetail: Show?
     @FocusState private var focusedId: String?
     @FocusState private var searchFocused: Bool?
 
-    private var allMovies: [MediaItem] { movies }
+    private var allShows: [MediaItem] { shows }
 
     /// Distinct genres present in the current catalog, most common first.
     private var genres: [String] {
-        let counts = Dictionary(grouping: allMovies, by: \.genre).mapValues(\.count)
+        let counts = Dictionary(grouping: allShows, by: \.genre).mapValues(\.count)
         return counts.keys
             .filter { !$0.isEmpty }
             .sorted { a, b in
@@ -46,7 +49,7 @@ struct MoviesLibraryView: View {
     }
 
     private var filtered: [MediaItem] {
-        var items = allMovies
+        var items = allShows
         if let selectedGenre { items = items.filter { $0.genre == selectedGenre } }
         if !searchText.isEmpty {
             items = items.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
@@ -65,13 +68,13 @@ struct MoviesLibraryView: View {
             ?? filtered.first
     }
 
-    /// The movie shown in the dossier: real fetched detail once it's in and
+    /// The show shown in the dossier: real fetched detail once it's in and
     /// matches the current selection, otherwise a bare base (real list fields,
-    /// no cast/ratings/awards) that the dossier renders as a loading state.
-    private var dossierMovie: Movie? {
+    /// no cast/season count/network) that the dossier renders as a loading state.
+    private var dossierShow: Show? {
         guard let item = selectedItem else { return nil }
         if let detail = selectedDetail, detail.id == item.id { return detail }
-        return baseMovie(for: item)
+        return baseShow(for: item)
     }
 
     /// True while the full detail for the current selection hasn't arrived yet
@@ -81,65 +84,71 @@ struct MoviesLibraryView: View {
         return selectedDetail?.id != item.id
     }
 
-    /// A bare `Movie` carrying only an item's real list-level fields (title,
-    /// rating, year, certification, synopsis). Cast/ratings/tagline/awards stay
+    /// A bare `Show` carrying only an item's real list-level fields (title,
+    /// rating, year, certification, synopsis). Cast/season-count/network stay
     /// empty until the live detail fetch fills them in — never demo data.
-    private func baseMovie(for item: MediaItem) -> Movie {
-        var movie = SampleCatalog.movie(for: item)
+    private func baseShow(for item: MediaItem) -> Show {
+        var show = SampleCatalog.show(for: item)
         if let rating = item.rating {
-            movie.rating = String(format: "%.1f", rating)
-            movie.communityRating = rating
+            show.rating = String(format: "%.1f", rating)
+            show.communityRating = rating
         }
-        if let year = item.year { movie.year = year }
-        if let certification = item.certification, !certification.isEmpty { movie.certification = certification }
-        if let synopsis = item.synopsis, !synopsis.isEmpty { movie.synopsis = synopsis }
-        movie.runtime = ""   // unknown until detail loads
-        return movie
+        if let year = item.year { show.years = year }
+        if let certification = item.certification, !certification.isEmpty { show.certification = certification }
+        if let synopsis = item.synopsis, !synopsis.isEmpty { show.synopsis = synopsis }
+        return show
     }
 
-    /// Fetches full Jellyfin detail for the selected item, then merges OMDb
-    /// enrichment. Debounced so scrolling the grid doesn't fetch per poster;
-    /// `.task(id:)` cancels the prior run when the selection changes.
+    /// Fetches full Jellyfin detail for the selected item, then concurrently
+    /// merges OMDb ratings/awards and TMDB network branding. Debounced so
+    /// scrolling the grid doesn't fetch per poster; `.task(id:)` cancels the
+    /// prior run when the selection changes.
     private func loadSelectedDetail() async {
         guard let item = selectedItem else { selectedDetail = nil; return }
         try? await Task.sleep(for: .milliseconds(300))
         if Task.isCancelled { return }
-        guard var movie = await appState.movieDetail(for: item.id) else { return }
-        selectedDetail = movie
-        if let enrichment = await appState.omdbEnrichment(imdbId: movie.imdbId), !Task.isCancelled {
-            movie.externalRatings = enrichment.ratings
-            movie.awards = enrichment.awards
-            selectedDetail = movie
+        guard var show = await appState.enrichedShow(baseShow(for: item)) else { return }
+        selectedDetail = show
+        let imdbId = show.imdbId
+        async let omdbEnrichment = appState.omdbEnrichment(imdbId: imdbId)
+        async let network = appState.tmdbNetwork(imdbId: imdbId)
+        let enrichment = await omdbEnrichment
+        let resolvedNetwork = await network
+        guard !Task.isCancelled else { return }
+        if let enrichment {
+            show.externalRatings = enrichment.ratings
+            show.awards = enrichment.awards
         }
+        show.network = resolvedNetwork
+        selectedDetail = show
     }
 
-    /// Opens the Movie detail screen with a bare base; `MovieDetailView`
-    /// fetches its own live detail (cast, ratings, awards) on appear.
-    private func openMovie(_ item: MediaItem) {
-        presentedMovie = baseMovie(for: item)
+    /// Opens the Show detail screen with a bare base; `ShowView` fetches its
+    /// own live detail (cast, ratings, tagline) on appear.
+    private func openShow(_ item: MediaItem) {
+        presentedShow = baseShow(for: item)
     }
 
     var body: some View {
         ZStack {
             background
-            // The focused movie's backdrop: a full-screen layer pinned to the
-            // top, behind the rail and the scrolling content, the same way
-            // HomeView's hero backdrop covers the top of the screen and
-            // dissolves into the page over the rows below.
+            // The focused show's backdrop: a full-screen layer pinned to the
+            // top, behind the rail and the scrolling content — the same
+            // treatment Movies uses.
             if let selectedItem {
                 SelectedBackdrop(item: selectedItem)
             }
             HStack(spacing: 0) {
-                NavRail(destination: .movies, isLibrariesOpen: false, onSelect: onSelectRail)
-                // Header, filters and the selected-movie band stay pinned; only
+                NavRail(destination: .tv, isLibrariesOpen: false, onSelect: onSelectRail)
+                // Header, filters and the selected-show band stay pinned; only
                 // the poster catalog scrolls beneath them.
                 VStack(alignment: .leading, spacing: 22) {
                     header.padding(.horizontal, 48)
                     filterBar.padding(.horizontal, 48)
-                    if let dossierMovie {
-                        SelectedMovieBand(movie: dossierMovie, isLoading: isDossierLoading)
+                    if let dossierShow {
+                        SelectedShowBand(show: dossierShow, isLoading: isDossierLoading)
                     }
-                    if !hasLoadedMovies {
+                    if !hasLoadedShows {
                         loadingGrid
                     } else {
                         ScrollView(.vertical, showsIndicators: false) {
@@ -154,32 +163,30 @@ struct MoviesLibraryView: View {
             }
             .ignoresSafeArea()
 
-            if let presentedMovie {
-                MovieDetailView(movie: presentedMovie, onDismiss: { self.presentedMovie = nil })
+            if let presentedShow {
+                ShowView(show: presentedShow, onDismiss: { self.presentedShow = nil })
                     .transition(.opacity)
                     .zIndex(2)
             }
         }
-        .animation(.easeOut(duration: 0.25), value: presentedMovie)
+        .animation(.easeOut(duration: 0.25), value: presentedShow)
         // Focus the search field on appear (a top control) rather than the
         // first poster — focusing a poster makes tvOS auto-scroll it into
         // place, which pushes the header/search off the top of the screen.
-        // The band still shows the first movie (selectedItem falls back to
-        // `filtered.first` when no poster is focused).
         .defaultFocus($searchFocused, true)
         // `appState.libraries.count` is part of the task id (not just `sort`)
         // so this re-fires once the server connection finishes configuring —
         // otherwise a view that appears before `AppState.refresh()` completes
-        // (e.g. landing straight on Movies) would fetch once with no client
-        // yet, get back `[]`, and never retry until the user touches a chip.
+        // would fetch once with no client yet, get back `[]`, and never retry
+        // until the user touches a chip.
         .task(id: "\(sort.rawValue)-\(appState.libraries.count)") {
             let query = sort.query
-            movies = await appState.loadMovies(sortBy: query.sortBy, sortOrder: query.sortOrder)
-            hasLoadedMovies = true
+            shows = await appState.loadShows(sortBy: query.sortBy, sortOrder: query.sortOrder)
+            hasLoadedShows = true
         }
-        // Fetch rich detail (cast/ratings/tagline/awards) for the selected item.
+        // Fetch rich detail (cast/season count/network) for the selected item.
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
-        .onExitCommand(perform: presentedMovie == nil ? { onSelectRail(.home) } : nil)
+        .onExitCommand(perform: presentedShow == nil ? { onSelectRail(.home) } : nil)
     }
 
     // MARK: - Header
@@ -187,15 +194,15 @@ struct MoviesLibraryView: View {
     private var header: some View {
         HStack(spacing: 20) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("LIBRARY // MOVIES")
+                Text("LIBRARY // TV SHOWS")
                     .font(Mono.font(15, .bold))
                     .tracking(2.6)
                     .foregroundStyle(Palette.text(0.5))
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("Movies")
+                    Text("TV Shows")
                         .font(Typography.font(34, .black))
                         .foregroundStyle(Palette.textPrimary)
-                    Text("\(allMovies.count) titles")
+                    Text("\(allShows.count) titles")
                         .font(Typography.font(20, .semibold))
                         .foregroundStyle(Palette.text(0.4))
                 }
@@ -235,7 +242,7 @@ struct MoviesLibraryView: View {
     }
 
     private var searchField: some View {
-        AppTextField(placeholder: "Search movies…", text: $searchText,
+        AppTextField(placeholder: "Search TV shows…", text: $searchText,
                      systemImage: "magnifyingglass", trailing: "\(filtered.count)",
                      accent: theme.secondaryAccent, field: true, focus: $searchFocused)
     }
@@ -268,11 +275,11 @@ struct MoviesLibraryView: View {
     // MARK: - Poster grid
 
     /// Shown in place of the grid until the first real fetch resolves —
-    /// never the sample catalog standing in for real movies.
+    /// never the sample catalog standing in for real shows.
     private var loadingGrid: some View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large).tint(theme.accent)
-            Text("Loading movies…")
+            Text("Loading TV shows…")
                 .font(Mono.font(15, .medium)).tracking(1)
                 .foregroundStyle(Palette.text(0.4))
         }
@@ -288,13 +295,13 @@ struct MoviesLibraryView: View {
                     .tracking(2)
                     .foregroundStyle(Palette.text(0.5))
                 Spacer()
-                Text("Showing \(filtered.count) of \(allMovies.count)")
+                Text("Showing \(filtered.count) of \(allShows.count)")
                     .font(Typography.font(16, .medium))
                     .foregroundStyle(Palette.text(0.4))
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 180, maximum: 210), spacing: 22)], spacing: 26) {
                 ForEach(filtered) { item in
-                    LibraryPosterCard(item: item, onSelect: { openMovie(item) })
+                    LibraryPosterCard(item: item, onSelect: { openShow(item) })
                         .focused($focusedId, equals: item.id)
                 }
             }
@@ -302,7 +309,7 @@ struct MoviesLibraryView: View {
     }
 
     private var sectionCaption: String {
-        let genrePart = selectedGenre?.uppercased() ?? "ALL MOVIES"
+        let genrePart = selectedGenre?.uppercased() ?? "ALL TV SHOWS"
         return "\(genrePart) · \(sort.rawValue.uppercased())"
     }
 
@@ -318,13 +325,13 @@ struct MoviesLibraryView: View {
     }
 }
 
-/// The "currently selected" text band: the focused movie's title / meta /
-/// synopsis on the left and a "Signal Dossier" info panel on the right
-/// (design 4a), laid over the top of `SelectedBackdrop`. Rich fields (rating,
-/// director, cast) come from `SampleCatalog.movie(for:)` — the same
-/// demo-template seam Home's Recommended row uses to open a detail screen.
-private struct SelectedMovieBand: View {
-    let movie: Movie
+/// The "currently selected" text band: the focused show's title / meta /
+/// synopsis on the left and the TV "Signal Dossier" info panel on the right,
+/// laid over the top of `SelectedBackdrop`. Rich fields (rating, cast, network)
+/// come from `SampleCatalog.show(for:)` — the same demo-template seam the
+/// Movies band uses.
+private struct SelectedShowBand: View {
+    let show: Show
     var isLoading: Bool = false
 
     @EnvironmentObject private var theme: Theme
@@ -336,14 +343,14 @@ private struct SelectedMovieBand: View {
             info
             Spacer(minLength: 20)
             VStack(alignment: .leading, spacing: 16) {
-                StatsCastPanel(movie: movie, isLoading: isLoading)
-                MetaPanel(movie: movie, isLoading: isLoading)
+                ShowStatsCastPanel(show: show, isLoading: isLoading)
+                ShowMetaPanel(show: show, isLoading: isLoading)
             }
         }
         .padding(.horizontal, 100)
         .frame(maxWidth: .infinity)
         .frame(height: Self.height)
-        .id(movie.id)
+        .id(show.id)
         .transition(.opacity)
     }
 
@@ -354,7 +361,7 @@ private struct SelectedMovieBand: View {
                 .tracking(3)
                 .foregroundStyle(theme.accent)
 
-            Text(movie.title)
+            Text(show.title)
                 .font(Typography.font(72, .black))
                 .foregroundStyle(Palette.textPrimary)
                 .lineLimit(2)
@@ -362,25 +369,21 @@ private struct SelectedMovieBand: View {
                 .lineSpacing(-6)
 
             HStack(spacing: 12) {
-                Text("★ \(movie.rating)")
+                Text("★ \(show.rating)")
                     .fontWeight(.heavy)
                     .foregroundStyle(theme.accent)
-                Text(movie.certification)
+                Text(show.certification)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
                     .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Palette.text(0.3), lineWidth: 1.5))
-                Text(movie.year)
+                Text(show.years)
                 dot
                 Text(genreTail)
-                if !movie.runtime.isEmpty {
-                    dot
-                    Text(movie.runtime)
-                }
             }
             .font(Typography.font(19, .semibold))
             .foregroundStyle(Palette.text(0.68))
 
-            Text(movie.synopsis)
+            Text(show.synopsis)
                 .font(Typography.font(20, .medium))
                 .foregroundStyle(Palette.text(0.7))
                 .lineLimit(3)
@@ -391,32 +394,24 @@ private struct SelectedMovieBand: View {
     }
 
     private var genreTail: String {
-        movie.genreLabel.split(separator: "/").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? movie.genreLabel
+        show.genreLabel.split(separator: "/").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? show.genreLabel
     }
 
     private var dot: some View { Text("·").foregroundStyle(Palette.text(0.4)) }
 }
 
-/// The dossier's top panel (design 4a): the "SIGNAL DOSSIER / DECODED" header,
-/// two big rating stat boxes (critics / audience), and a two-column cast grid
-/// with Oscar-winner medals. Rich data is fetched per selection (Jellyfin
-/// detail + optional OMDb); anything absent simply doesn't render, so the
-/// panel degrades cleanly on sparse metadata.
-private struct StatsCastPanel: View {
-    let movie: Movie
+/// The Shows dossier's top panel: the "SIGNAL DOSSIER / DECODED" header, the
+/// show's network branding where the Movies dossier shows critics/audience
+/// stat boxes, and the same two-column cast grid with Oscar-winner medals.
+/// Same fixed footprint as `MoviesLibraryView`'s `StatsCastPanel` so the two
+/// screens' dossiers read as siblings.
+private struct ShowStatsCastPanel: View {
+    let show: Show
     var isLoading: Bool = false
 
     @EnvironmentObject private var theme: Theme
 
-    /// Fixed footprint — independent of `MetaPanel`'s — so this panel never
-    /// resizes/jumps as content changes (loading → loaded, rich → sparse);
-    /// content is top-aligned inside it.
     static let size = CGSize(width: 440, height: 380)
-
-    /// Audience score (IMDb / community), 0–10.
-    private var audience: Double? { movie.externalRatings?.imdbRating ?? movie.communityRating }
-    /// Critics score (Rotten Tomatoes / Jellyfin critic), a percentage.
-    private var critics: Int? { movie.externalRatings?.rottenTomatoes ?? movie.criticRating.map { Int($0) } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -424,7 +419,7 @@ private struct StatsCastPanel: View {
             if isLoading {
                 loadingBody
             } else {
-                statBoxes
+                NetworkLockup(network: show.network, fallbackName: show.studios.first)
                 castSection
             }
         }
@@ -464,36 +459,10 @@ private struct StatsCastPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Ratings
-
-    @ViewBuilder private var statBoxes: some View {
-        if critics != nil || audience != nil {
-            HStack(spacing: 12) {
-                if let critics { statBox(value: "\(critics)%", label: "CRITICS", accent: true) }
-                if let audience { statBox(value: String(format: "%.1f", audience), label: "AUDIENCE", accent: false) }
-            }
-        }
-    }
-
-    private func statBox(value: String, label: String, accent: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(value)
-                .font(Typography.font(34, .black))
-                .foregroundStyle(accent ? theme.accent : Palette.textPrimary)
-            Text(label)
-                .font(Mono.font(11, .bold)).tracking(1.5)
-                .foregroundStyle(Palette.text(0.42))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 13).padding(.horizontal, 16)
-        .background(Palette.text(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.1), lineWidth: 1))
-    }
-
     // MARK: - Cast (two-column grid)
 
     @ViewBuilder private var castSection: some View {
-        if !movie.cast.isEmpty {
+        if !show.cast.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("CAST")
                     .font(Mono.font(12, .bold)).tracking(2)
@@ -502,7 +471,7 @@ private struct StatsCastPanel: View {
                     columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)],
                     alignment: .leading, spacing: 14
                 ) {
-                    ForEach(movie.cast.prefix(6)) { member in
+                    ForEach(show.cast.prefix(6)) { member in
                         CastListItem(member: member, portrait: 42)
                     }
                 }
@@ -511,41 +480,35 @@ private struct StatsCastPanel: View {
     }
 }
 
-/// The dossier's bottom panel (design 4a): director / studio / runtime crew
-/// rows, in its own fixed-size card below `StatsCastPanel`. The director's
-/// name renders upper-case. When the film has actually *won* an Oscar (other
-/// awards are ignored per the product decision — see `MovieAwards.academyAwardsLabel`),
-/// the panel gets a quiet trophy-art background at 40% opacity instead of the
-/// flat panel color, as a subtle Oscar signal rather than another text badge.
-private struct MetaPanel: View {
-    let movie: Movie
+/// The Shows dossier's bottom panel: a season-count/year stat pair (replacing
+/// the Movies dossier's director/studio/runtime rows) and a critics-score row
+/// with a circular gauge — its own fixed-size card below `ShowStatsCastPanel`.
+/// No Oscar-art background treatment here — not applicable to TV.
+private struct ShowMetaPanel: View {
+    let show: Show
     var isLoading: Bool = false
 
     @EnvironmentObject private var theme: Theme
 
-    /// Fixed footprint — independent of `StatsCastPanel`'s — so this panel
-    /// never resizes/jumps as content changes.
+    /// Same fixed footprint as the Movies dossier's `MetaPanel`.
     static let size = CGSize(width: 440, height: 140)
 
-    private static let oscarArtURL = URL(string: "https://w.wallhaven.cc/full/4y/wallhaven-4yzo3d.jpg")
-    private var wonOscar: Bool { (movie.awards?.oscarsWon ?? 0) > 0 }
+    private var critics: Int? { show.externalRatings?.rottenTomatoes ?? show.criticRating.map { Int($0) } }
 
     var body: some View {
         Group {
-            if isLoading { loadingBody } else { metaRows }
+            if isLoading { loadingBody } else { rows }
         }
         .padding(20)
         .frame(width: Self.size.width, height: Self.size.height, alignment: .top)
-        .background(background)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color(hex: "#0E121A").opacity(0.7), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Palette.text(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.55), radius: 30, y: 16)
     }
 
-    /// This panel's own decode indicator — smaller than `StatsCastPanel`'s
-    /// (there's less vertical room here), but the same visual language, so
-    /// both dossier windows read as "still decoding" rather than one loading
-    /// and the other going blank.
+    /// This panel's own decode indicator, matching `ShowStatsCastPanel`'s
+    /// visual language so neither dossier window goes blank while the other
+    /// is still decoding.
     private var loadingBody: some View {
         HStack(spacing: 10) {
             ProgressView().tint(theme.accent)
@@ -556,36 +519,43 @@ private struct MetaPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var metaRows: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !movie.director.isEmpty { crewRow(label: "Director", value: movie.director.uppercased()) }
-            if !movie.studios.isEmpty { crewRow(label: "Studio", value: movie.studios.prefix(2).joined(separator: ", ")) }
-            if !movie.runtime.isEmpty { crewRow(label: "Runtime", value: movie.runtime) }
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            seasonYearRow
+            if let critics { criticsRow(critics) }
         }
     }
 
-    private func crewRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label.uppercased()).font(Mono.font(13, .semibold)).tracking(1).foregroundStyle(Palette.text(0.42))
-            Spacer(minLength: 12)
-            Text(value).font(Typography.font(15, .bold)).foregroundStyle(Palette.textPrimary).lineLimit(1)
-        }
-    }
-
-    @ViewBuilder private var background: some View {
-        ZStack {
-            Color(hex: "#0E121A").opacity(0.7)
-            if wonOscar, let oscarArtURL = Self.oscarArtURL {
-                AsyncImage(url: oscarArtURL) { phase in
-                    if case .success(let image) = phase {
-                        image.resizable().aspectRatio(contentMode: .fill)
-                            .frame(width: Self.size.width, height: Self.size.height)
-                            .opacity(0.4)
-                    }
+    @ViewBuilder private var seasonYearRow: some View {
+        let hasSeasonCount = show.seasonCount != nil
+        let hasYear = show.premiereYear?.isEmpty == false
+        if hasSeasonCount || hasYear {
+            HStack {
+                if let count = show.seasonCount {
+                    bigStat("\(count) Season\(count == 1 ? "" : "s")")
                 }
-                .frame(width: Self.size.width, height: Self.size.height)
-                .clipped()
+                Spacer(minLength: 12)
+                if let year = show.premiereYear, !year.isEmpty {
+                    bigStat(year)
+                }
             }
+        }
+    }
+
+    private func bigStat(_ value: String) -> some View {
+        Text(value)
+            .font(Typography.font(22, .black))
+            .foregroundStyle(Palette.textPrimary)
+            .lineLimit(1)
+    }
+
+    private func criticsRow(_ percent: Int) -> some View {
+        HStack {
+            Text("CRITICS")
+                .font(Mono.font(13, .semibold)).tracking(1)
+                .foregroundStyle(Palette.text(0.42))
+            Spacer(minLength: 12)
+            CriticsGauge(percent: percent, size: 40)
         }
     }
 }

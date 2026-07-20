@@ -22,7 +22,9 @@ extension JellyfinAPI.JellyfinItem {
             remaining: remainingTimeString(),
             progress: progress,
             image: primaryImageURLString(imageBaseURL),
-            artwork: artworkGradient(libraryCategory: libraryCategory)
+            artwork: artworkGradient(libraryCategory: libraryCategory),
+            itemType: type,
+            seriesId: seriesId
         )
     }
 
@@ -95,7 +97,9 @@ extension JellyfinAPI.JellyfinItem {
             qualityBadge: "",
             synopsis: overview ?? "",
             resumeLabel: resumeLabel,
-            artwork: artworkGradient(libraryCategory: libraryCategory)
+            artwork: artworkGradient(libraryCategory: libraryCategory),
+            itemType: type,
+            seriesId: seriesId
         )
     }
 
@@ -131,13 +135,18 @@ extension JellyfinAPI.JellyfinItem {
             studios: studioNames,
             communityRating: communityRating,
             criticRating: criticRating,
-            imdbId: providerIds?["Imdb"]
+            imdbId: providerIds?["Imdb"],
+            runtimeTicks: runTimeTicks,
+            resumePositionTicks: userData?.playbackPositionTicks,
+            isFavorite: userData?.isFavorite ?? false
         )
     }
 
     /// Enriches an existing `Show` (which already carries its sample/real
-    /// seasons) with real cast, ratings, tagline, studios, and IMDb id from a
-    /// detail-fetched item. Season/episode data is out of this mapper's scope.
+    /// seasons) with real cast, ratings, tagline, studios, IMDb id, season
+    /// count, and premiere year from a detail-fetched item. Network branding
+    /// is out of this mapper's scope — Jellyfin has no such field; it's
+    /// merged in separately from TMDB.
     public func enrich(_ base: Show, imageBaseURL: URL? = nil) -> Show {
         var show = base
         show.cast = castMembers(imageBaseURL: imageBaseURL)
@@ -146,8 +155,65 @@ extension JellyfinAPI.JellyfinItem {
         show.communityRating = communityRating
         show.criticRating = criticRating
         show.imdbId = providerIds?["Imdb"]
+        show.seasonCount = childCount
+        show.premiereYear = productionYear.map(String.init)
+        if let years = formattedYearRange() { show.years = years }
         if let overview, !overview.isEmpty { show.synopsis = overview }
         return show
+    }
+
+    /// A show's year range for the spec sheet: "2023 – 2026" once ended, or
+    /// "2023 – Still On" while Jellyfin reports it as still `Continuing` (no
+    /// end year yet). Falls back to just the start year, or nil (leaving the
+    /// caller's existing value) when there's nothing to compute from.
+    private func formattedYearRange() -> String? {
+        guard let start = productionYear else { return nil }
+        let startText = String(start)
+        if let endDate, let endYear = Self.yearComponent(endDate) {
+            return endYear == start ? startText : "\(startText) – \(endYear)"
+        }
+        if status?.caseInsensitiveCompare("Continuing") == .orderedSame {
+            return "\(startText) – Still On"
+        }
+        return startText
+    }
+
+    /// The leading 4-digit year of a Jellyfin ISO-8601 date string, e.g.
+    /// "2026-05-01T00:00:00.000Z" → 2026.
+    private static func yearComponent(_ dateString: String) -> Int? {
+        guard dateString.count >= 4 else { return nil }
+        return Int(dateString.prefix(4))
+    }
+
+    /// A season (from `GET /Shows/{id}/Seasons`) — episodes are fetched and
+    /// attached separately, per selection, so this starts out empty. Carries
+    /// its own poster (if Jellyfin's metadata provider cached one) so the Show
+    /// view's header image can be season-specific.
+    public func toSeason(imageBaseURL: URL? = nil) -> Season {
+        Season(id: id, number: indexNumber ?? 0, name: name ?? "Season \(indexNumber ?? 0)",
+               episodes: [], image: primaryImageURLString(imageBaseURL))
+    }
+
+    /// An episode (from `GET /Shows/{id}/Episodes`) — its own thumbnail (not
+    /// the show's), runtime, and resume state from the user's real watch
+    /// progress. `isCurrent` marks an in-progress, unfinished episode.
+    public func toEpisode(imageBaseURL: URL? = nil, seriesId: String? = nil) -> Episode {
+        let inProgress = (userData?.playbackPositionTicks ?? 0) > 0 && !(userData?.played ?? false)
+        return Episode(
+            id: id,
+            number: indexNumber ?? 0,
+            title: name ?? "Episode \(indexNumber ?? 0)",
+            runtime: runTimeTicks.map(formatTicks) ?? "",
+            isCurrent: inProgress,
+            image: primaryImageURLString(imageBaseURL),
+            artwork: artworkGradient(libraryCategory: nil),
+            resumeProgress: inProgress ? playbackProgress() : 0,
+            resumeRemaining: inProgress ? remainingTimeString() : "",
+            runtimeTicks: runTimeTicks,
+            resumePositionTicks: userData?.playbackPositionTicks,
+            isFavorite: userData?.isFavorite ?? false,
+            seriesId: seriesId
+        )
     }
 
     /// Actors from `people` (billing order), capped, with headshot URLs.
@@ -337,10 +403,16 @@ public struct HeroFeature: Equatable, Sendable, Hashable, Identifiable {
     public var synopsis: String
     public var resumeLabel: String    // "Resume · E4"
     public var artwork: Artwork
+    /// Raw Jellyfin type ("Movie"/"Episode"/"Series") — lets the Resume
+    /// button resolve a `PlaybackRequest` without a separate detail fetch.
+    public var itemType: String?
+    /// Non-nil for episodes — the owning show's id.
+    public var seriesId: String?
 
     public init(id: String, image: String, eyebrow: String, title: String,
                 certification: String, year: String, genre: String, episode: String,
-                qualityBadge: String, synopsis: String, resumeLabel: String, artwork: Artwork) {
+                qualityBadge: String, synopsis: String, resumeLabel: String, artwork: Artwork,
+                itemType: String? = nil, seriesId: String? = nil) {
         self.id = id
         self.image = image
         self.eyebrow = eyebrow
@@ -353,6 +425,8 @@ public struct HeroFeature: Equatable, Sendable, Hashable, Identifiable {
         self.synopsis = synopsis
         self.resumeLabel = resumeLabel
         self.artwork = artwork
+        self.itemType = itemType
+        self.seriesId = seriesId
     }
 }
 
@@ -367,9 +441,15 @@ public struct ContinueWatchingItem: Equatable, Sendable, Hashable, Identifiable 
     /// Optional artwork image asset name; falls back to `artwork` gradient.
     public var image: String?
     public var artwork: Artwork
+    /// Raw Jellyfin type ("Movie"/"Episode") — lets a tap resolve a
+    /// `PlaybackRequest` without a separate detail fetch.
+    public var itemType: String?
+    /// Non-nil for episodes — the owning show's id.
+    public var seriesId: String?
 
     public init(id: String, title: String, episodeLabel: String, remaining: String,
-                progress: Double, image: String? = nil, artwork: Artwork) {
+                progress: Double, image: String? = nil, artwork: Artwork,
+                itemType: String? = nil, seriesId: String? = nil) {
         self.id = id
         self.title = title
         self.episodeLabel = episodeLabel
@@ -377,6 +457,8 @@ public struct ContinueWatchingItem: Equatable, Sendable, Hashable, Identifiable 
         self.progress = progress
         self.image = image
         self.artwork = artwork
+        self.itemType = itemType
+        self.seriesId = seriesId
     }
 }
 
@@ -451,9 +533,25 @@ public struct Episode: Equatable, Sendable, Hashable, Identifiable {
     public var isCurrent: Bool        // the resume/NOW episode
     public var image: String?         // artwork asset name; falls back to `artwork`
     public var artwork: Artwork
+    // Only meaningful when `isCurrent` — the Show view's resume card is
+    // derived from whichever episode is actually in progress.
+    public var resumeProgress: Double     // 0...1
+    public var resumeRemaining: String    // "31:04 LEFT · 62%"
+    // Playback plumbing — raw values a player needs that the display
+    // strings above can't losslessly reconstruct.
+    public var runtimeTicks: Int64?
+    public var resumePositionTicks: Int64?
+    public var isFavorite: Bool
+    /// The owning show's id — not decoded off the episode DTO (unreliable
+    /// across server versions); the caller (which already knows it) threads
+    /// it through at mapping time.
+    public var seriesId: String?
 
     public init(id: String, number: Int, title: String, runtime: String,
-                isCurrent: Bool = false, image: String? = nil, artwork: Artwork) {
+                isCurrent: Bool = false, image: String? = nil, artwork: Artwork,
+                resumeProgress: Double = 0, resumeRemaining: String = "",
+                runtimeTicks: Int64? = nil, resumePositionTicks: Int64? = nil,
+                isFavorite: Bool = false, seriesId: String? = nil) {
         self.id = id
         self.number = number
         self.title = title
@@ -461,10 +559,30 @@ public struct Episode: Equatable, Sendable, Hashable, Identifiable {
         self.isCurrent = isCurrent
         self.image = image
         self.artwork = artwork
+        self.resumeProgress = resumeProgress
+        self.resumeRemaining = resumeRemaining
+        self.runtimeTicks = runtimeTicks
+        self.resumePositionTicks = resumePositionTicks
+        self.isFavorite = isFavorite
+        self.seriesId = seriesId
     }
 
     /// Zero-padded episode number, e.g. "04".
     public var numberLabel: String { String(format: "%02d", number) }
+
+    /// Normalized shape the player queues/seeks/reports-progress against.
+    public func asPlayableItem(seriesTitle: String, seasonNumber: Int) -> PlayableItem {
+        PlayableItem(
+            id: id,
+            seriesId: seriesId,
+            title: seriesTitle,
+            subtitle: "S\(seasonNumber) · E\(number) — \"\(title)\"",
+            runtimeTicks: runtimeTicks,
+            resumePositionTicks: resumePositionTicks,
+            isFavorite: isFavorite,
+            imageURL: image
+        )
+    }
 }
 
 /// A season of a show: a named group of episodes.
@@ -473,12 +591,16 @@ public struct Season: Equatable, Sendable, Hashable, Identifiable {
     public var number: Int
     public var name: String            // "Season 3" / "Specials"
     public var episodes: [Episode]
+    /// The season's own poster (Jellyfin `Primary` image) — falls back to the
+    /// show's `keyArt` when a season doesn't have its own.
+    public var image: String?
 
-    public init(id: String, number: Int, name: String, episodes: [Episode]) {
+    public init(id: String, number: Int, name: String, episodes: [Episode], image: String? = nil) {
         self.id = id
         self.number = number
         self.name = name
         self.episodes = episodes
+        self.image = image
     }
 
     /// Short segmented-control label, e.g. "S03" / "SPECIALS".
@@ -581,6 +703,18 @@ public struct MovieAwards: Equatable, Sendable, Hashable {
     }
 }
 
+/// A TV network/broadcaster's branding (e.g. HBO, Adult Swim), sourced from
+/// TMDB — Jellyfin has no distinct network concept of its own (see `Show.studios`).
+public struct Network: Equatable, Sendable, Hashable {
+    public var name: String
+    public var logoURL: String?
+
+    public init(name: String, logoURL: String? = nil) {
+        self.name = name
+        self.logoURL = logoURL
+    }
+}
+
 /// A collection (series) shown on the Show view: spec-sheet metadata, a resume
 /// point, and its seasons/episodes.
 public struct Show: Equatable, Sendable, Hashable, Identifiable {
@@ -611,6 +745,9 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
     public var imdbId: String?
     public var externalRatings: ExternalRatings?
     public var awards: MovieAwards?
+    public var seasonCount: Int?            // real season count (Jellyfin `ChildCount`)
+    public var premiereYear: String?        // real first-air year (Jellyfin `ProductionYear`)
+    public var network: Network?            // TMDB-sourced network branding, opt-in
 
     public init(id: String, title: String, studioLine: String, rating: String,
                 certification: String, runSummary: String, createdBy: String,
@@ -621,7 +758,8 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
                 cast: [CastMember] = [], tagline: String? = nil, studios: [String] = [],
                 communityRating: Double? = nil, criticRating: Double? = nil,
                 imdbId: String? = nil, externalRatings: ExternalRatings? = nil,
-                awards: MovieAwards? = nil) {
+                awards: MovieAwards? = nil, seasonCount: Int? = nil,
+                premiereYear: String? = nil, network: Network? = nil) {
         self.id = id
         self.title = title
         self.studioLine = studioLine
@@ -647,6 +785,9 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
         self.imdbId = imdbId
         self.externalRatings = externalRatings
         self.awards = awards
+        self.seasonCount = seasonCount
+        self.premiereYear = premiereYear
+        self.network = network
     }
 
     /// Index of the season containing the current/resume episode (or the last).
@@ -685,6 +826,11 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
     public var imdbId: String?
     public var externalRatings: ExternalRatings?
     public var awards: MovieAwards?
+    // Playback plumbing — raw values a player needs that the display
+    // strings above can't losslessly reconstruct.
+    public var runtimeTicks: Int64?
+    public var resumePositionTicks: Int64?
+    public var isFavorite: Bool
 
     public init(id: String, title: String, studioLine: String, rating: String,
                 certification: String, runtime: String, director: String, year: String,
@@ -694,7 +840,8 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
                 cast: [CastMember] = [], tagline: String? = nil, studios: [String] = [],
                 communityRating: Double? = nil, criticRating: Double? = nil,
                 imdbId: String? = nil, externalRatings: ExternalRatings? = nil,
-                awards: MovieAwards? = nil) {
+                awards: MovieAwards? = nil, runtimeTicks: Int64? = nil,
+                resumePositionTicks: Int64? = nil, isFavorite: Bool = false) {
         self.id = id
         self.title = title
         self.studioLine = studioLine
@@ -721,5 +868,20 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
         self.imdbId = imdbId
         self.externalRatings = externalRatings
         self.awards = awards
+        self.runtimeTicks = runtimeTicks
+        self.resumePositionTicks = resumePositionTicks
+        self.isFavorite = isFavorite
+    }
+
+    /// Normalized shape the player queues/seeks/reports-progress against.
+    public func asPlayableItem() -> PlayableItem {
+        PlayableItem(
+            id: id,
+            title: title,
+            runtimeTicks: runtimeTicks,
+            resumePositionTicks: resumePositionTicks,
+            isFavorite: isFavorite,
+            imageURL: keyArt
+        )
     }
 }

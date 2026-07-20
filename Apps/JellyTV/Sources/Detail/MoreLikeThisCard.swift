@@ -1,7 +1,7 @@
 import SwiftUI
 import JellyTVKit
 
-/// A portrait poster (128×190) in the Movie detail's "More Like This" row.
+/// A portrait poster (116×172) in the Movie detail's "More Like This" row.
 struct MoreLikeThisCard: View {
     let item: MediaItem
 
@@ -22,7 +22,7 @@ struct MoreLikeThisCard: View {
                     .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
                     .padding(11)
             }
-            .frame(width: 128, height: 190)
+            .frame(width: 116, height: 172)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.14))

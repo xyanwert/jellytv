@@ -67,22 +67,22 @@ struct MovieDetailView: View {
                 Spacer(minLength: 0)
                 KeyArtPanel(image: movie.keyArt, artwork: movie.artwork) {
                     ResumeCard(title: movie.resumeLabel, remaining: movie.resumeRemaining,
-                               progress: movie.resumeProgress)
+                               progress: movie.resumeProgress, action: play)
                         .focused($focus, equals: .resume)
                 }
             }
             .padding(.top, 8)
 
-            Spacer(minLength: 14)
+            Spacer(minLength: 8)
 
             if !movie.cast.isEmpty {
                 castRow
-                Spacer(minLength: 14)
+                Spacer(minLength: 8)
             }
 
             moreLikeThis
 
-            Spacer(minLength: 14)
+            Spacer(minLength: 8)
 
             bottomBar
         }
@@ -105,8 +105,8 @@ struct MovieDetailView: View {
             }
 
             Text(movie.title)
-                .font(Typography.font(88, .black)).foregroundStyle(Palette.textPrimary)
-                .lineLimit(2).minimumScaleFactor(0.5).lineSpacing(-8)
+                .font(Typography.font(78, .black)).foregroundStyle(Palette.textPrimary)
+                .lineLimit(2).minimumScaleFactor(0.5).lineSpacing(-6)
 
             HStack(spacing: 12) {
                 RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
@@ -145,7 +145,7 @@ struct MovieDetailView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 18) {
                     ForEach(movie.cast) { member in
-                        CastAvatar(member: member, size: 72)
+                        CastAvatar(member: member, size: 60)
                     }
                 }
                 .padding(.vertical, 4)
@@ -187,7 +187,7 @@ struct MovieDetailView: View {
             Spacer()
             controls
         }
-        .padding(.top, 24)
+        .padding(.top, 18)
         .overlay(alignment: .top) { Rectangle().fill(Palette.text(0.1)).frame(height: 1) }
     }
 
@@ -199,15 +199,19 @@ struct MovieDetailView: View {
         }
     }
 
+    private func play() {
+        appState.requestPlayback(.single(movie.asPlayableItem()))
+    }
+
     private var controls: some View {
         HStack(spacing: 12) {
-            Button {} label: {
+            Button(action: play) {
                 HStack(spacing: 11) {
                     Image(systemName: "play.fill").font(.system(size: 20))
                     Text("Play")
                 }
                 .font(Typography.font(20, .heavy)).foregroundStyle(.white)
-                .padding(.horizontal, 34).padding(.vertical, 15)
+                .padding(.horizontal, 34).padding(.vertical, 12)
                 .background(theme.accent, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             }
             .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 13))
@@ -220,7 +224,7 @@ struct MovieDetailView: View {
             Button {} label: {
                 Image(systemName: "plus").font(.system(size: 24, weight: .regular))
                     .foregroundStyle(Palette.text(0.85))
-                    .frame(width: 52, height: 52)
+                    .frame(width: 46, height: 46)
                     .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
             }

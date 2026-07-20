@@ -1,21 +1,24 @@
 import SwiftUI
 import JellyTVKit
 
-/// An episode card in the Show view's season strip (236×133 thumb + title):
+/// An episode card in the Show view's season strip (320×180 thumb + title):
 /// episode-number badge, runtime, a "NOW" marker + accent outline for the
 /// current episode, and the dominant-color focus glow shared with other cards.
 struct EpisodeCard: View {
     let episode: Episode
+    var action: () -> Void = {}
 
     @EnvironmentObject private var theme: Theme
 
+    private var isRemote: Bool { episode.image?.hasPrefix("http") == true }
+
     private var dominant: Color {
-        if let name = episode.image { return DominantColor.of(name, fallback: Color(episode.artwork.top)) }
+        if let name = episode.image, !isRemote { return DominantColor.of(name, fallback: Color(episode.artwork.top)) }
         return Color(episode.artwork.top)
     }
 
     var body: some View {
-        Button {} label: {
+        Button(action: action) {
             VStack(alignment: .leading, spacing: 9) {
                 ZStack {
                     artwork
@@ -45,7 +48,7 @@ struct EpisodeCard: View {
                             .padding(12)
                     }
                 }
-                .frame(width: 236, height: 133)
+                .frame(width: 320, height: 180)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -57,13 +60,15 @@ struct EpisodeCard: View {
                     .foregroundStyle(episode.isCurrent ? Palette.textPrimary : Palette.text(0.75))
                     .lineLimit(1)
             }
-            .frame(width: 236)
+            .frame(width: 320)
         }
         .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.1))
     }
 
     @ViewBuilder private var artwork: some View {
-        if let name = episode.image {
+        if let image = episode.image, isRemote, let url = URL(string: image) {
+            JellyfinAsyncImage(url: url, fallback: episode.artwork.gradient)
+        } else if let name = episode.image {
             ZStack {
                 Image(name).resizable().scaledToFill()
                 dominant.opacity(0.35).blendMode(.color)

@@ -6,6 +6,8 @@ struct ContinueWatchingRow: View {
     let items: [ContinueWatchingItem]
     var firstCardFocus: FocusState<HomeFocus?>.Binding?
     var firstCardTag: HomeFocus?
+    /// Resumes directly into the player — no intermediate detail screen.
+    var onSelect: (ContinueWatchingItem) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -20,7 +22,8 @@ struct ContinueWatchingRow: View {
                         ContinueCard(
                             item: item,
                             focus: index == 0 ? firstCardFocus : nil,
-                            focusTag: index == 0 ? firstCardTag : nil
+                            focusTag: index == 0 ? firstCardTag : nil,
+                            onSelect: { onSelect(item) }
                         )
                     }
                 }

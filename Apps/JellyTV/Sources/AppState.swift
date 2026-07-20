@@ -17,6 +17,17 @@ final class AppState: ObservableObject {
     @Published var omdbApiKey: String {
         didSet { UserDefaults.standard.set(omdbApiKey, forKey: "jelly:omdb.apiKey") }
     }
+    /// Opt-in TMDB enrichment (real TV network logos — Jellyfin has no such field).
+    @Published var tmdbEnabled: Bool {
+        didSet { UserDefaults.standard.set(tmdbEnabled, forKey: "jelly:tmdb.enabled") }
+    }
+    @Published var tmdbApiKey: String {
+        didSet { UserDefaults.standard.set(tmdbApiKey, forKey: "jelly:tmdb.apiKey") }
+    }
+    /// Set to present the player via `RootView`'s `.fullScreenCover(item:)`.
+    /// `PlaybackRequest.id` is content-derived, so re-setting the same
+    /// request (e.g. an unrelated `AppState` publish) doesn't retrigger it.
+    @Published var activePlaybackRequest: PlaybackRequest?
 
     private var client: JellyfinClient?
     private var userId: String = ""
@@ -27,6 +38,11 @@ final class AppState: ObservableObject {
     // item is only ever fetched once even as focus moves back and forth.
     private var itemDetailCache: [String: JellyfinAPI.JellyfinItem] = [:]
     private var omdbCache: [String: (ExternalRatings?, MovieAwards?)] = [:]
+    private var tmdbCache: [String: Network?] = [:]
+    // Seasons keyed by series id (episodes start empty); episodes keyed by
+    // season id, fetched lazily per selection — never the whole show at once.
+    private var seasonsCache: [String: [Season]] = [:]
+    private var episodesCache: [String: [Episode]] = [:]
     // Jellyfin items don't carry a library/parent reference of their own —
     // `fetchItems(parentId:)` is the only place that knows which library an
     // item came from, so that's recorded here as items are fetched, keyed
@@ -40,6 +56,8 @@ final class AppState: ObservableObject {
         hideNSFW = UserDefaults.standard.object(forKey: "jelly:home.hideNSFW") as? Bool ?? true
         omdbEnabled = UserDefaults.standard.object(forKey: "jelly:omdb.enabled") as? Bool ?? false
         omdbApiKey = UserDefaults.standard.string(forKey: "jelly:omdb.apiKey") ?? ""
+        tmdbEnabled = UserDefaults.standard.object(forKey: "jelly:tmdb.enabled") as? Bool ?? false
+        tmdbApiKey = UserDefaults.standard.string(forKey: "jelly:tmdb.apiKey") ?? ""
     }
 
     func configure(baseURL: URL, apiKey: String, deviceId: String, userId: String) {
@@ -275,6 +293,36 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// The full, sortable TV Shows-library catalog — the `loadMovies` sibling
+    /// for the Shows screen. Not cached on `AppState`: the Shows screen owns
+    /// its own `@State` and re-calls this when the sort chip changes.
+    func loadShows(sortBy: String = "SortName", sortOrder: String = "Ascending") async -> [MediaItem] {
+        guard let client else { return [] }
+        let showLibs = libraries.filter {
+            LibraryClassifier.classify(collectionType: $0.collectionType, name: $0.name)?.collectionType == "tvshows"
+        }
+        var results: [JellyfinAPI.JellyfinItem] = []
+        for lib in showLibs {
+            guard let items = try? await client.fetchItems(
+                userId: userId,
+                parentId: lib.id,
+                includeItemTypes: "Series",
+                sortBy: sortBy,
+                sortOrder: sortOrder,
+                limit: 500,
+                fields: "Overview,Genres,OfficialRating,CommunityRating,PremiereDate,BackdropImageTags,ParentBackdropImageTags"
+            ) else { continue }
+            for item in items { itemLibraryId[item.id] = lib.id }
+            results.append(contentsOf: items)
+        }
+        let visible = hideNSFW
+            ? results.filter { !(libraryCategory(for: $0)?.isNSFW ?? false) }
+            : results
+        return visible.compactMap { item in
+            item.toMediaItem(libraryCategory: libraryCategory(for: item), imageBaseURL: imageBaseURL)
+        }
+    }
+
     // MARK: - On-demand detail enrichment
 
     /// Full Jellyfin metadata for one item (cast, critic rating, tagline,
@@ -302,6 +350,29 @@ final class AppState: ObservableObject {
         return item.enrich(base, imageBaseURL: imageBaseURL)
     }
 
+    /// A series' real seasons (episodes start empty — fetched separately, per
+    /// selection). Cached by series id; `nil` before the server is up or on
+    /// failure, so the caller can keep whatever it already has.
+    func seasons(for seriesId: String) async -> [Season]? {
+        if let cached = seasonsCache[seriesId] { return cached }
+        guard let client else { return nil }
+        guard let items = try? await client.fetchSeasons(userId: userId, seriesId: seriesId) else { return nil }
+        let seasons = items.map { $0.toSeason(imageBaseURL: imageBaseURL) }.sorted { $0.number < $1.number }
+        seasonsCache[seriesId] = seasons
+        return seasons
+    }
+
+    /// One season's real episodes (thumbnail, runtime, resume state). Cached
+    /// by season id — switching back to an already-viewed season is instant.
+    func episodes(seriesId: String, seasonId: String) async -> [Episode]? {
+        if let cached = episodesCache[seasonId] { return cached }
+        guard let client else { return nil }
+        guard let items = try? await client.fetchEpisodes(userId: userId, seriesId: seriesId, seasonId: seasonId) else { return nil }
+        let episodes = items.map { $0.toEpisode(imageBaseURL: imageBaseURL, seriesId: seriesId) }.sorted { $0.number < $1.number }
+        episodesCache[seasonId] = episodes
+        return episodes
+    }
+
     /// OMDb enrichment (awards + true RT/Metacritic), keyed by IMDb id. The
     /// single choke point for graceful degradation: returns `nil` whenever the
     /// feature is off, unconfigured, the id is missing, or the call fails.
@@ -313,6 +384,19 @@ final class AppState: ObservableObject {
         let enrichment = (result.externalRatings, result.parsedAwards)
         omdbCache[imdbId] = enrichment
         return enrichment
+    }
+
+    /// TMDB network branding, keyed by IMDb id. The single choke point for
+    /// graceful degradation: returns `nil` whenever the feature is off,
+    /// unconfigured, the id is missing, or the call fails — the dossier's
+    /// network element simply doesn't render.
+    func tmdbNetwork(imdbId: String?) async -> Network? {
+        guard tmdbEnabled, !tmdbApiKey.isEmpty, let imdbId, !imdbId.isEmpty else { return nil }
+        if let cached = tmdbCache[imdbId] { return cached }
+        let network = try? await TMDBClient(apiKey: tmdbApiKey).fetchNetwork(imdbId: imdbId)
+        let result = network ?? nil
+        tmdbCache[imdbId] = result
+        return result
     }
 
     func libraryUIItems() -> [Library] {
@@ -329,6 +413,64 @@ final class AppState: ObservableObject {
             libIds.contains { item.id.hasPrefix($0) } || libIds.contains(item.id)
         }.compactMap { item in
             item.toMediaItem(libraryCategory: libraryCategory(for: item), imageBaseURL: imageBaseURL)
+        }
+    }
+
+    // MARK: - Playback
+
+    /// Read-only accessors so `PlayerView` can build its own `PlayerEngine`
+    /// without `AppState` handing out its mutable `client`/`userId` storage.
+    var jellyfinClient: JellyfinClient? { client }
+    var currentUserId: String { userId }
+
+    func requestPlayback(_ request: PlaybackRequest) {
+        activePlaybackRequest = request
+    }
+
+    /// A season's episodes, already loaded by `ShowView` — sync, no fetch.
+    func episodeQueueRequest(episodes: [Episode], seriesTitle: String, seasonNumber: Int,
+                             startEpisodeId: String) -> PlaybackRequest? {
+        guard !episodes.isEmpty else { return nil }
+        let items = episodes.map { $0.asPlayableItem(seriesTitle: seriesTitle, seasonNumber: seasonNumber) }
+        let startIndex = items.firstIndex { $0.id == startEpisodeId } ?? 0
+        return .queue(items, startIndex: startIndex)
+    }
+
+    /// Flattens every season's episodes into one shuffled queue.
+    func shufflePlayRequest(seriesId: String, seriesTitle: String) async -> PlaybackRequest? {
+        guard let allSeasons = await seasons(for: seriesId) else { return nil }
+        var items: [PlayableItem] = []
+        for season in allSeasons {
+            guard let episodes = await episodes(seriesId: seriesId, seasonId: season.id) else { continue }
+            items.append(contentsOf: episodes.map { $0.asPlayableItem(seriesTitle: seriesTitle, seasonNumber: season.number) })
+        }
+        guard !items.isEmpty else { return nil }
+        return .shuffled(items)
+    }
+
+    func resumeRequest(for hero: HeroFeature) async -> PlaybackRequest? {
+        guard let item = await resumePlayableItem(id: hero.id, itemType: hero.itemType,
+                                                   seriesId: hero.seriesId, fallbackTitle: hero.title) else { return nil }
+        return .single(item)
+    }
+
+    func resumeRequest(for item: ContinueWatchingItem) async -> PlaybackRequest? {
+        guard let playable = await resumePlayableItem(id: item.id, itemType: item.itemType,
+                                                       seriesId: item.seriesId, fallbackTitle: item.title) else { return nil }
+        return .single(playable)
+    }
+
+    private func resumePlayableItem(id: String, itemType: String?, seriesId: String?, fallbackTitle: String) async -> PlayableItem? {
+        switch itemType {
+        case "Movie":
+            guard let movie = await movieDetail(for: id) else { return nil }
+            return movie.asPlayableItem()
+        case "Episode":
+            guard let raw = await detailItem(for: id) else { return nil }
+            let episode = raw.toEpisode(imageBaseURL: imageBaseURL, seriesId: seriesId ?? raw.seriesId)
+            return episode.asPlayableItem(seriesTitle: raw.seriesName ?? fallbackTitle, seasonNumber: raw.parentIndexNumber ?? 0)
+        default:
+            return nil
         }
     }
 }

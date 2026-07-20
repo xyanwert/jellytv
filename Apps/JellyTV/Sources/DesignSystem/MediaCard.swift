@@ -10,6 +10,8 @@ struct ContinueCard: View {
     /// Optional focus binding so a specific card can be targeted (e.g. default focus).
     var focus: FocusState<HomeFocus?>.Binding?
     var focusTag: HomeFocus?
+    /// Resumes directly into the player — no intermediate detail screen.
+    var onSelect: () -> Void = {}
 
     @EnvironmentObject private var theme: Theme
     // Dominant color of the actual downloaded artwork (remote images only —
@@ -19,10 +21,12 @@ struct ContinueCard: View {
 
     init(item: ContinueWatchingItem,
          focus: FocusState<HomeFocus?>.Binding? = nil,
-         focusTag: HomeFocus? = nil) {
+         focusTag: HomeFocus? = nil,
+         onSelect: @escaping () -> Void = {}) {
         self.item = item
         self.focus = focus
         self.focusTag = focusTag
+        self.onSelect = onSelect
     }
 
     private var isRemote: Bool { item.image?.hasPrefix("http") == true }
@@ -33,7 +37,7 @@ struct ContinueCard: View {
     }
 
     var body: some View {
-        let card = Button {} label: { label }
+        let card = Button(action: onSelect) { label }
             .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.16))
             .task(id: item.image) {
                 guard isRemote, let image = item.image, let url = URL(string: image) else { return }

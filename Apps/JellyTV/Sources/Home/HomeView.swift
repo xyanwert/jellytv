@@ -119,6 +119,16 @@ struct HomeView: View {
             : .show(SampleCatalog.show(for: item))
     }
 
+    /// Resumes a Continue Watching card directly into the player — no
+    /// intermediate detail screen. A no-op for sample-catalog fallback items
+    /// (their ids don't resolve against a real server).
+    private func resume(_ item: ContinueWatchingItem) {
+        Task {
+            guard let request = await appState.resumeRequest(for: item) else { return }
+            appState.requestPlayback(request)
+        }
+    }
+
     @ViewBuilder
     private func detailView(_ detail: PresentedDetail) -> some View {
         switch detail {
@@ -146,7 +156,8 @@ struct HomeView: View {
                     ? SampleCatalog.continueWatching : appState.continueWatching
                 if !cwItems.isEmpty {
                     ContinueWatchingRow(items: cwItems,
-                                        firstCardFocus: $focus, firstCardTag: .continueFirst)
+                                        firstCardFocus: $focus, firstCardTag: .continueFirst,
+                                        onSelect: resume)
                 }
 
                 let recItems = appState.recommended.isEmpty

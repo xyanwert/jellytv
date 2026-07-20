@@ -180,7 +180,11 @@ public enum SampleCatalog {
         imdbId: "tt0000000",
         externalRatings: ExternalRatings(imdbRating: 8.5, rottenTomatoes: 92, metacritic: 81),
         awards: MovieAwards(oscarsWon: 0, oscarNominations: 0, wins: 8, nominations: 20,
-                            summary: "8 wins & 20 nominations total")
+                            summary: "8 wins & 20 nominations total"),
+        seasonCount: 3,
+        premiereYear: "2023",
+        // No logoURL — previews the dossier's text fallback when TMDB isn't configured.
+        network: Network(name: "Benthic Signal")
     )
 
     /// Demo cast (no headshot URLs, so the monogram fallback is exercised in
@@ -205,20 +209,20 @@ public enum SampleCatalog {
             studioLine: s.studioLine,
             rating: s.rating,
             certification: s.certification,
-            runSummary: s.runSummary,
+            runSummary: "",   // unknown until detail loads
             createdBy: s.createdBy,
-            years: s.years,
+            years: "",        // unknown until detail loads
             genreLabel: "TV Shows / \(genrePart(item.meta, fallback: "Sci-Fi Drama"))",
             techLine: s.techLine,
             synopsis: s.synopsis,
             keyArt: item.image ?? s.keyArt,
             artwork: item.artwork,
-            resumeEpisodeLabel: s.resumeEpisodeLabel,
-            resumeProgress: s.resumeProgress,
-            resumeRemaining: s.resumeRemaining,
-            seasons: s.seasons
-            // Intentionally NOT carrying cast/tagline/ratings/awards: for a real
-            // item these come from the live detail fetch. Leaving them empty
+            resumeEpisodeLabel: "",
+            resumeProgress: 0,
+            resumeRemaining: "",
+            seasons: []
+            // Intentionally NOT carrying cast/tagline/ratings/awards/seasons: for
+            // a real item these come from the live detail fetch. Leaving them empty
             // here means the UI shows a loading state, never fake demo data.
         )
     }

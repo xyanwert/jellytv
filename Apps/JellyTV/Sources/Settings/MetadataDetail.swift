@@ -8,10 +8,12 @@ struct MetadataDetail: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var theme: Theme
     @FocusState private var keyFocused: Bool?
+    @FocusState private var tmdbKeyFocused: Bool?
 
     /// Result of a "Test key" check.
     private enum TestStatus: Equatable { case idle, testing, ok, failed }
     @State private var testStatus: TestStatus = .idle
+    @State private var tmdbTestStatus: TestStatus = .idle
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -55,12 +57,59 @@ struct MetadataDetail: View {
                 DetailDivider()
             }
 
+            DetailRow(label: "Show network logos",
+                      description: "Fetch real TV network branding from themoviedb.org") {
+                ToggleSwitch(isOn: $appState.tmdbEnabled)
+            }
+            DetailDivider()
+
+            if appState.tmdbEnabled {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("API KEY")
+                        .font(Mono.font(14, .bold)).tracking(2)
+                        .foregroundStyle(Palette.text(0.5))
+                    AppTextField(placeholder: "Paste your TMDB API key",
+                                 text: $appState.tmdbApiKey,
+                                 secure: true, mono: true,
+                                 accent: theme.accent, field: true, focus: $tmdbKeyFocused,
+                                 onSubmit: {})
+                    HStack(spacing: 16) {
+                        Button(action: testTMDBKey) {
+                            Text(tmdbTestLabel)
+                                .font(Typography.font(17, .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 22).padding(.vertical, 12)
+                                .background(theme.accent.opacity(appState.tmdbApiKey.isEmpty ? 0.3 : 1),
+                                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 12))
+                        .disabled(appState.tmdbApiKey.isEmpty || tmdbTestStatus == .testing)
+
+                        Text("Get a free key at themoviedb.org/settings/api")
+                            .font(Typography.font(16, .medium))
+                            .foregroundStyle(Palette.text(0.4))
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(.vertical, 24)
+                DetailDivider()
+            }
+
             Spacer(minLength: 0)
         }
     }
 
     private var testLabel: String {
         switch testStatus {
+        case .idle: return "Test key"
+        case .testing: return "Testing…"
+        case .ok: return "✓ Working"
+        case .failed: return "✗ Failed"
+        }
+    }
+
+    private var tmdbTestLabel: String {
+        switch tmdbTestStatus {
         case .idle: return "Test key"
         case .testing: return "Testing…"
         case .ok: return "✓ Working"
@@ -75,6 +124,16 @@ struct MetadataDetail: View {
             // "The Shawshank Redemption" — a stable id that always resolves.
             let ok = (try? await OmdbClient(apiKey: key).fetch(imdbId: "tt0111161"))?.isSuccess ?? false
             testStatus = ok ? .ok : .failed
+        }
+    }
+
+    private func testTMDBKey() {
+        tmdbTestStatus = .testing
+        let key = appState.tmdbApiKey
+        Task {
+            // "Breaking Bad" — a stable id with a well-known network (AMC).
+            let ok = (try? await TMDBClient(apiKey: key).fetchNetwork(imdbId: "tt0903747")) != nil
+            tmdbTestStatus = ok ? .ok : .failed
         }
     }
 }

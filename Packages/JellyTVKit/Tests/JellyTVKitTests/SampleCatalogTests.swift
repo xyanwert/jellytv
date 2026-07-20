@@ -27,6 +27,22 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertFalse(s.cast.isEmpty)
         XCTAssertNotNil(s.tagline)
         XCTAssertNotNil(s.externalRatings)
+        XCTAssertEqual(s.seasonCount, 3)
+        XCTAssertEqual(s.premiereYear, "2023")
+        XCTAssertEqual(s.network?.name, "Benthic Signal")
+        XCTAssertNil(s.network?.logoURL)   // previews the dossier's text fallback
+    }
+
+    func testShowForItemIsBareForLiveFetch() {
+        let item = SampleCatalog.recommended[0]
+        let s = SampleCatalog.show(for: item)
+        // Bare: enrichment (cast/season count/year/network) comes from the
+        // live fetch, not the demo template, so the UI never flashes fake
+        // metadata while loading.
+        XCTAssertTrue(s.cast.isEmpty)
+        XCTAssertNil(s.seasonCount)
+        XCTAssertNil(s.premiereYear)
+        XCTAssertNil(s.network)
     }
 
     func testMovieForItemIsBareForLiveFetch() {
@@ -85,7 +101,12 @@ final class SampleCatalogTests: XCTestCase {
         let show = SampleCatalog.show(for: item)
         XCTAssertEqual(show.title, item.title)
         XCTAssertEqual(show.keyArt, item.image)
-        XCTAssertEqual(show.seasons.count, SampleCatalog.show.seasons.count)
+        // Bare: seasons/episodes come from the live per-show/per-season fetch,
+        // never the demo template — never fake episode thumbnails.
+        XCTAssertTrue(show.seasons.isEmpty)
+        XCTAssertTrue(show.runSummary.isEmpty)
+        XCTAssertTrue(show.years.isEmpty)
+        XCTAssertTrue(show.resumeEpisodeLabel.isEmpty)
     }
 
     func testEpisodeNumberLabel() {

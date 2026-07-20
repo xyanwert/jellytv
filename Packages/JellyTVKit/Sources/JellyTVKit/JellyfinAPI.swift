@@ -156,6 +156,10 @@ public enum JellyfinAPI {
         public let taglines: [String]?
         public let studios: [JellyfinNamedItem]?
         public let productionLocations: [String]?
+        // Series-only: "Continuing" or "Ended", and the end date once ended —
+        // used to format a show's year range ("2023 – 2026" vs "2023 – Still On").
+        public let status: String?
+        public let endDate: String?
 
         enum CodingKeys: String, CodingKey {
             case id = "Id"
@@ -187,6 +191,8 @@ public enum JellyfinAPI {
             case providerIds = "ProviderIds"
             case taglines = "Taglines"
             case studios = "Studios"
+            case status = "Status"
+            case endDate = "EndDate"
             case productionLocations = "ProductionLocations"
         }
 
@@ -205,7 +211,8 @@ public enum JellyfinAPI {
                     recursiveItemCount: Int? = nil, locationType: String? = nil,
                     people: [JellyfinPerson]? = nil, criticRating: Double? = nil,
                     providerIds: [String: String]? = nil, taglines: [String]? = nil,
-                    studios: [JellyfinNamedItem]? = nil, productionLocations: [String]? = nil) {
+                    studios: [JellyfinNamedItem]? = nil, productionLocations: [String]? = nil,
+                    status: String? = nil, endDate: String? = nil) {
             self.id = id
             self.name = name
             self.type = type
@@ -236,6 +243,8 @@ public enum JellyfinAPI {
             self.taglines = taglines
             self.studios = studios
             self.productionLocations = productionLocations
+            self.status = status
+            self.endDate = endDate
         }
 
         public var displayName: String { name ?? "Unknown" }

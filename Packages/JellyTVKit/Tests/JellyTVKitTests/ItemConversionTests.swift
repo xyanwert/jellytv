@@ -20,7 +20,10 @@ final class ItemConversionTests: XCTestCase {
                   criticRating: Double? = nil,
                   providerIds: [String: String]? = nil,
                   taglines: [String]? = nil,
-                  studios: [JellyfinAPI.JellyfinNamedItem]? = nil) -> JellyfinAPI.JellyfinItem {
+                  studios: [JellyfinAPI.JellyfinNamedItem]? = nil,
+                  childCount: Int? = nil,
+                  status: String? = nil,
+                  endDate: String? = nil) -> JellyfinAPI.JellyfinItem {
         JellyfinAPI.JellyfinItem(
             id: id, name: name, type: type, overview: overview,
             genres: genres, productionYear: productionYear,
@@ -29,9 +32,10 @@ final class ItemConversionTests: XCTestCase {
             seriesName: seriesName, indexNumber: indexNumber,
             parentIndexNumber: parentIndexNumber,
             imageTags: imageTags, backdropImageTags: backdropImageTags,
-            userData: userData,
+            userData: userData, childCount: childCount,
             people: people, criticRating: criticRating, providerIds: providerIds,
-            taglines: taglines, studios: studios
+            taglines: taglines, studios: studios,
+            status: status, endDate: endDate
         )
     }
 
@@ -214,5 +218,55 @@ final class ItemConversionTests: XCTestCase {
         XCTAssertEqual(enriched.tagline, "It is answering.")
         XCTAssertEqual(enriched.imdbId, "tt7654321")
         XCTAssertEqual(enriched.criticRating, 92)
+    }
+
+    func testEnrichShowYearsStillOngoing() {
+        let item = makeItem(type: "Series", productionYear: 2023, status: "Continuing")
+        let enriched = item.enrich(SampleCatalog.show)
+        XCTAssertEqual(enriched.years, "2023 – Still On")
+    }
+
+    func testEnrichShowYearsEnded() {
+        let item = makeItem(type: "Series", productionYear: 2019,
+                             status: "Ended", endDate: "2023-06-01T00:00:00.000Z")
+        let enriched = item.enrich(SampleCatalog.show)
+        XCTAssertEqual(enriched.years, "2019 – 2023")
+    }
+
+    func testEnrichShowYearsEndedSameYear() {
+        let item = makeItem(type: "Series", productionYear: 2023,
+                             status: "Ended", endDate: "2023-06-01T00:00:00.000Z")
+        let enriched = item.enrich(SampleCatalog.show)
+        XCTAssertEqual(enriched.years, "2023")
+    }
+
+    func testEnrichShowYearsUnknownStatusFallsBackToStartYear() {
+        let item = makeItem(type: "Series", productionYear: 2023)
+        let enriched = item.enrich(SampleCatalog.show)
+        XCTAssertEqual(enriched.years, "2023")
+    }
+
+    func testEnrichShowSeasonCount() {
+        let item = makeItem(type: "Series", childCount: 5)
+        let enriched = item.enrich(SampleCatalog.show)
+        XCTAssertEqual(enriched.seasonCount, 5)
+    }
+
+    func testToSeasonBuildsOwnPosterURL() {
+        let base = URL(string: "https://jelly.example")!
+        let item = makeItem(id: "season-3", name: "Season 3", type: "Season",
+                             indexNumber: 3, imageTags: ["Primary": "seasontag"])
+        let season = item.toSeason(imageBaseURL: base)
+        XCTAssertEqual(season.id, "season-3")
+        XCTAssertEqual(season.number, 3)
+        XCTAssertNotNil(season.image)
+        XCTAssertTrue(season.image?.contains("/Items/season-3/Images/Primary") ?? false)
+    }
+
+    func testToSeasonImageNilWithoutTag() {
+        let base = URL(string: "https://jelly.example")!
+        let item = makeItem(type: "Season", indexNumber: 1, imageTags: nil)
+        let season = item.toSeason(imageBaseURL: base)
+        XCTAssertNil(season.image)
     }
 }

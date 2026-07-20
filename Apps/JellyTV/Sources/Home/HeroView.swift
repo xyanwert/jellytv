@@ -11,6 +11,7 @@ struct HeroView: View {
     var resumeFocus: FocusState<HomeFocus?>.Binding
 
     @EnvironmentObject private var theme: Theme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -118,7 +119,7 @@ struct HeroView: View {
     private var actionsRow: some View {
         HStack(spacing: 16) {
             // Resume — accent-filled with a soft glow (design 3a).
-            Button {} label: {
+            Button(action: resume) {
                 HStack(spacing: 12) {
                     Image(systemName: "play.fill").font(.system(size: 20))
                     Text(hero.resumeLabel)
@@ -155,6 +156,13 @@ struct HeroView: View {
             .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
         }
         .padding(.top, 4)
+    }
+
+    private func resume() {
+        Task {
+            guard let request = await appState.resumeRequest(for: hero) else { return }
+            appState.requestPlayback(request)
+        }
     }
 
     private func badge(_ text: String, visible: Bool = true) -> some View {
