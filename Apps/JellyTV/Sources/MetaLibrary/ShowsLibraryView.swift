@@ -10,6 +10,7 @@ import JellyTVKit
 /// stat boxes and director/studio/runtime rows. Shows a loading state while
 /// the server's shows load — never sample data standing in for the real grid.
 struct ShowsLibraryView: View {
+    let isLibrariesOpen: Bool
     let onSelectRail: (RailTarget) -> Void
 
     @EnvironmentObject private var appState: AppState
@@ -129,6 +130,14 @@ struct ShowsLibraryView: View {
         presentedShow = baseShow(for: item)
     }
 
+    /// Closes the Libraries submenu first (if open), then the detail cover,
+    /// then falls back to leaving the screen entirely.
+    private var exitAction: (() -> Void)? {
+        if isLibrariesOpen { return { onSelectRail(.libraries) } }
+        if presentedShow != nil { return nil }
+        return { onSelectRail(.home) }
+    }
+
     var body: some View {
         ZStack {
             background
@@ -139,27 +148,29 @@ struct ShowsLibraryView: View {
                 SelectedBackdrop(item: selectedItem)
             }
             HStack(spacing: 0) {
-                NavRail(destination: .tv, isLibrariesOpen: false, onSelect: onSelectRail)
-                // Header, filters and the selected-show band stay pinned; only
-                // the poster catalog scrolls beneath them.
-                VStack(alignment: .leading, spacing: 22) {
-                    header.padding(.horizontal, 48)
-                    filterBar.padding(.horizontal, 48)
-                    if let dossierShow {
-                        SelectedShowBand(show: dossierShow, isLoading: isDossierLoading)
-                    }
-                    if !hasLoadedShows {
-                        loadingGrid
-                    } else {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            postersSection
-                                .padding(.horizontal, 48)
-                                .padding(.top, 6)   // room for the top row's focus glow
-                                .padding(.bottom, 60)
+                NavRail(destination: .tv, isLibrariesOpen: isLibrariesOpen, onSelect: onSelectRail)
+                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems()) {
+                    // Header, filters and the selected-show band stay pinned; only
+                    // the poster catalog scrolls beneath them.
+                    VStack(alignment: .leading, spacing: 22) {
+                        header.padding(.horizontal, 48)
+                        filterBar.padding(.horizontal, 48)
+                        if let dossierShow {
+                            SelectedShowBand(show: dossierShow, isLoading: isDossierLoading)
+                        }
+                        if !hasLoadedShows {
+                            loadingGrid
+                        } else {
+                            ScrollView(.vertical, showsIndicators: false) {
+                                postersSection
+                                    .padding(.horizontal, 48)
+                                    .padding(.top, 6)   // room for the top row's focus glow
+                                    .padding(.bottom, 60)
+                            }
                         }
                     }
+                    .padding(.top, 40)
                 }
-                .padding(.top, 40)
             }
             .ignoresSafeArea()
 
@@ -186,7 +197,7 @@ struct ShowsLibraryView: View {
         }
         // Fetch rich detail (cast/season count/network) for the selected item.
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
-        .onExitCommand(perform: presentedShow == nil ? { onSelectRail(.home) } : nil)
+        .onExitCommand(perform: exitAction)
     }
 
     // MARK: - Header

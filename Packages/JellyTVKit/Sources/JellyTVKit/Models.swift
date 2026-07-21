@@ -313,18 +313,6 @@ extension JellyfinAPI.JellyfinItem {
     }
 }
 
-extension JellyfinAPI.JellyfinUserView {
-    public func toLibrary(classifier: (String?, String) -> MetaCategory?) -> Library? {
-        guard let category = classifier(collectionType, name) else { return nil }
-        return Library(
-            id: id,
-            name: name,
-            isAdult: category.isNSFW,
-            itemCount: ""
-        )
-    }
-}
-
 /// A poster/tile item (movie or series entry).
 public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
     /// Whether the item is a single video or a collection — drives which detail
@@ -494,7 +482,7 @@ public struct ServerStatus: Equatable, Sendable, Hashable {
 /// A category row in the Settings screen's category list.
 public struct SettingsCategory: Equatable, Sendable, Hashable, Identifiable {
     public enum Kind: String, Sendable, CaseIterable {
-        case playback, subtitles, audio, home, appearance, parental, metadata, server, account, about
+        case playback, libraries, home, appearance, metadata, server, account
     }
 
     public var kind: Kind

@@ -100,13 +100,13 @@ struct RootView: View {
                 onOpenSettings: { destination = .settings }
             )
         case .settings:
-            SettingsView(onSelectRail: handleRailSelection)
+            SettingsView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .search:
             placeholder
         case .movies:
-            MoviesLibraryView(onSelectRail: handleRailSelection)
+            MoviesLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .tv:
-            ShowsLibraryView(onSelectRail: handleRailSelection)
+            ShowsLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         }
     }
 
@@ -114,15 +114,17 @@ struct RootView: View {
         HStack(spacing: 0) {
             NavRail(
                 destination: destination,
-                isLibrariesOpen: false,
+                isLibrariesOpen: isLibrariesOpen,
                 onSelect: handleRailSelection
             )
-            ComingSoon(title: placeholderTitle)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems()) {
+                ComingSoon(title: placeholderTitle)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .background(Palette.background.ignoresSafeArea())
         .ignoresSafeArea()
-        .onExitCommand { handleRailSelection(.home) }
+        .onExitCommand { handleRailSelection(isLibrariesOpen ? .libraries : .home) }
     }
 
     private var placeholderTitle: String {
@@ -152,12 +154,9 @@ struct RootView: View {
             isLibrariesOpen = false
             destination = .settings
         case .libraries:
-            if destination == .home {
-                isLibrariesOpen.toggle()
-            } else {
-                destination = .home
-                isLibrariesOpen = true
-            }
+            // Opens the submenu over whatever screen is already showing —
+            // never forces a navigation to Home first.
+            isLibrariesOpen.toggle()
         }
     }
 }

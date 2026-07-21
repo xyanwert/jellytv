@@ -36,6 +36,12 @@ struct SettingsCategoryList: View {
         .overlay(alignment: .trailing) {
             Rectangle().fill(Palette.text(0.08)).frame(width: 1)
         }
+        // Without this, Left from a category row has no reliable on-axis
+        // candidate in the rail (same root cause as the detail pane's own
+        // `.focusSection()` — see SettingsView) and just does nothing.
+        // Scoping this column as its own section lets Left cross cleanly
+        // into the rail's section instead of raycasting to a specific icon.
+        .focusSection()
     }
 }
 

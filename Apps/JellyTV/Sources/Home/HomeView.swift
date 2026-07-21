@@ -48,6 +48,10 @@ struct HomeView: View {
         return h.isEmpty ? SampleCatalog.heroes : h
     }
     private var currentHero: HeroFeature { displayHeroes[heroIndex % displayHeroes.count] }
+    private var libraryItems: [Library] {
+        let libs = appState.libraryUIItems()
+        return libs.isEmpty ? SampleCatalog.libraries : libs
+    }
 
     private var initialFocus: HomeFocus {
         ProcessInfo.processInfo.environment["JT_FOCUS"] == "continue" ? .continueFirst : .heroResume
@@ -64,19 +68,11 @@ struct HomeView: View {
                     isLibrariesOpen: isLibrariesOpen,
                     onSelect: onSelectRail
                 )
-                ZStack(alignment: .leading) {
+                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: libraryItems) {
                     content
-                        .opacity(isLibrariesOpen ? 0.5 : 1)
-                        .allowsHitTesting(!isLibrariesOpen)
-                    if isLibrariesOpen {
-                        let libs = appState.libraryUIItems()
-                        LibrariesSubmenu(libraries: libs.isEmpty ? SampleCatalog.libraries : libs)
-                            .transition(.move(edge: .leading).combined(with: .opacity))
-                    }
                 }
             }
             .ignoresSafeArea()
-            .animation(.easeOut(duration: 0.2), value: isLibrariesOpen)
 
             if let presentedDetail {
                 detailView(presentedDetail)
@@ -109,7 +105,7 @@ struct HomeView: View {
             Task { await revealNextSlide(newList: appState.heroes) }
         }
         .onDisappear { rotateTask?.cancel() }
-        .onExitCommand(perform: isLibrariesOpen ? { onSelectRail(.home) } : nil)
+        .onExitCommand(perform: isLibrariesOpen ? { onSelectRail(.libraries) } : nil)
     }
 
     /// Presents a movie or show detail for the selected Recommended poster.

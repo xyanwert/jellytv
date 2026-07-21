@@ -7,6 +7,7 @@ import JellyTVKit
 /// while the server's movies load — never sample data standing in for the
 /// real grid.
 struct MoviesLibraryView: View {
+    let isLibrariesOpen: Bool
     let onSelectRail: (RailTarget) -> Void
 
     @EnvironmentObject private var appState: AppState
@@ -119,6 +120,14 @@ struct MoviesLibraryView: View {
         presentedMovie = baseMovie(for: item)
     }
 
+    /// Closes the Libraries submenu first (if open), then the detail cover,
+    /// then falls back to leaving the screen entirely.
+    private var exitAction: (() -> Void)? {
+        if isLibrariesOpen { return { onSelectRail(.libraries) } }
+        if presentedMovie != nil { return nil }
+        return { onSelectRail(.home) }
+    }
+
     var body: some View {
         ZStack {
             background
@@ -130,27 +139,29 @@ struct MoviesLibraryView: View {
                 SelectedBackdrop(item: selectedItem)
             }
             HStack(spacing: 0) {
-                NavRail(destination: .movies, isLibrariesOpen: false, onSelect: onSelectRail)
-                // Header, filters and the selected-movie band stay pinned; only
-                // the poster catalog scrolls beneath them.
-                VStack(alignment: .leading, spacing: 22) {
-                    header.padding(.horizontal, 48)
-                    filterBar.padding(.horizontal, 48)
-                    if let dossierMovie {
-                        SelectedMovieBand(movie: dossierMovie, isLoading: isDossierLoading)
-                    }
-                    if !hasLoadedMovies {
-                        loadingGrid
-                    } else {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            postersSection
-                                .padding(.horizontal, 48)
-                                .padding(.top, 6)   // room for the top row's focus glow
-                                .padding(.bottom, 60)
+                NavRail(destination: .movies, isLibrariesOpen: isLibrariesOpen, onSelect: onSelectRail)
+                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems()) {
+                    // Header, filters and the selected-movie band stay pinned; only
+                    // the poster catalog scrolls beneath them.
+                    VStack(alignment: .leading, spacing: 22) {
+                        header.padding(.horizontal, 48)
+                        filterBar.padding(.horizontal, 48)
+                        if let dossierMovie {
+                            SelectedMovieBand(movie: dossierMovie, isLoading: isDossierLoading)
+                        }
+                        if !hasLoadedMovies {
+                            loadingGrid
+                        } else {
+                            ScrollView(.vertical, showsIndicators: false) {
+                                postersSection
+                                    .padding(.horizontal, 48)
+                                    .padding(.top, 6)   // room for the top row's focus glow
+                                    .padding(.bottom, 60)
+                            }
                         }
                     }
+                    .padding(.top, 40)
                 }
-                .padding(.top, 40)
             }
             .ignoresSafeArea()
 
@@ -179,7 +190,7 @@ struct MoviesLibraryView: View {
         }
         // Fetch rich detail (cast/ratings/tagline/awards) for the selected item.
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
-        .onExitCommand(perform: presentedMovie == nil ? { onSelectRail(.home) } : nil)
+        .onExitCommand(perform: exitAction)
     }
 
     // MARK: - Header

@@ -7,6 +7,7 @@ struct LibrariesSubmenu: View {
     let libraries: [Library]
 
     @EnvironmentObject private var theme: Theme
+    @FocusState private var focusedLibraryId: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -21,6 +22,7 @@ struct LibrariesSubmenu: View {
 
             ForEach(libraries) { library in
                 LibraryRow(library: library)
+                    .focused($focusedLibraryId, equals: library.id)
             }
             Spacer(minLength: 0)
         }
@@ -37,6 +39,11 @@ struct LibrariesSubmenu: View {
         .overlay(alignment: .trailing) {
             Rectangle().fill(Palette.text(0.1)).frame(width: 1)
         }
+        // Own section + an explicit default focus so Right from the rail's
+        // Libraries icon has a deterministic target the moment the submenu
+        // appears, rather than competing on geometry with whatever's behind it.
+        .focusSection()
+        .defaultFocus($focusedLibraryId, libraries.first?.id)
     }
 }
 

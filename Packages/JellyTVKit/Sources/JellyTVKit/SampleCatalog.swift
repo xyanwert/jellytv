@@ -92,15 +92,12 @@ public enum SampleCatalog {
     /// The Settings screen's category list.
     public static let settingsCategories: [SettingsCategory] = [
         .init(kind: .playback, label: "Playback", description: "Quality, auto-play"),
-        .init(kind: .subtitles, label: "Subtitles", description: "Language, size"),
-        .init(kind: .audio, label: "Audio", description: "Output, passthrough"),
+        .init(kind: .libraries, label: "Libraries", description: "NSFW, anime, tags per library"),
         .init(kind: .home, label: "Home", description: "Hero rotation, transitions, NSFW filter"),
         .init(kind: .appearance, label: "Appearance", description: "Accent color"),
-        .init(kind: .parental, label: "Parental", description: "PIN, 18+ libraries"),
         .init(kind: .metadata, label: "Metadata", description: "External ratings & awards (OMDb)"),
         .init(kind: .server, label: "Server", description: "Connection, sync"),
         .init(kind: .account, label: "Account", description: "Profile, sign out"),
-        .init(kind: .about, label: "About", description: "Version, licenses"),
     ]
 
     /// Playback category: streaming-quality options (last is the sample default).

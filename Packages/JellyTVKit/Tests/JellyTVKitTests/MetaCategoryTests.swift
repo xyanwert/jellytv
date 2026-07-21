@@ -35,6 +35,54 @@ final class MetaCategoryTests: XCTestCase {
         XCTAssertEqual(MetaCategory.videos.collectionType, "homevideos")
         XCTAssertEqual(MetaCategory.porn.collectionType, "homevideos")
     }
+
+    func testSupportsNSFW() {
+        XCTAssertTrue(MetaCategory.supportsNSFW(collectionType: "movies"))
+        XCTAssertTrue(MetaCategory.supportsNSFW(collectionType: "tvshows"))
+        XCTAssertTrue(MetaCategory.supportsNSFW(collectionType: "homevideos"))
+        XCTAssertFalse(MetaCategory.supportsNSFW(collectionType: "music"))
+    }
+
+    func testSupportsAnime() {
+        XCTAssertTrue(MetaCategory.supportsAnime(collectionType: "movies"))
+        XCTAssertTrue(MetaCategory.supportsAnime(collectionType: "tvshows"))
+        XCTAssertFalse(MetaCategory.supportsAnime(collectionType: "homevideos"))
+        XCTAssertFalse(MetaCategory.supportsAnime(collectionType: "music"))
+    }
+
+    func testResolveMovies() {
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "movies", isNSFW: false, isAnime: false), .movies)
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "movies", isNSFW: true, isAnime: false), .moviesxxx)
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "movies", isNSFW: false, isAnime: true), .animefilm)
+        // No combined NSFW+anime category for movies — NSFW takes priority
+        // (Settings keeps the two toggles mutually exclusive for this kind).
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "movies", isNSFW: true, isAnime: true), .moviesxxx)
+    }
+
+    func testResolveTVShows() {
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "tvshows", isNSFW: false, isAnime: false), .shows)
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "tvshows", isNSFW: false, isAnime: true), .anime)
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "tvshows", isNSFW: true, isAnime: false), .hentai)
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "tvshows", isNSFW: true, isAnime: true), .hentai)
+    }
+
+    func testResolveHomeVideos() {
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "homevideos", isNSFW: false, isAnime: false), .videos)
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "homevideos", isNSFW: true, isAnime: false), .porn)
+        // Anime has nowhere to go for home videos — ignored.
+        XCTAssertEqual(MetaCategory.resolve(collectionType: "homevideos", isNSFW: false, isAnime: true), .videos)
+    }
+
+    func testResolveReturnsNilForUnknownCollectionType() {
+        XCTAssertNil(MetaCategory.resolve(collectionType: "music", isNSFW: false, isAnime: false))
+    }
+
+    func testLibraryClassificationOverrideCodableRoundTrip() throws {
+        let override = LibraryClassificationOverride(isNSFW: true, isAnime: false)
+        let data = try JSONEncoder().encode(override)
+        let decoded = try JSONDecoder().decode(LibraryClassificationOverride.self, from: data)
+        XCTAssertEqual(decoded, override)
+    }
 }
 
 final class LibraryClassifierTests: XCTestCase {

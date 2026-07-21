@@ -48,6 +48,13 @@ struct NavRail: View {
         .overlay(alignment: .trailing) {
             Rectangle().fill(Palette.text(0.08)).frame(width: 1)
         }
+        // Without this, Left from an adjacent column (a Settings category
+        // row, a library card, …) has no reliable on-axis candidate among
+        // the rail's stacked icons and silently does nothing — the same
+        // off-axis-rejection failure mode documented on the Settings detail
+        // pane's own `.focusSection()`. Scoping the rail as its own section
+        // lets the engine treat it as one entry point instead.
+        .focusSection()
     }
 
     private var railBackground: Color {

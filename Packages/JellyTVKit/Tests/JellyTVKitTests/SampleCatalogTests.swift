@@ -7,7 +7,7 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertEqual(SampleCatalog.continueWatching.count, 5)
         XCTAssertEqual(SampleCatalog.recommended.count, 7)
         XCTAssertEqual(SampleCatalog.libraries.count, 8)
-        XCTAssertEqual(SampleCatalog.settingsCategories.count, 10)
+        XCTAssertEqual(SampleCatalog.settingsCategories.count, 7)
     }
 
     func testSampleMovieEnrichment() {

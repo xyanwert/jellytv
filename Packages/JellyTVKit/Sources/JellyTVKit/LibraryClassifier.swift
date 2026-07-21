@@ -8,26 +8,23 @@ public enum LibraryClassifier {
         return tokens.contains { lowercased.contains($0) }
     }
 
-    public static func classify(collectionType: String?, name: String) -> MetaCategory? {
-        let isAnime = matches("anime|アニメ|hentai", in: name)
-        let isNSFW = matches("xxx|nsfw|adult|porn|jav|hentai", in: name)
+    /// Name-heuristic guess, used only to seed a library's classification the
+    /// first time it's seen — the user can always override in Settings →
+    /// Libraries, and a saved override always wins over this guess.
+    public static func guessIsAnime(name: String) -> Bool {
+        matches("anime|アニメ|hentai", in: name)
+    }
 
-        switch collectionType {
-        case "movies":
-            if isNSFW && isAnime { return .hentai }
-            if isNSFW { return .moviesxxx }
-            if isAnime { return .animefilm }
-            return .movies
-        case "tvshows":
-            if isNSFW && isAnime { return .hentai }
-            if isAnime { return .anime }
-            if isNSFW { return .hentai }
-            return .shows
-        case "homevideos":
-            if isNSFW { return .porn }
-            return .videos
-        default:
-            return nil
-        }
+    public static func guessIsNSFW(name: String) -> Bool {
+        matches("xxx|nsfw|adult|porn|jav|hentai", in: name)
+    }
+
+    public static func classify(collectionType: String?, name: String) -> MetaCategory? {
+        guard let collectionType else { return nil }
+        return MetaCategory.resolve(
+            collectionType: collectionType,
+            isNSFW: guessIsNSFW(name: name),
+            isAnime: guessIsAnime(name: name)
+        )
     }
 }

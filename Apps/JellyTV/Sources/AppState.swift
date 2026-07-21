@@ -24,6 +24,18 @@ final class AppState: ObservableObject {
     @Published var tmdbApiKey: String {
         didSet { UserDefaults.standard.set(tmdbApiKey, forKey: "jelly:tmdb.apiKey") }
     }
+    /// User-set NSFW/anime overrides, keyed by library id — set from Settings
+    /// → Libraries. Jellyfin has no such concept natively, so this always
+    /// wins over `LibraryClassifier`'s name-heuristic guess once present.
+    @Published private(set) var libraryOverrides: [String: LibraryClassificationOverride] {
+        didSet { persist(libraryOverrides, forKey: "jelly:library.overrides") }
+    }
+    /// Local, per-library tags (Settings → Libraries) — Jellyfin's own tags
+    /// are item-level and global; these are library-scoped labels the user
+    /// manages independently, matching the reference app's tag model.
+    @Published private(set) var libraryTags: [String: [String]] {
+        didSet { persist(libraryTags, forKey: "jelly:library.tags") }
+    }
     /// Set to present the player via `RootView`'s `.fullScreenCover(item:)`.
     /// `PlaybackRequest.id` is content-derived, so re-setting the same
     /// request (e.g. an unrelated `AppState` publish) doesn't retrigger it.
@@ -58,6 +70,18 @@ final class AppState: ObservableObject {
         omdbApiKey = UserDefaults.standard.string(forKey: "jelly:omdb.apiKey") ?? ""
         tmdbEnabled = UserDefaults.standard.object(forKey: "jelly:tmdb.enabled") as? Bool ?? false
         tmdbApiKey = UserDefaults.standard.string(forKey: "jelly:tmdb.apiKey") ?? ""
+        libraryOverrides = Self.loadPersisted(forKey: "jelly:library.overrides") ?? [:]
+        libraryTags = Self.loadPersisted(forKey: "jelly:library.tags") ?? [:]
+    }
+
+    private static func loadPersisted<T: Decodable>(forKey key: String) -> T? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func persist<T: Encodable>(_ value: T, forKey key: String) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        UserDefaults.standard.set(data, forKey: key)
     }
 
     func configure(baseURL: URL, apiKey: String, deviceId: String, userId: String) {
@@ -231,7 +255,64 @@ final class AppState: ObservableObject {
     private func libraryCategory(for item: JellyfinAPI.JellyfinItem) -> MetaCategory? {
         guard let libId = itemLibraryId[item.id],
               let lib = libraries.first(where: { $0.id == libId }) else { return nil }
-        return LibraryClassifier.classify(collectionType: lib.collectionType, name: lib.name)
+        return metaCategory(for: lib)
+    }
+
+    // MARK: - Library classification (Settings → Libraries)
+
+    /// Effective NSFW/anime flags for a library — a saved override always
+    /// wins; otherwise falls back to `LibraryClassifier`'s name guess.
+    func classificationFlags(for library: JellyfinAPI.JellyfinUserView) -> (isNSFW: Bool, isAnime: Bool) {
+        if let override = libraryOverrides[library.id] {
+            return (override.isNSFW, override.isAnime)
+        }
+        return (
+            LibraryClassifier.guessIsNSFW(name: library.name),
+            LibraryClassifier.guessIsAnime(name: library.name)
+        )
+    }
+
+    func metaCategory(for library: JellyfinAPI.JellyfinUserView) -> MetaCategory? {
+        guard let collectionType = library.collectionType else { return nil }
+        let flags = classificationFlags(for: library)
+        return MetaCategory.resolve(collectionType: collectionType, isNSFW: flags.isNSFW, isAnime: flags.isAnime)
+    }
+
+    func setLibraryClassification(libraryId: String, isNSFW: Bool, isAnime: Bool) {
+        libraryOverrides[libraryId] = LibraryClassificationOverride(isNSFW: isNSFW, isAnime: isAnime)
+    }
+
+    // MARK: - Library tags (Settings → Libraries)
+
+    enum LibraryTagError: LocalizedError, Equatable {
+        case empty
+        case duplicate
+
+        var errorDescription: String? {
+            switch self {
+            case .empty: return "Tag name can't be empty."
+            case .duplicate: return "That tag already exists in this library."
+            }
+        }
+    }
+
+    func tags(forLibrary libraryId: String) -> [String] {
+        libraryTags[libraryId] ?? []
+    }
+
+    func addTag(_ raw: String, toLibrary libraryId: String) throws {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw LibraryTagError.empty }
+        var existing = libraryTags[libraryId] ?? []
+        guard !existing.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else {
+            throw LibraryTagError.duplicate
+        }
+        existing.append(trimmed)
+        libraryTags[libraryId] = existing
+    }
+
+    func deleteTag(_ name: String, fromLibrary libraryId: String) {
+        libraryTags[libraryId]?.removeAll { $0 == name }
     }
 
     private func applyNSFWFilter(_ items: [ContinueWatchingItem]) -> [ContinueWatchingItem] {
@@ -269,7 +350,7 @@ final class AppState: ObservableObject {
     func loadMovies(sortBy: String = "SortName", sortOrder: String = "Ascending") async -> [MediaItem] {
         guard let client else { return [] }
         let movieLibs = libraries.filter {
-            LibraryClassifier.classify(collectionType: $0.collectionType, name: $0.name)?.collectionType == "movies"
+            metaCategory(for: $0)?.collectionType == "movies"
         }
         var results: [JellyfinAPI.JellyfinItem] = []
         for lib in movieLibs {
@@ -299,7 +380,7 @@ final class AppState: ObservableObject {
     func loadShows(sortBy: String = "SortName", sortOrder: String = "Ascending") async -> [MediaItem] {
         guard let client else { return [] }
         let showLibs = libraries.filter {
-            LibraryClassifier.classify(collectionType: $0.collectionType, name: $0.name)?.collectionType == "tvshows"
+            metaCategory(for: $0)?.collectionType == "tvshows"
         }
         var results: [JellyfinAPI.JellyfinItem] = []
         for lib in showLibs {
@@ -400,14 +481,30 @@ final class AppState: ObservableObject {
     }
 
     func libraryUIItems() -> [Library] {
-        libraries.compactMap { lib in
-            lib.toLibrary(classifier: LibraryClassifier.classify(collectionType:name:))
+        libraries.compactMap { lib -> Library? in
+            guard let category = metaCategory(for: lib) else { return nil }
+            if isDefaultPrimaryLibrary(lib, category: category) { return nil }
+            return Library(id: lib.id, name: lib.name, isAdult: category.isNSFW, itemCount: "")
+        }
+    }
+
+    /// True for a library named exactly "Movies" or "TV Shows" (case-insensitive)
+    /// that's still its plain, un-overridden default category — redundant with
+    /// the dedicated Movies/TV rail icons, so hidden from the rail's generic
+    /// Libraries submenu. Settings → Libraries still lists it unfiltered (via
+    /// `libraries` directly) so it can still be tagged/reclassified there.
+    private func isDefaultPrimaryLibrary(_ lib: JellyfinAPI.JellyfinUserView, category: MetaCategory) -> Bool {
+        let name = lib.name.trimmingCharacters(in: .whitespaces).lowercased()
+        switch category {
+        case .movies: return name == "movies"
+        case .shows: return name == "tv shows"
+        default: return false
         }
     }
 
     func items(for collectionType: String) -> [MediaItem] {
         let libIds = Set(libraries.filter { lib in
-            LibraryClassifier.classify(collectionType: lib.collectionType, name: lib.name)?.collectionType == collectionType
+            metaCategory(for: lib)?.collectionType == collectionType
         }.map(\.id))
         return allItems.filter { item in
             libIds.contains { item.id.hasPrefix($0) } || libIds.contains(item.id)
