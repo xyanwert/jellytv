@@ -10,6 +10,8 @@ struct RootView: View {
         if env["JT_SHOW_SETTINGS"] == "1" { return .settings }
         if env["JT_SHOW_MOVIES"] == "1" { return .movies }
         if env["JT_SHOW_TV"] == "1" { return .tv }
+        if env["JT_SHOW_ANIME"] == "1" { return .animeLibrary }
+        if env["JT_SHOW_LATE_NIGHT"] == "1" { return .lateNight }
         return .home
     }()
     @State private var isLibrariesOpen = ProcessInfo.processInfo.environment["JT_SHOW_LIBRARIES"] == "1"
@@ -74,6 +76,22 @@ struct RootView: View {
             // think a request is still active.
             if presentation == nil { appState.activePlaybackRequest = nil }
         }
+        .onChange(of: appState.pendingLibraryNavigation) { _, category in
+            // Fire-once: always reset after handling (or ignoring) so a
+            // repeat tap on the same category still triggers this again.
+            defer { appState.pendingLibraryNavigation = nil }
+            guard let category else { return }
+            switch category {
+            case .animefilm, .anime:
+                destination = .animeLibrary
+                isLibrariesOpen = false
+            case .hentai:
+                destination = .lateNight
+                isLibrariesOpen = false
+            default:
+                break   // no dedicated screen yet for this category
+            }
+        }
         .onChange(of: server.isConnected) { _, connected in
             if connected, let info = server.serverInfo {
                 appState.configure(
@@ -107,6 +125,10 @@ struct RootView: View {
             MoviesLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .tv:
             ShowsLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
+        case .animeLibrary:
+            AnimeLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
+        case .lateNight:
+            LateNightLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         }
     }
 
@@ -132,7 +154,7 @@ struct RootView: View {
         case .search: return "Search"
         case .movies: return "Movies"
         case .tv: return "TV Shows"
-        case .home, .settings: return ""
+        case .home, .settings, .animeLibrary, .lateNight: return ""
         }
     }
 
@@ -157,6 +179,11 @@ struct RootView: View {
             // Opens the submenu over whatever screen is already showing —
             // never forces a navigation to Home first.
             isLibrariesOpen.toggle()
+        case .animeLibrary, .lateNight:
+            // Unreachable here — tvOS only reaches these via a Libraries
+            // submenu row (`LibrariesSubmenu`), never this rail directly.
+            // Only iOS's rail body (no submenu) reports these.
+            break
         }
     }
 }

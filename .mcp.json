@@ -8,7 +8,9 @@
         "xcodebuildmcp@latest",
         "mcp"
       ],
-      "env": {}
+      "env": {
+        "XCODEBUILDMCP_ENABLED_WORKFLOWS": "simulator,simulator-management,ui-automation,project-discovery,coverage,utilities,swift-package"
+      }
     }
   }
 }

@@ -4,10 +4,10 @@
 > "Why.So.Jelly?" (the plain "JellyTV" store name was already taken). "JellyTV" remains
 > the internal/technical name of the repo, Xcode targets, and Swift package.
 
-A native **tvOS** client for [Jellyfin](https://jellyfin.org) media servers, with an
-**iOS/iPadOS companion app** that acts as a remote control. This repository currently
-contains the App Store–ready *shell* of both apps — the branding, identity, and release
-plumbing are complete; the actual Jellyfin browsing/playback features are future work.
+A native **tvOS** client for [Jellyfin](https://jellyfin.org) media servers, with a
+**standalone iPad app** that browses the library and plays video itself (not a remote
+control for the TV app) — with an optional "connect with code" shortcut to pick up the
+TV app's already-configured server connection over the local network.
 
 > JellyTV is an unofficial, independent client and is not affiliated with or endorsed by
 > the Jellyfin project. "Jellyfin" is used descriptively only.
@@ -17,7 +17,7 @@ plumbing are complete; the actual Jellyfin browsing/playback features are future
 | Target   | Platform        | Bundle ID              | Role                                             |
 | -------- | --------------- | ---------------------- | ------------------------------------------------ |
 | `JellyTV`| tvOS 17+        | `net.graficx.jellytv`  | The TV client                                    |
-| `Remote` | iOS/iPadOS 17+  | `net.graficx.jellytv`  | Companion remote (same ID → universal purchase)  |
+| `Remote` | iPadOS 17+      | `net.graficx.jellytv`  | Standalone iPad client (same ID → universal purchase) |
 
 Both platforms share one bundle identifier so the App Store treats them as a single
 **universal purchase** product. Version and build numbers are defined once in
@@ -79,6 +79,13 @@ docs/privacy/            privacy policy (published via GitHub Pages)
 Release automation lives in [`fastlane/`](fastlane/). Credentials come from an App Store
 Connect **API key** loaded via `fastlane/.env` (copy `fastlane/.env.example`); the key
 file and `.env` are never committed.
+
+```sh
+Scripts/testflight.sh   # bumps the build number, then builds + uploads tv + iPad to TestFlight
+```
+
+That script is a thin wrapper around the `bump` and `beta` lanes below — use the lanes
+directly for anything more targeted (e.g. a single platform, or metadata-only).
 
 | Lane | What it does |
 | ---- | ------------ |

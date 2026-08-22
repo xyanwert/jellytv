@@ -51,7 +51,8 @@ extension JellyfinAPI.JellyfinItem {
             // library's selected-item backdrop): the real Backdrop when the
             // item has one, else a high-res Primary — not the 500px poster
             // `image` carries for the grid tiles.
-            backdropImage: backdropImageURLString(imageBaseURL, maxWidth: 1920)
+            backdropImage: backdropImageURLString(imageBaseURL, maxWidth: 1920),
+            tags: tags ?? []
         )
     }
 
@@ -338,10 +339,14 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
     /// library's selected-item backdrop) — distinct from `image`, which is a
     /// small poster sized for grid tiles.
     public var backdropImage: String?
+    /// Jellyfin's free-form `Tags` (distinct from `Genres`) — only populated
+    /// when a fetch explicitly requests the `Tags` field. What the library
+    /// screens' tag-chip search filters against.
+    public var tags: [String]
 
     public init(id: String, title: String, meta: String, image: String? = nil, artwork: Artwork,
                 rating: Double? = nil, year: String? = nil, certification: String? = nil,
-                synopsis: String? = nil, backdropImage: String? = nil) {
+                synopsis: String? = nil, backdropImage: String? = nil, tags: [String] = []) {
         self.id = id
         self.title = title
         self.meta = meta
@@ -352,6 +357,7 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
         self.certification = certification
         self.synopsis = synopsis
         self.backdropImage = backdropImage
+        self.tags = tags
     }
 
     /// Movie vs series, derived from the metadata line ("Movie · …" → movie).
@@ -368,12 +374,17 @@ public struct Library: Equatable, Sendable, Hashable, Identifiable {
     public var isAdult: Bool
     /// Display-ready item count, e.g. `"428"` or `"1.2k"`.
     public var itemCount: String
+    /// The resolved meta-category (movies/animefilm/shows/anime/hentai/…) — lets
+    /// a tap on this library's submenu row route to the right category-specific
+    /// browsing screen instead of just displaying its name.
+    public var category: MetaCategory
 
-    public init(id: String, name: String, isAdult: Bool = false, itemCount: String) {
+    public init(id: String, name: String, isAdult: Bool = false, itemCount: String, category: MetaCategory = .movies) {
         self.id = id
         self.name = name
         self.isAdult = isAdult
         self.itemCount = itemCount
+        self.category = category
     }
 }
 

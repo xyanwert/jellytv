@@ -127,6 +127,11 @@ public enum JellyfinAPI {
         public let type: String?
         public let overview: String?
         public let genres: [String]?
+        // Free-form tags (distinct from Genres) — only returned when `Tags`
+        // is explicitly requested via `fields`. A library like an anime/adult
+        // collection typically carries many of these per item, which is what
+        // the library screens' tag-chip search filters against.
+        public let tags: [String]?
         public let productionYear: Int?
         public let premiereDate: String?
         public let officialRating: String?
@@ -167,6 +172,7 @@ public enum JellyfinAPI {
             case type = "Type"
             case overview = "Overview"
             case genres = "Genres"
+            case tags = "Tags"
             case productionYear = "ProductionYear"
             case premiereDate = "PremiereDate"
             case officialRating = "OfficialRating"
@@ -198,6 +204,7 @@ public enum JellyfinAPI {
 
         public init(id: String, name: String? = nil, type: String? = nil,
                     overview: String? = nil, genres: [String]? = nil,
+                    tags: [String]? = nil,
                     productionYear: Int? = nil, premiereDate: String? = nil,
                     officialRating: String? = nil, communityRating: Double? = nil,
                     runTimeTicks: Int64? = nil, seriesName: String? = nil,
@@ -218,6 +225,7 @@ public enum JellyfinAPI {
             self.type = type
             self.overview = overview
             self.genres = genres
+            self.tags = tags
             self.productionYear = productionYear
             self.premiereDate = premiereDate
             self.officialRating = officialRating

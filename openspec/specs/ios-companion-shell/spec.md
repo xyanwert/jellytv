@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the iOS/iPadOS companion app shell (`Remote`) for JellyTV: a buildable, launchable companion that shares the tvOS app's identity for a universal App Store purchase and pre-declares the networking permissions its future remote-control feature will need.
+Defines the iPad app shell (`Remote`) for JellyTV: a buildable, launchable standalone client that shares the tvOS app's identity for a universal App Store purchase and pre-declares the networking permissions its future "connect with code" pairing feature will need (picking up the TV app's server connection over the local network — not remote-controlling the TV).
 
 ## Requirements
 

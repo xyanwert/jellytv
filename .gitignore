@@ -36,6 +36,9 @@ fastlane/*.env
 *.cer
 AuthKey_*.p8
 
+# TMDB key for the dev-only MockCatalogGenerator tool — never commit
+Packages/JellyTVKit/.env.local
+
 # ---- fastlane ----
 fastlane/report.xml
 fastlane/Preview.html

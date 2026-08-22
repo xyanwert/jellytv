@@ -52,6 +52,23 @@ still paints the system's white focus card when focused, even for content meant 
 `ButtonStyle` that renders only `configuration.label`, same reasoning as never using `.plain` for
 visible controls either.
 
+**That invisible-`Button` trick is tvOS-only — on iOS it silently eats touches.** A `Button`
+whose label is `Color.clear` and whose `ButtonStyle` draws nothing has no shape for a direct
+touch to land on: `.contentShape(Rectangle())` on the outside doesn't rescue it, and the action
+simply never fires (verified by bisect — three consecutive real taps on the player's hidden
+chrome catcher produced nothing). On iOS use `Color.clear` + `.contentShape(Rectangle())` +
+`.onTapGesture`; keep the `Button` on tvOS, where it must be *focusable* for a Select press.
+See `PlayerChrome.tapCatcher`.
+
+**Do not "verify" a touch control with AppleScript.** `tell process "Simulator" to click at
+{x, y}` resolves the accessibility element under the point and sends it an `AXPress` — it is not
+a touch. An invisible `Button` is in the AX tree, so AXPress drives it happily while a real
+finger cannot: a broken control tests green. Use real HID injection instead — XcodeBuildMCP
+bundles AXe, and `.mcp.json` enables its `ui-automation` workflow, so the `tap`/`swipe`/`touch`
+tools inject genuine touch events. Ad hoc:
+`~/.npm/_npx/*/node_modules/xcodebuildmcp/bundled/axe tap -x <x> -y <y> --udid <udid>`
+(coordinates are device points, not screenshot pixels).
+
 **tvOS text input:** use the shared `AppTextField` (DesignSystem/AppTextField.swift), never a raw
 SwiftUI `TextField`. A focused tvOS TextField paints an un-removable white pill and won't reliably
 raise the keyboard for an off-screen field; `AppTextField` fixes both (a styled Button over a
@@ -119,6 +136,30 @@ Settings toggle + key, with a single choke point that returns nil on any failure
 **Jellyfin gotchas.** `CriticRating` only comes back when `ProductionLocations` is *also* in the
 `fields` param. Images are served unauthenticated (token-less URLs); person headshots are
 `/Items/{personId}/Images/Primary`.
+
+**The HLS manifest must declare a real bitrate, or video silently dies.** `master.m3u8` derives
+the playlist's `BANDWIDTH` from the **`videoBitRate`/`audioBitRate` query params — not from
+`maxStreamingBitrate`**, which it ignores for this purpose. Omit `videoBitRate` and Jellyfin
+emits `BANDWIDTH=256000` and downscales the picture to match that invented ceiling, while ffmpeg
+writes segments far larger than 256 kbps. AVPlayer enforces the declaration, fails the variant
+with `CoreMediaErrorDomain -12318` ("Segment exceeds specified bandwidth for variant"), and —
+since `enableAdaptiveBitrateStreaming=false` leaves no other variant — **drops the video track
+while the audio keeps playing**. Sound with a black picture is this bug, not a decode problem.
+Pin `profile=high&level=41` too: without them Jellyfin advertises `CODECS="avc1.424029"`
+(Baseline @ 4.1 — not even a legal pairing) no matter what ffmpeg actually encodes, and AVPlayer
+refuses a track whose bitstream contradicts the declared codec string. Keep the HLS `videoCodec`
+at **`h264` only** — offering `hevc` makes Jellyfin *copy* HEVC into the MPEG-TS segments, and
+AVFoundation only decodes HEVC from fMP4, so that's the same black picture by another route.
+Same reason `flac`/`opus` stay out of the audio list. None of this surfaces as an
+`AVPlayerItem` error: `status` stays `.readyToPlay` throughout.
+
+**Diagnosing playback: `JT_PLAYER_LOG=1`.** Turns on `PlayerDiagnostics` — the negotiated
+container/codec/profile/bit-depth, direct-vs-HLS route, the generated `master.m3u8` and variant
+playlist, the `AVPlayerItem` error log, and a track census once playback settles (`videoTracks`,
+`presentationSize`, and an explicit AUDIO-ONLY/OK verdict). Read tracks off `AVPlayerItem.tracks`,
+never `asset.loadTracks` — an HLS asset has no statically-known tracks and always answers zero.
+Pair it with `RT_AUTOPLAY=<title substring>` on iPad, which resumes the first matching Continue
+Watching entry at launch so a playback bug is reproducible without tap automation.
 
 **Additive model changes.** Append new params to `JellyfinItem` / `Movie` / `Show` inits with
 `= nil` / `[]` defaults so existing call sites and tests keep compiling.

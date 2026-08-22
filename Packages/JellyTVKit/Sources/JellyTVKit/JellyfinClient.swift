@@ -210,9 +210,36 @@ public struct JellyfinClient: Sendable {
     /// single variant — AVPlayer's HLS ABR doesn't pair well with Jellyfin's
     /// on-demand transcode (the player requests segments faster than ffmpeg
     /// produces them across variants).
+    ///
+    /// **`videoBitRate`/`audioBitRate` are not optional tuning knobs — leaving
+    /// them off silently breaks video.** Jellyfin derives the master
+    /// playlist's declared `BANDWIDTH` from *these*, not from
+    /// `maxStreamingBitrate`. With no `videoBitRate` it emits
+    /// `BANDWIDTH=256000` and downscales the picture to match that invented
+    /// ceiling, while ffmpeg writes segments far larger than 256 kbps.
+    /// AVPlayer enforces the declaration, fails the variant with
+    /// `CoreMediaErrorDomain -12318` ("Segment exceeds specified bandwidth
+    /// for variant"), and — because `enableAdaptiveBitrateStreaming=false`
+    /// leaves no other variant to fall back to — drops the video track while
+    /// happily continuing the audio. That is the "sound but no picture" bug.
+    ///
+    /// `profile`/`level` are pinned for the same class of reason: without
+    /// them Jellyfin advertises `CODECS="avc1.424029"` (Baseline @ 4.1, not
+    /// even a legal pairing) regardless of what ffmpeg actually encodes, and
+    /// AVPlayer refuses a video track whose real bitstream contradicts the
+    /// declared codec string.
+    ///
+    /// Video is pinned to `h264` rather than also offering `hevc` — Jellyfin
+    /// would *copy* an HEVC source into the MPEG-TS segments, and
+    /// AVFoundation only decodes HEVC from fMP4 segments, which is the same
+    /// black-picture symptom by a different route. Likewise `flac`/`opus`
+    /// are dropped from the audio list: neither is playable inside MPEG-TS
+    /// on Apple platforms.
     public func hlsManifestURL(itemId: String, mediaSourceId: String, playSessionId: String,
-                                videoCodec: String = "h264,hevc,h265",
-                                audioCodec: String = "aac,mp3,ac3,eac3,flac,opus") -> URL? {
+                                videoCodec: String = "h264",
+                                audioCodec: String = "aac,mp3,ac3,eac3",
+                                videoBitRate: Int = 20_000_000,
+                                audioBitRate: Int = 384_000) -> URL? {
         buildURL(path: "/Videos/\(itemId)/master.m3u8", query: [
             URLQueryItem(name: "mediaSourceId", value: mediaSourceId),
             URLQueryItem(name: "playSessionId", value: playSessionId),
@@ -221,7 +248,10 @@ public struct JellyfinClient: Sendable {
             URLQueryItem(name: "audioCodec", value: audioCodec),
             URLQueryItem(name: "segmentContainer", value: "ts"),
             URLQueryItem(name: "enableAdaptiveBitrateStreaming", value: "false"),
-            URLQueryItem(name: "maxStreamingBitrate", value: "60000000"),
+            URLQueryItem(name: "videoBitRate", value: String(videoBitRate)),
+            URLQueryItem(name: "audioBitRate", value: String(audioBitRate)),
+            URLQueryItem(name: "profile", value: "high"),
+            URLQueryItem(name: "level", value: "41"),
             URLQueryItem(name: "transcodingMaxAudioChannels", value: "6"),
             URLQueryItem(name: "api_key", value: apiKey),
         ])

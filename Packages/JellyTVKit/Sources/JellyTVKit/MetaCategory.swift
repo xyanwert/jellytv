@@ -1,6 +1,6 @@
 import Foundation
 
-public enum MetaCategory: String, CaseIterable, Sendable {
+public enum MetaCategory: String, CaseIterable, Sendable, Hashable {
     case movies
     case moviesxxx
     case animefilm

@@ -12,7 +12,8 @@ let package = Package(
         .library(name: "JellyTVKit", targets: ["JellyTVKit"]),
     ],
     targets: [
-        .target(name: "JellyTVKit"),
+        .target(name: "JellyTVKit", resources: [.copy("Resources/MockCatalog")]),
+        .executableTarget(name: "MockCatalogGenerator", dependencies: ["JellyTVKit"]),
         .testTarget(name: "JellyTVKitTests", dependencies: ["JellyTVKit"]),
     ]
 )

@@ -255,19 +255,36 @@ extension JellyfinAPI {
         public let codec: String?
         public let width: Int?
         public let height: Int?
+        /// Codec profile — "High", "Main 10", "High 10", … The distinction
+        /// AVFoundation cares about: "High 10" (Hi10P) and "Main 10" are not
+        /// decodable by Apple hardware in every container/segment combination.
+        public let profile: String?
+        /// 8 or 10. 10-bit content is the usual reason a file that "should"
+        /// direct-play comes back audio-only.
+        public let bitDepth: Int?
+        /// "SDR", "HDR10", "DOVI", "HLG" — Dolby Vision profile 5 renders as
+        /// audio-only/garbled on clients that don't negotiate it explicitly.
+        public let videoRangeType: String?
 
         enum CodingKeys: String, CodingKey {
             case type = "Type"
             case codec = "Codec"
             case width = "Width"
             case height = "Height"
+            case profile = "Profile"
+            case bitDepth = "BitDepth"
+            case videoRangeType = "VideoRangeType"
         }
 
-        public init(type: String? = nil, codec: String? = nil, width: Int? = nil, height: Int? = nil) {
+        public init(type: String? = nil, codec: String? = nil, width: Int? = nil, height: Int? = nil,
+                    profile: String? = nil, bitDepth: Int? = nil, videoRangeType: String? = nil) {
             self.type = type
             self.codec = codec
             self.width = width
             self.height = height
+            self.profile = profile
+            self.bitDepth = bitDepth
+            self.videoRangeType = videoRangeType
         }
     }
 
