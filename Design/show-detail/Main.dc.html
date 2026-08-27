@@ -1,0 +1,337 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&amp;display=swap" />
+  <style>
+    body { margin: 0; background: #07080C; }
+    a { color: #F0525F; } a:hover { color: #F47A83; }
+    .root { position: relative; width: 1376px; height: 1032px; overflow: hidden;
+            background: #07080C; color: #F4F5F7;
+            font-family: 'Schibsted Grotesk', -apple-system, 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace; }
+
+    .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+           object-position: 6% center; }
+    .veil { position: absolute; inset: 0; background: rgba(7,8,12,0.22); }
+    .scrim-left { position: absolute; inset: 0; background:
+      linear-gradient(90deg, #07080C 0%, rgba(7,8,12,0.96) 18%, rgba(7,8,12,0.88) 34%,
+      rgba(7,8,12,0.68) 48%, rgba(7,8,12,0.34) 60%, rgba(7,8,12,0.08) 72%, rgba(7,8,12,0) 84%); }
+    .scrim-bottom { position: absolute; inset: 0; background:
+      linear-gradient(0deg, rgba(7,8,12,0.92) 0%, rgba(7,8,12,0.45) 14%, rgba(7,8,12,0) 32%); }
+    .scrim-top { position: absolute; inset: 0; background:
+      linear-gradient(180deg, rgba(7,8,12,0.78) 0%, rgba(7,8,12,0.28) 7%, rgba(7,8,12,0) 15%); }
+
+    .chrome { position: relative; display: flex; height: 100%; }
+    .spine { width: 118px; box-sizing: border-box; padding: 40px 0; flex: none;
+             display: flex; flex-direction: column; align-items: center;
+             border-right: 1px solid rgba(255,255,255,0.08); }
+    .genre { flex: 1; display: flex; align-items: center; writing-mode: vertical-rl;
+             font-size: 15px; font-weight: 600; letter-spacing: 6px; color: rgba(255,255,255,0.32); }
+    .spine-foot { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+    .back { width: 54px; height: 54px; border-radius: 15px; display: flex; align-items: center;
+            justify-content: center; background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12); }
+    .marker { font-size: 13px; font-weight: 800; letter-spacing: 2px; line-height: 1.45;
+              text-align: center; color: #F0525F; }
+
+    .body { flex: 1; min-width: 0; box-sizing: border-box; padding: 44px 40px 40px 64px;
+            display: flex; flex-direction: column; }
+    .readout { display: flex; align-items: center; gap: 18px; font-size: 15px; font-weight: 500;
+               letter-spacing: 1px; color: rgba(255,255,255,0.6); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #6FD68F; box-shadow: 0 0 8px #6FD68F; }
+    .sep { color: rgba(255,255,255,0.3); }
+
+    .dossier { margin-top: 42px; max-width: 660px; }
+    .eyebrow { font-size: 15px; font-weight: 800; letter-spacing: 4px; color: #F0525F; }
+    .tagline { margin-top: 12px; font-size: 19px; font-weight: 500; font-style: italic;
+               color: rgba(255,255,255,0.6); }
+    .title { margin: 6px 0 0; font-size: 54px; font-weight: 900; letter-spacing: -1px;
+             line-height: 1.02; }
+    .chips { display: flex; gap: 10px; margin-top: 18px; }
+    .chip { display: flex; align-items: center; gap: 9px; padding: 8px 13px; border-radius: 12px;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); }
+    .chip-val { font-size: 19px; font-weight: 900; line-height: 1.1; }
+    .chip-lab { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.45); }
+    .rail { display: flex; margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.12);
+            border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .cell { padding: 12px 24px; }
+    .cell + .cell { border-left: 1px solid rgba(255,255,255,0.08); }
+    .cell:first-child { padding-left: 0; }
+    .cell-lab { font-size: 12px; font-weight: 600; letter-spacing: 2px; color: rgba(255,255,255,0.4); }
+    .cell-val { margin-top: 3px; font-size: 19px; font-weight: 700; display: flex;
+                align-items: baseline; gap: 8px; white-space: nowrap; }
+    .cert { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.4); }
+    .star { color: #F0525F; }
+    .synopsis { margin-top: 18px; max-width: 640px; font-size: 20px; line-height: 1.5;
+                color: rgba(255,255,255,0.72); }
+
+    /* cast keeps its faces here — but out of the middle, sized so nothing truncates */
+    .cast { margin-top: 30px; }
+    .cast-lab { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: rgba(255,255,255,0.42); }
+    .cast-row { display: flex; gap: 20px; margin-top: 14px; }
+    .cast-cell { width: 96px; text-align: center; }
+    .portrait { width: 56px; height: 56px; margin: 0 auto; border-radius: 17px;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 18px; font-weight: 800; color: rgba(255,255,255,0.92);
+                border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 3px 8px rgba(0,0,0,0.35); }
+    .p-lead { border: 2px solid #F0525F; }
+    .cast-name { margin-top: 9px; font-size: 14px; font-weight: 700; color: #F4F5F7;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cast-role { margin-top: 2px; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.5);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .foot { margin-top: auto; display: flex; align-items: center; gap: 16px; }
+    .shuffle { width: 76px; height: 76px; flex: none; border-radius: 50%; background: #F0525F;
+               display: flex; align-items: center; justify-content: center;
+               border: 1px solid rgba(255,255,255,0.18);
+               box-shadow: 0 14px 30px rgba(240,82,95,0.38), 0 4px 10px rgba(0,0,0,0.45); }
+    .pill { display: flex; align-items: center; gap: 9px; padding: 12px 18px; border-radius: 13px;
+            font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.85);
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); }
+
+    /* the drawer: the whole season, in order, without a scrolling strip */
+    .drawer { position: absolute; top: 0; right: 0; width: 448px; height: 100%; box-sizing: border-box;
+              padding: 44px 32px 40px; background:
+                linear-gradient(90deg, rgba(11,13,19,0.62) 0%, rgba(11,13,19,0.90) 14%, rgba(11,13,19,0.94) 100%);
+              border-left: 1px solid rgba(255,255,255,0.09); display: flex; flex-direction: column; }
+    .drawer-head { display: flex; align-items: baseline; justify-content: space-between; }
+    .drawer-lab { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: rgba(255,255,255,0.45); }
+    .drawer-count { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: rgba(255,255,255,0.38); }
+    .seasons { display: flex; gap: 5px; margin-top: 14px; padding: 5px; border-radius: 12px;
+               background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); }
+    .sbtn { flex: 1; text-align: center; padding: 12px 0; border-radius: 8px; font-size: 16px;
+            font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.6); }
+    .sbtn-on { background: #fff; color: #0B0D13; }
+    .list { margin-top: 18px; display: flex; flex-direction: column; gap: 6px; }
+    .row { display: flex; align-items: center; gap: 14px; padding: 8px; border-radius: 12px;
+           border: 1px solid transparent; }
+    .row-now { background: rgba(240,82,95,0.10); border-color: rgba(240,82,95,0.45); }
+    .thumb { position: relative; width: 124px; height: 70px; flex: none; border-radius: 8px;
+             overflow: hidden; background-color: #10161f; background-size: cover;
+             background-position: center; border: 1px solid rgba(255,255,255,0.08); }
+    .f1 { background-image: url(./ep1.jpg); } .f2 { background-image: url(./ep2.jpg); }
+    .f3 { background-image: url(./ep3.jpg); } .f4 { background-image: url(./ep4.jpg); }
+    .f5 { background-image: url(./ep5.jpg); } .f6 { background-image: url(./ep6.jpg); }
+    .f7 { background-image: url(./ep7.jpg); } .f8 { background-image: url(./ep8.jpg); }
+    .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,0.18); }
+    .bar span { display: block; height: 100%; background: #F0525F; }
+    .row-txt { min-width: 0; flex: 1; }
+    .row-num { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: rgba(255,255,255,0.42); }
+    .row-num-now { color: #F0525F; }
+    .row-title { margin-top: 3px; font-size: 17px; font-weight: 700; color: rgba(255,255,255,0.86);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-title-now { color: #F4F5F7; }
+    .row-meta { margin-top: 3px; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.45); }
+    .row-meta-now { color: #F0525F; font-weight: 700; letter-spacing: 0.5px; }
+    .play { width: 30px; height: 30px; flex: none; border-radius: 50%; display: flex;
+            align-items: center; justify-content: center; background: rgba(255,255,255,0.10);
+            border: 1px solid rgba(255,255,255,0.16); }
+  </style>
+</helmet>
+
+<div class="root">
+  <img class="art" src="keyart.jpg" alt="" />
+  <div class="veil"></div>
+  <div class="scrim-left"></div>
+  <div class="scrim-bottom"></div>
+  <div class="scrim-top"></div>
+
+  <div class="chrome">
+    <div class="spine">
+      <div class="genre">TV SHOWS / SCI-FI DRAMA</div>
+      <div class="spine-foot">
+        <div class="back">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path>
+          </svg>
+        </div>
+        <div class="marker">EP<br />04</div>
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="readout">
+        <span style="display: flex; align-items: center; gap: 8px;">
+          <span class="dot"></span><span>SIGNAL ●●●●○</span>
+        </span>
+        <span class="sep">|</span><span>4K · HDR · ATMOS</span>
+      </div>
+
+      <div class="dossier">
+        <div class="eyebrow">SERIES 003 // BENTHIC PICTURES</div>
+        <div class="tagline">“Something down there is answering.”</div>
+        <h1 class="title">The Deep Signal</h1>
+
+        <div class="chips">
+          <div class="chip">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="#E8B44A"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg>
+            <div><div class="chip-val">8.5</div><div class="chip-lab mono">IMDb</div></div>
+          </div>
+          <div class="chip">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#3FBF8F"><circle cx="12" cy="12" r="10"></circle></svg>
+            <div><div class="chip-val">92%</div><div class="chip-lab mono">RT</div></div>
+          </div>
+          <div class="chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="#3FBF8F"><rect x="2" y="2" width="20" height="20" rx="3"></rect></svg>
+            <div><div class="chip-val">81</div><div class="chip-lab mono">META</div></div>
+          </div>
+        </div>
+
+        <div class="rail">
+          <div class="cell">
+            <div class="cell-lab">RATING</div>
+            <div class="cell-val"><span class="star">★</span>8.9<span class="cert">TV-MA</span></div>
+          </div>
+          <div class="cell">
+            <div class="cell-lab">RUN</div><div class="cell-val">3 seasons · 24 ep</div>
+          </div>
+          <div class="cell">
+            <div class="cell-lab">CREATED BY</div><div class="cell-val">Mara Ellingsen</div>
+          </div>
+          <div class="cell">
+            <div class="cell-lab">YEARS</div><div class="cell-val">2023 – 2026</div>
+          </div>
+        </div>
+
+        <p class="synopsis">A deep-sea research crew uncovers a signal older than the ocean itself —
+          rhythmic, deliberate, patient. As the pings draw closer, they realize something down there
+          is not echoing them back. It is answering.</p>
+
+        <div class="cast">
+          <div class="cast-lab mono">STARRING</div>
+          <div class="cast-row">
+            <div class="cast-cell">
+              <div class="portrait p-lead" style="background: linear-gradient(135deg, #4A7FB8, #2E5480)">ID</div>
+              <div class="cast-name">Ines Duval</div><div class="cast-role">Dr. Maren Cole</div>
+            </div>
+            <div class="cast-cell">
+              <div class="portrait" style="background: linear-gradient(135deg, #B85A86, #7F3A5C)">TM</div>
+              <div class="cast-name">Theo Marsh</div><div class="cast-role">Elias Vance</div>
+            </div>
+            <div class="cast-cell">
+              <div class="portrait" style="background: linear-gradient(135deg, #4FA36B, #33704A)">NR</div>
+              <div class="cast-name">Nadia Rourke</div><div class="cast-role">Capt. Okonkwo</div>
+            </div>
+            <div class="cast-cell">
+              <div class="portrait" style="background: linear-gradient(135deg, #C08A4A, #855E30)">SW</div>
+              <div class="cast-name">Sam Whitlock</div><div class="cast-role">Jonah</div>
+            </div>
+            <div class="cast-cell">
+              <div class="portrait" style="background: linear-gradient(135deg, #7A63C0, #524084)">PA</div>
+              <div class="cast-name">Priya Anand</div><div class="cast-role">Dr. Reyes</div>
+            </div>
+            <div class="cast-cell">
+              <div class="portrait" style="background: linear-gradient(135deg, #3FA0A8, #2A6E74)">CR</div>
+              <div class="cast-name">Callum Reid</div><div class="cast-role">The Signal</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="foot">
+        <div class="shuffle">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 3h5v5"></path><path d="M4 20L21 3"></path>
+            <path d="M21 16v5h-5"></path><path d="M15 15l6 6"></path><path d="M4 4l5 5"></path>
+          </svg>
+        </div>
+        <div class="pill">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 5L6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 010 7"></path>
+          </svg><span>EN · 5.1</span>
+        </div>
+        <div class="pill">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="5" width="20" height="14" rx="3"></rect>
+            <path d="M8 11.5a2 2 0 100 3"></path><path d="M15 11.5a2 2 0 100 3"></path>
+          </svg><span>CC · OFF</span>
+        </div>
+        <div class="pill">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+               stroke-width="2" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer">
+    <div class="drawer-head">
+      <span class="drawer-lab mono">EPISODES</span>
+      <span class="drawer-count mono">SEASON 3 · 8 OF 24</span>
+    </div>
+    <div class="seasons">
+      <div class="sbtn">S01</div><div class="sbtn">S02</div>
+      <div class="sbtn sbtn-on">S03</div><div class="sbtn">SP</div>
+    </div>
+
+    <div class="list">
+      <div class="row">
+        <div class="thumb f4"></div>
+        <div class="row-txt"><div class="row-num mono">E01</div>
+          <div class="row-title">Descent</div><div class="row-meta">52m</div></div>
+        <div class="play"><svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M6 4l14 8-14 8z"></path></svg></div>
+      </div>
+      <div class="row">
+        <div class="thumb f5"></div>
+        <div class="row-txt"><div class="row-num mono">E02</div>
+          <div class="row-title">Pressure</div><div class="row-meta">48m</div></div>
+        <div class="play"><svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M6 4l14 8-14 8z"></path></svg></div>
+      </div>
+      <div class="row">
+        <div class="thumb f6"></div>
+        <div class="row-txt"><div class="row-num mono">E03</div>
+          <div class="row-title">Blackwater</div><div class="row-meta">55m</div></div>
+        <div class="play"><svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M6 4l14 8-14 8z"></path></svg></div>
+      </div>
+      <div class="row row-now">
+        <div class="thumb f7"><div class="bar"><span style="width: 62%"></span></div></div>
+        <div class="row-txt"><div class="row-num row-num-now mono">E04 · NOW</div>
+          <div class="row-title row-title-now">Trench</div>
+          <div class="row-meta row-meta-now mono">31:04 LEFT</div></div>
+        <div class="play" style="background: #F0525F; border-color: #F0525F">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="#fff"><path d="M6 4l14 8-14 8z"></path></svg></div>
+      </div>
+      <div class="row">
+        <div class="thumb f8"></div>
+        <div class="row-txt"><div class="row-num mono">E05</div>
+          <div class="row-title">The Answer</div><div class="row-meta">51m</div></div>
+        <div class="play"><svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M6 4l14 8-14 8z"></path></svg></div>
+      </div>
+      <div class="row">
+        <div class="thumb f1"></div>
+        <div class="row-txt"><div class="row-num mono">E06</div>
+          <div class="row-title">Surfacing</div><div class="row-meta">58m</div></div>
+        <div class="play"><svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M6 4l14 8-14 8z"></path></svg></div>
+      </div>
+      <div class="row">
+        <div class="thumb f2"></div>
+        <div class="row-txt"><div class="row-num mono">E07</div>
+          <div class="row-title">Undertow</div><div class="row-meta">47m</div></div>
+        <div class="play"><svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M6 4l14 8-14 8z"></path></svg></div>
+      </div>
+      <div class="row">
+        <div class="thumb f3"></div>
+        <div class="row-txt"><div class="row-num mono">E08</div>
+          <div class="row-title">Origin</div><div class="row-meta">61m</div></div>
+        <div class="play"><svg width="11" height="11" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M6 4l14 8-14 8z"></path></svg></div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview": {"width": 1376, "height": 1032}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

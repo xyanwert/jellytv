@@ -44,3 +44,11 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/test_output/
 fastlane/README.md
+
+# ---- design canvases ----
+# Each Design/<screen>/ folder keeps the sources of a design canvas: the
+# .dc.html artboards, canvas.json and the artwork they reference. The seeded
+# page beside them bundles a ~2.7 MB copy of the canvas editor and is rebuilt
+# from those sources, so it stays out of history.
+Design/*/*.html
+!Design/*/*.dc.html

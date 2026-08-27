@@ -1,0 +1,331 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&amp;display=swap" />
+  <style>
+    body { margin: 0; background: #07080C; }
+    a { color: #F0525F; } a:hover { color: #F47A83; }
+    .root { position: relative; width: 1376px; height: 1032px; overflow: hidden;
+            background: #07080C; color: #F4F5F7;
+            font-family: 'Schibsted Grotesk', -apple-system, 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace; }
+
+    .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+           object-position: 56% 38%; }
+    .scrim-left { position: absolute; inset: 0; background:
+      linear-gradient(90deg, rgba(7,8,12,0.95) 0%, rgba(7,8,12,0.84) 14%, rgba(7,8,12,0.56) 28%,
+      rgba(7,8,12,0.24) 42%, rgba(7,8,12,0.04) 56%, rgba(7,8,12,0) 70%); }
+    .scrim-bottom { position: absolute; inset: 0; background:
+      linear-gradient(0deg, #07080C 0%, #07080C 22%, rgba(7,8,12,0.86) 34%,
+      rgba(7,8,12,0.42) 45%, rgba(7,8,12,0) 58%); }
+    .scrim-top { position: absolute; inset: 0; background:
+      linear-gradient(180deg, rgba(7,8,12,0.80) 0%, rgba(7,8,12,0.28) 7%, rgba(7,8,12,0) 15%); }
+
+    .chrome { position: relative; display: flex; height: 100%; }
+    .spine { width: 118px; box-sizing: border-box; padding: 40px 0; flex: none;
+             display: flex; flex-direction: column; align-items: center;
+             border-right: 1px solid rgba(255,255,255,0.08); }
+    .genre { flex: 1; display: flex; align-items: center; writing-mode: vertical-rl;
+             font-size: 15px; font-weight: 600; letter-spacing: 6px; color: rgba(255,255,255,0.32); }
+    .spine-foot { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+    .back { width: 54px; height: 54px; border-radius: 15px; display: flex; align-items: center;
+            justify-content: center; background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12); }
+    .marker { font-size: 13px; font-weight: 800; letter-spacing: 2px; line-height: 1.45;
+              text-align: center; color: #F0525F; }
+
+    .body { flex: 1; min-width: 0; box-sizing: border-box; padding: 44px 64px 40px;
+            display: flex; flex-direction: column; }
+    .readout { display: flex; align-items: center; justify-content: flex-end; gap: 18px;
+               font-size: 15px; font-weight: 500; letter-spacing: 1px; color: rgba(255,255,255,0.6); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #6FD68F; box-shadow: 0 0 8px #6FD68F; }
+    .sep { color: rgba(255,255,255,0.3); }
+
+    .dossier { margin-top: 46px; max-width: 620px; }
+    .eyebrow { font-size: 15px; font-weight: 800; letter-spacing: 4px; color: #F0525F; }
+    .tagline { margin-top: 12px; font-size: 19px; font-weight: 500; font-style: italic;
+               color: rgba(255,255,255,0.6); }
+    .title { margin: 6px 0 0; font-size: 58px; font-weight: 900; letter-spacing: -1.5px; line-height: 1.0; }
+    .meta { display: flex; align-items: center; gap: 12px; margin-top: 20px; font-size: 13px;
+            font-weight: 700; letter-spacing: 1.6px; color: rgba(255,255,255,0.55); }
+    .meta .b { color: rgba(255,255,255,0.22); }
+    .meta .rate { color: #F4F5F7; font-size: 15px; letter-spacing: 0.5px; }
+    .star { color: #F0525F; }
+    .synopsis { margin-top: 18px; max-width: 560px; font-size: 19px; line-height: 1.55;
+                color: rgba(255,255,255,0.7); }
+    .chips { display: flex; gap: 10px; margin-top: 22px; }
+    .chip { display: flex; align-items: center; gap: 9px; padding: 8px 13px; border-radius: 12px;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); }
+    .chip-val { font-size: 18px; font-weight: 900; line-height: 1.1; }
+    .chip-lab { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.45); }
+
+    /* cast as a right-edge credit column, out of the layout's centre entirely */
+    .credits { position: absolute; top: 168px; right: 64px; width: 262px; }
+    .credits-lab { font-size: 11px; font-weight: 700; letter-spacing: 2px;
+                   color: rgba(255,255,255,0.42); text-align: right; }
+    .credit { display: flex; flex-direction: row-reverse; align-items: center; gap: 12px;
+              padding: 11px 0; border-top: 1px solid rgba(255,255,255,0.09); }
+    .credits .credit:first-of-type { margin-top: 12px; }
+    .portrait { width: 38px; height: 38px; flex: none; border-radius: 12px; display: flex;
+                align-items: center; justify-content: center; font-size: 13px; font-weight: 800;
+                color: rgba(255,255,255,0.92); border: 1px solid rgba(255,255,255,0.14); }
+    .p-lead { border: 2px solid #F0525F; }
+    .credit-txt { min-width: 0; text-align: right; }
+    .credit-name { font-size: 15px; font-weight: 700; color: #F4F5F7; white-space: nowrap;
+                   overflow: hidden; text-overflow: ellipsis; }
+    .credit-role { margin-top: 2px; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.45);
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* the ruler: every season and every episode of it, at a glance */
+    .band { margin-top: auto; }
+    .ruler { display: flex; align-items: flex-end; gap: 40px;
+             border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 12px; }
+    .grp { display: flex; flex-direction: column; gap: 9px; }
+    .grp-lab { font-size: 12px; font-weight: 700; letter-spacing: 2px; color: rgba(255,255,255,0.35); }
+    .grp-on .grp-lab { color: #F4F5F7; }
+    .ticks { display: flex; align-items: flex-end; gap: 6px; height: 26px; }
+    .tick { width: 3px; height: 12px; border-radius: 2px; background: rgba(255,255,255,0.20); }
+    .grp-on .tick { height: 20px; background: rgba(255,255,255,0.42); }
+    .grp-on .tick-now { width: 5px; height: 26px; background: #F0525F; }
+    .ruler-meta { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .count { font-size: 12px; font-weight: 700; letter-spacing: 1.6px; color: rgba(255,255,255,0.4); }
+    .pill { display: flex; align-items: center; gap: 9px; padding: 12px 18px; border-radius: 13px;
+            font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.85);
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); }
+    .pill-accent { background: #F0525F; border-color: #F0525F; }
+
+    .band-body { display: flex; gap: 28px; margin-top: 26px; }
+    .feature { position: relative; width: 420px; height: 236px; flex: none; border-radius: 14px;
+               overflow: hidden; background-color: #10161f; background-size: cover;
+               background-position: center; border: 1px solid rgba(255,255,255,0.12);
+               box-shadow: 0 20px 40px rgba(0,0,0,0.55); }
+    .feature::after { content: ''; position: absolute; inset: 0;
+                      background: linear-gradient(0deg, rgba(4,6,10,0.92) 6%, rgba(4,6,10,0.30) 52%, rgba(4,6,10,0) 78%); }
+    .feature-txt { position: absolute; left: 20px; right: 96px; bottom: 20px; z-index: 2; }
+    .feature-lab { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: #F0525F; }
+    .feature-title { margin-top: 6px; font-size: 27px; font-weight: 900; letter-spacing: -0.5px; }
+    .feature-meta { margin-top: 6px; font-size: 13px; font-weight: 600; letter-spacing: 1px;
+                    color: rgba(255,255,255,0.62); }
+    .feature-play { position: absolute; right: 20px; bottom: 20px; z-index: 2; width: 56px; height: 56px;
+                    border-radius: 50%; background: #F0525F; display: flex; align-items: center;
+                    justify-content: center; box-shadow: 0 8px 20px rgba(240,82,95,0.45); }
+    .feature-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: 4px;
+                   background: rgba(255,255,255,0.18); }
+    .feature-bar span { display: block; height: 100%; background: #F0525F; }
+
+    .index { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+             gap: 0 28px; align-content: start; }
+    .entry { display: flex; align-items: center; gap: 14px; padding: 12px 0;
+             border-top: 1px solid rgba(255,255,255,0.09); }
+    .entry-num { width: 30px; flex: none; font-size: 12px; font-weight: 700; letter-spacing: 1px;
+                 color: rgba(255,255,255,0.4); }
+    .entry-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 600;
+                   color: rgba(255,255,255,0.82); white-space: nowrap; overflow: hidden;
+                   text-overflow: ellipsis; }
+    .entry-run { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.42); }
+    .entry-now .entry-num { color: #F0525F; }
+    .entry-now .entry-title { color: #F4F5F7; font-weight: 700; }
+    .entry-now .entry-run { color: #F0525F; font-weight: 700; }
+    .f1 { background-image: url(./ep1.jpg); } .f7 { background-image: url(./ep7.jpg); }
+  </style>
+</helmet>
+
+<div class="root">
+  <img class="art" src="keyart.jpg" alt="" />
+  <div class="scrim-left"></div>
+  <div class="scrim-bottom"></div>
+  <div class="scrim-top"></div>
+
+  <div class="chrome">
+    <div class="spine">
+      <div class="genre">TV SHOWS / SCI-FI DRAMA</div>
+      <div class="spine-foot">
+        <div class="back">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path>
+          </svg>
+        </div>
+        <div class="marker">EP<br />04</div>
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="readout">
+        <span style="display: flex; align-items: center; gap: 8px;">
+          <span class="dot"></span><span>SIGNAL ●●●●○</span>
+        </span>
+        <span class="sep">|</span><span>4K · HDR · ATMOS</span>
+      </div>
+
+      <div class="dossier">
+        <div class="eyebrow">SERIES 003 // BENTHIC PICTURES</div>
+        <div class="tagline">“Something down there is answering.”</div>
+        <h1 class="title">The Deep Signal</h1>
+        <div class="meta">
+          <span class="rate"><span class="star">★</span> 8.9</span><span class="b">|</span>
+          <span>TV-MA</span><span class="b">|</span>
+          <span>3 SEASONS · 24 EP</span><span class="b">|</span>
+          <span>2023 – 2026</span><span class="b">|</span>
+          <span>MARA ELLINGSEN</span>
+        </div>
+        <p class="synopsis">A deep-sea research crew uncovers a signal older than the ocean itself —
+          rhythmic, deliberate, patient. As the pings draw closer, they realize something down there
+          is not echoing them back. It is answering.</p>
+        <div class="chips">
+          <div class="chip">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="#E8B44A"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg>
+            <div><div class="chip-val">8.5</div><div class="chip-lab mono">IMDb</div></div>
+          </div>
+          <div class="chip">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#3FBF8F"><circle cx="12" cy="12" r="10"></circle></svg>
+            <div><div class="chip-val">92%</div><div class="chip-lab mono">RT</div></div>
+          </div>
+          <div class="chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="#3FBF8F"><rect x="2" y="2" width="20" height="20" rx="3"></rect></svg>
+            <div><div class="chip-val">81</div><div class="chip-lab mono">META</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="band">
+        <div class="ruler">
+          <div class="grp">
+            <div class="grp-lab mono">S01</div>
+            <div class="ticks">
+              <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+              <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+            </div>
+          </div>
+          <div class="grp">
+            <div class="grp-lab mono">S02</div>
+            <div class="ticks">
+              <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+              <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+            </div>
+          </div>
+          <div class="grp grp-on">
+            <div class="grp-lab mono">S03</div>
+            <div class="ticks">
+              <div class="tick"></div><div class="tick"></div><div class="tick"></div>
+              <div class="tick tick-now"></div>
+              <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+            </div>
+          </div>
+          <div class="grp">
+            <div class="grp-lab mono">SP</div>
+            <div class="ticks"><div class="tick"></div><div class="tick"></div><div class="tick"></div></div>
+          </div>
+
+          <div class="ruler-meta">
+            <span class="count mono">SEASON 3 · 8 EPISODES</span>
+            <div class="pill pill-accent">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 3h5v5"></path><path d="M4 20L21 3"></path>
+                <path d="M21 16v5h-5"></path><path d="M15 15l6 6"></path><path d="M4 4l5 5"></path>
+              </svg>
+            </div>
+            <div class="pill">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 5L6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 010 7"></path>
+              </svg><span>EN · 5.1</span>
+            </div>
+            <div class="pill">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="5" width="20" height="14" rx="3"></rect>
+                <path d="M8 11.5a2 2 0 100 3"></path><path d="M15 11.5a2 2 0 100 3"></path>
+              </svg><span>CC · OFF</span>
+            </div>
+            <div class="pill">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+                   stroke-width="2" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="band-body">
+          <div class="feature f7">
+            <div class="feature-txt">
+              <div class="feature-lab mono">CONTINUE · S3 E04</div>
+              <div class="feature-title">Trench</div>
+              <div class="feature-meta mono">49 MIN · 31:04 LEFT</div>
+            </div>
+            <div class="feature-play">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M6 4l14 8-14 8z"></path></svg>
+            </div>
+            <div class="feature-bar"><span style="width: 62%"></span></div>
+          </div>
+
+          <div class="index">
+            <div class="entry"><div class="entry-num mono">E01</div>
+              <div class="entry-title">Descent</div><div class="entry-run">52m</div></div>
+            <div class="entry"><div class="entry-num mono">E05</div>
+              <div class="entry-title">The Answer</div><div class="entry-run">51m</div></div>
+            <div class="entry"><div class="entry-num mono">E02</div>
+              <div class="entry-title">Pressure</div><div class="entry-run">48m</div></div>
+            <div class="entry"><div class="entry-num mono">E06</div>
+              <div class="entry-title">Surfacing</div><div class="entry-run">58m</div></div>
+            <div class="entry"><div class="entry-num mono">E03</div>
+              <div class="entry-title">Blackwater</div><div class="entry-run">55m</div></div>
+            <div class="entry"><div class="entry-num mono">E07</div>
+              <div class="entry-title">Undertow</div><div class="entry-run">47m</div></div>
+            <div class="entry entry-now"><div class="entry-num mono">E04</div>
+              <div class="entry-title">Trench</div><div class="entry-run mono">62%</div></div>
+            <div class="entry"><div class="entry-num mono">E08</div>
+              <div class="entry-title">Origin</div><div class="entry-run">61m</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="credits">
+    <div class="credits-lab mono">CAST</div>
+    <div class="credit">
+      <div class="portrait p-lead" style="background: linear-gradient(135deg, #4A7FB8, #2E5480)">ID</div>
+      <div class="credit-txt"><div class="credit-name">Ines Duval</div>
+        <div class="credit-role">Dr. Maren Cole</div></div>
+    </div>
+    <div class="credit">
+      <div class="portrait" style="background: linear-gradient(135deg, #B85A86, #7F3A5C)">TM</div>
+      <div class="credit-txt"><div class="credit-name">Theo Marsh</div>
+        <div class="credit-role">Elias Vance</div></div>
+    </div>
+    <div class="credit">
+      <div class="portrait" style="background: linear-gradient(135deg, #4FA36B, #33704A)">NR</div>
+      <div class="credit-txt"><div class="credit-name">Nadia Rourke</div>
+        <div class="credit-role">Capt. Okonkwo</div></div>
+    </div>
+    <div class="credit">
+      <div class="portrait" style="background: linear-gradient(135deg, #C08A4A, #855E30)">SW</div>
+      <div class="credit-txt"><div class="credit-name">Sam Whitlock</div>
+        <div class="credit-role">Jonah</div></div>
+    </div>
+    <div class="credit">
+      <div class="portrait" style="background: linear-gradient(135deg, #7A63C0, #524084)">PA</div>
+      <div class="credit-txt"><div class="credit-name">Priya Anand</div>
+        <div class="credit-role">Dr. Reyes</div></div>
+    </div>
+    <div class="credit">
+      <div class="portrait" style="background: linear-gradient(135deg, #3FA0A8, #2A6E74)">CR</div>
+      <div class="credit-txt"><div class="credit-name">Callum Reid</div>
+        <div class="credit-role">The Signal</div></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview": {"width": 1376, "height": 1032}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

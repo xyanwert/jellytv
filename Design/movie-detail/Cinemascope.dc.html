@@ -1,0 +1,241 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&amp;display=swap" />
+  <style>
+    body { margin: 0; background: #02090D; }
+    a { color: #4FAFC7; } a:hover { color: #7FC9DB; }
+    .root { position: relative; width: 1376px; height: 1032px; overflow: hidden;
+            background: #02090D; color: #F4F5F7;
+            font-family: 'Schibsted Grotesk', -apple-system, 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace; }
+
+    .field { position: absolute; inset: 0; background:
+      radial-gradient(900px 700px at 20% 88%, rgba(13,57,69,0.55), rgba(2,9,13,0) 72%); }
+
+    .chrome { position: relative; display: flex; height: 100%; }
+    .spine { width: 118px; box-sizing: border-box; padding: 40px 0; flex: none;
+             display: flex; flex-direction: column; align-items: center;
+             border-right: 1px solid rgba(255,255,255,0.08); z-index: 3; }
+    .genre { flex: 1; display: flex; align-items: center; writing-mode: vertical-rl;
+             font-size: 15px; font-weight: 600; letter-spacing: 6px; color: rgba(255,255,255,0.32); }
+    .spine-foot { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+    .back { width: 54px; height: 54px; border-radius: 15px; display: flex; align-items: center;
+            justify-content: center; background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12); }
+    .marker { font-size: 13px; font-weight: 800; letter-spacing: 2px; line-height: 1.45;
+              text-align: center; color: #F0525F; }
+
+    .body { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
+
+    /* the still is presented as projection: true 2.39:1 inside black bars */
+    .band { position: relative; height: 556px; flex: none; background: #000; }
+    .band img { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+                width: 100%; height: 526px; object-fit: cover; }
+    .band-fade { position: absolute; inset: 0; background:
+      linear-gradient(0deg, #02090D 0%, rgba(2,9,13,0.72) 10%, rgba(2,9,13,0.18) 30%, rgba(2,9,13,0) 48%),
+      linear-gradient(90deg, rgba(2,9,13,0.72) 0%, rgba(2,9,13,0.14) 30%, rgba(2,9,13,0) 52%); }
+    .band-txt { position: absolute; left: 372px; bottom: 52px; }
+    .eyebrow { font-size: 15px; font-weight: 800; letter-spacing: 4px; color: #4FAFC7; }
+    .tagline { margin-top: 10px; font-size: 19px; font-weight: 500; font-style: italic;
+               color: rgba(255,255,255,0.66); }
+    .title { margin: 6px 0 0; font-size: 82px; font-weight: 900; letter-spacing: -2.5px;
+             line-height: 0.95; }
+    .readout { position: absolute; right: 64px; top: 44px; display: flex; align-items: center;
+               gap: 16px; font-size: 14px; font-weight: 500; letter-spacing: 1px;
+               color: rgba(255,255,255,0.7); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #6FD68F; box-shadow: 0 0 8px #6FD68F; }
+    .sep { color: rgba(255,255,255,0.35); }
+
+    .lower { flex: 1; display: flex; gap: 40px; padding: 0 64px 20px; }
+    /* the poster stands proud of the frame, like a card in a lobby case */
+    .poster { position: relative; width: 232px; height: 348px; flex: none; margin-top: -152px;
+              border-radius: 4px; overflow: hidden; z-index: 2;
+              box-shadow: 0 40px 60px -18px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.14); }
+    .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0;
+            border-top: 1px solid rgba(255,255,255,0.14); border-bottom: 1px solid rgba(255,255,255,0.09); }
+    .cell { padding: 14px 22px; }
+    .cell + .cell { border-left: 1px solid rgba(255,255,255,0.09); }
+    .cell:first-child { padding-left: 0; }
+    .cell-lab { font-size: 12px; font-weight: 600; letter-spacing: 2px; color: rgba(255,255,255,0.42); }
+    .cell-val { margin-top: 4px; font-size: 19px; font-weight: 700; white-space: nowrap;
+                overflow: hidden; text-overflow: ellipsis; }
+    .cert { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.42); }
+    .star { color: #4FAFC7; }
+
+    .row2 { display: flex; gap: 32px; margin-top: 16px; }
+    .synopsis { flex: 1; font-size: 18px; line-height: 1.55; color: rgba(255,255,255,0.72); }
+    .scores { display: flex; flex-direction: column; gap: 10px; width: 214px; flex: none; }
+    .chip { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.11); }
+    .chip-val { font-size: 18px; font-weight: 900; line-height: 1.1; }
+    .chip-lab { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.45); }
+    .oscar { display: flex; align-items: center; gap: 7px; padding: 8px 13px; border-radius: 999px;
+             color: #E8B44A; background: rgba(232,180,74,0.12);
+             border: 1px solid rgba(232,180,74,0.40); font-size: 13px; font-weight: 700; }
+
+    .actions { display: flex; align-items: center; gap: 12px; margin-top: auto; padding-top: 18px;
+            white-space: nowrap; }
+    .play { position: relative; display: flex; align-items: center; gap: 12px; height: 58px;
+            padding: 0 26px; border-radius: 15px; background: #F0525F; color: #fff;
+            font-size: 17px; font-weight: 800; letter-spacing: 0.5px; overflow: hidden;
+            box-shadow: 0 14px 30px rgba(240,82,95,0.32); }
+    .play-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,0.24); }
+    .play-bar span { display: block; height: 100%; background: rgba(255,255,255,0.72); }
+    .pill { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px;
+            border-radius: 13px; font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.86);
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); }
+
+    .cast { display: flex; align-items: center; gap: 22px; padding: 14px 0 0;
+            border-top: 1px solid rgba(255,255,255,0.12); margin: 0 64px 22px; }
+    .cast-lab { font-size: 11px; font-weight: 700; letter-spacing: 2px; width: 54px; flex: none;
+                color: rgba(255,255,255,0.45); }
+    .cast-row { display: flex; gap: 26px; }
+    .credit { display: flex; align-items: center; gap: 11px; }
+    .portrait { width: 44px; height: 44px; flex: none; border-radius: 13px; display: flex;
+                align-items: center; justify-content: center; font-size: 15px; font-weight: 800;
+                color: rgba(255,255,255,0.94); border: 1px solid rgba(255,255,255,0.14); }
+    .p-lead { border: 2px solid #E8B44A; }
+    .credit-name { font-size: 14px; font-weight: 700; }
+    .credit-role { margin-top: 2px; font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.46); }
+  </style>
+</helmet>
+
+<div class="root">
+  <div class="field"></div>
+  <div class="chrome">
+    <div class="spine">
+      <div class="genre">MOVIES / THRILLER</div>
+      <div class="spine-foot">
+        <div class="back">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path>
+          </svg>
+        </div>
+        <div class="marker">FILM<br />001</div>
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="band">
+        <img src="still.jpg" alt="" />
+        <div class="band-fade"></div>
+        <div class="readout">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="dot"></span><span>READY TO PLAY</span>
+          </span>
+          <span class="sep">|</span><span>4K · HDR · ATMOS</span>
+        </div>
+        <div class="band-txt">
+          <div class="eyebrow">FEATURE FILM // BENTHIC PICTURES</div>
+          <div class="tagline">“The tide remembers everything.”</div>
+          <h1 class="title">Undertow</h1>
+        </div>
+      </div>
+
+      <div class="lower">
+        <div class="poster"><img src="poster.jpg" alt="" /></div>
+
+        <div class="meta">
+          <div class="grid">
+            <div class="cell">
+              <div class="cell-lab">RATING</div>
+              <div class="cell-val"><span class="star">★</span> 8.6 <span class="cert">PG-13</span></div>
+            </div>
+            <div class="cell"><div class="cell-lab">RUNTIME</div><div class="cell-val">2h 14m</div></div>
+            <div class="cell"><div class="cell-lab">DIRECTOR</div><div class="cell-val">Mara Ellingsen</div></div>
+            <div class="cell"><div class="cell-lab">YEAR</div><div class="cell-val">2026</div></div>
+          </div>
+
+          <div class="row2">
+            <p class="synopsis">When a coastal town’s tide stops turning, a marine acoustician returns
+              home to trace the silence — and finds her own past waiting beneath the surface. As the
+              water grows still and the townsfolk begin to forget the sound of the sea, she must
+              descend to the source before the quiet swallows her too.</p>
+            <div class="scores">
+              <div class="chip">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="#E8B44A"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg>
+                <div><div class="chip-val">7.8</div><div class="chip-lab mono">IMDb</div></div>
+              </div>
+              <div class="chip">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="#3FBF8F"><circle cx="12" cy="12" r="10"></circle></svg>
+                <div><div class="chip-val">88%</div><div class="chip-lab mono">RT</div></div>
+              </div>
+              <div class="oscar">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="#E8B44A"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg>
+                <span>Won 2 Academy Awards</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <div class="play">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M6 4l14 8-14 8z"></path></svg>
+              <span>RESUME · 1:40:12 LEFT</span>
+              <div class="play-bar"><span style="width: 26%"></span></div>
+            </div>
+            <div class="pill">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 5h16v14H4z"></path><path d="M10 9l5 3-5 3z"></path>
+              </svg><span>TRAILER</span>
+            </div>
+            <div class="pill"><span>EN · FR</span></div>
+            <div class="pill"><span>CC · OFF</span></div>
+            <div class="pill">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                   stroke-width="2" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cast">
+        <span class="cast-lab mono">CAST</span>
+        <div class="cast-row">
+          <div class="credit">
+            <div class="portrait p-lead" style="background: linear-gradient(135deg, #4A7FB8, #2E5480)">ID</div>
+            <div><div class="credit-name">Ines Duval</div><div class="credit-role">Dr. Maren Cole</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #B85A86, #7F3A5C)">TM</div>
+            <div><div class="credit-name">Theo Marsh</div><div class="credit-role">Elias Vance</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #4FA36B, #33704A)">NR</div>
+            <div><div class="credit-name">Nadia Rourke</div><div class="credit-role">Capt. Okonkwo</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #C08A4A, #855E30)">SW</div>
+            <div><div class="credit-name">Sam Whitlock</div><div class="credit-role">Jonah</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #7A63C0, #524084)">PA</div>
+            <div><div class="credit-name">Priya Anand</div><div class="credit-role">Dr. Reyes</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #3FA0A8, #2A6E74)">CR</div>
+            <div><div class="credit-name">Callum Reid</div><div class="credit-role">The Signal</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview": {"width": 1376, "height": 1032}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

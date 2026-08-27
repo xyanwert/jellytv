@@ -1,0 +1,23 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1376, "h": 1032,
+      "title": "Option A — One Sheet (leading)" },
+    { "file": "Cinemascope.dc.html", "x": 1496, "y": 0, "w": 1376, "h": 1032,
+      "title": "Option B — Cinemascope" },
+    { "file": "ColorField.dc.html", "x": 2992, "y": 0, "w": 1376, "h": 1032,
+      "title": "Option C — Colour Field" }
+  ],
+  "annotations": [
+    { "id": "thesis", "x": 0, "y": -560, "w": 430,
+      "text": "Movie detail, cinematic.\n\nThe premise across all three: the poster is the only source of colour on the screen. Its dominant hue, normalised the way DominantColor.of() already normalises one (drop the near-black and near-grey pixels, bucket by hue, weight by saturation × value, then push the winner to 0.78 brightness), becomes the accent — here #4FAFC7 off this poster's deep teal. Everything ambient is built from its other two samples, #0D3945 and #04181E.\n\nSo a red poster gives you a red screen with no new code: the app already computes this for card borders.\n\nMore Like This is gone from all three. Metadata and cast take the room it was using." },
+    { "id": "opt-a", "x": 480, "y": -560, "w": 430,
+      "text": "A — One Sheet (leading)\n\nThe poster is presented as an object: 430 × 645, hard edge, raking sheen, a long shadow that puts it above the page. Behind it, the same image thrown 90px out of focus is the light in the room — that is literally where the colour comes from.\n\nMetadata is a hairline rail, and cast gets the full width of the screen along the bottom, 64pt portraits with character names.\n\nThe accent owns the Resume button too, so the primary action changes colour per film. That is the argument worth having: it looks superb and it costs you a fixed brand colour for the most important control on the screen." },
+    { "id": "opt-b", "x": 1976, "y": -560, "w": 430,
+      "text": "B — Cinemascope\n\nProjection, not wallpaper: a real 2.39:1 still inside real black bars, title set into its lower edge, and the poster standing proud of the frame like a card in a lobby case.\n\nResume stays coral — the app's own accent — while the poster still tints everything ambient. This is the version to pick if a per-film Play button is a step too far.\n\nTradeoff: the still has to be good. On a film whose backdrop is dull or missing, this direction has nothing to fall back on, where A always has the poster." },
+    { "id": "opt-c", "x": 3472, "y": -560, "w": 430,
+      "text": "C — Colour Field\n\nNo photograph anywhere except the poster itself: the whole screen is a two-tone wall mixed from its samples, with a hard offset block behind the poster instead of a soft shadow.\n\nMetadata becomes a numbered index rather than a row of boxes, and cast is a billing column down the right.\n\nThe most graphic and the most opinionated. Tradeoff: it reads as a design object more than a media screen, and with a flat or muddy poster the wall goes muddy with it." },
+    { "id": "poster-note", "x": 0, "y": 1120, "w": 640,
+      "text": "The poster is a stand-in I drew for the app's own reference film — Undertow, SampleCatalog.movie — not a real one-sheet; its type is set in the app's Schibsted Grotesk. Everything else is that record's real data: 8.6 / PG-13 / 2h 14m / Mara Ellingsen / 2026, IMDb 7.8 · RT 88 · Metacritic 74, two Academy Awards, and the six credited cast.\n\nCast portraits are the app's monogram fallback (CastPortrait), which is what shows when Jellyfin has no headshot.\n\nThe three sampled hexes are read off this poster; swap in real key art and they move." }
+  ],
+  "launch": { "view": "canvas" }
+}

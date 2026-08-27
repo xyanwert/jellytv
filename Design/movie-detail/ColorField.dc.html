@@ -1,0 +1,220 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&amp;display=swap" />
+  <style>
+    body { margin: 0; background: #04181E; }
+    a { color: #4FAFC7; } a:hover { color: #7FC9DB; }
+    .root { position: relative; width: 1376px; height: 1032px; overflow: hidden;
+            background: #04181E; color: #F4F5F7;
+            font-family: 'Schibsted Grotesk', -apple-system, 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace; }
+
+    /* no photograph but the poster: the whole wall is its two sampled colours */
+    .wall { position: absolute; inset: 0; background:
+      linear-gradient(148deg, #0D3945 0%, #0A2C36 42%, #04181E 78%, #020D11 100%); }
+    .disc { position: absolute; width: 1180px; height: 1180px; right: -300px; top: -420px;
+            border-radius: 50%; background:
+            radial-gradient(circle at 40% 55%, rgba(79,175,199,0.20), rgba(34,75,85,0.10) 58%, rgba(4,24,30,0) 72%); }
+    .grain { position: absolute; inset: 0; opacity: 0.55; background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.014) 0 1px, rgba(0,0,0,0) 1px 3px); }
+
+    .chrome { position: relative; display: flex; height: 100%; }
+    .spine { width: 118px; box-sizing: border-box; padding: 40px 0; flex: none;
+             display: flex; flex-direction: column; align-items: center;
+             border-right: 1px solid rgba(255,255,255,0.10); }
+    .genre { flex: 1; display: flex; align-items: center; writing-mode: vertical-rl;
+             font-size: 15px; font-weight: 600; letter-spacing: 6px; color: rgba(255,255,255,0.34); }
+    .spine-foot { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+    .back { width: 54px; height: 54px; border-radius: 15px; display: flex; align-items: center;
+            justify-content: center; background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.14); }
+    .marker { font-size: 13px; font-weight: 800; letter-spacing: 2px; line-height: 1.45;
+              text-align: center; color: #4FAFC7; }
+
+    .body { flex: 1; min-width: 0; box-sizing: border-box; padding: 44px 64px 40px;
+            display: flex; flex-direction: column; }
+    .readout { display: flex; align-items: center; justify-content: flex-end; gap: 16px;
+               font-size: 14px; font-weight: 500; letter-spacing: 1px; color: rgba(255,255,255,0.62); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #6FD68F; box-shadow: 0 0 8px #6FD68F; }
+    .sep { color: rgba(255,255,255,0.32); }
+
+    .stage { flex: 1; display: flex; gap: 40px; margin-top: 36px; }
+    /* graphic, not photographic: a hard offset block instead of a soft shadow */
+    .poster-wrap { position: relative; width: 300px; height: 450px; flex: none; align-self: center; }
+    .poster-offset { position: absolute; left: 16px; top: 16px; width: 300px; height: 450px;
+                     background: rgba(79,175,199,0.22); }
+    .poster { position: absolute; inset: 0; overflow: hidden; }
+    .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .eyebrow { font-size: 14px; font-weight: 800; letter-spacing: 4px; color: #4FAFC7; }
+    .title { margin: 14px 0 0; font-size: 82px; font-weight: 900; letter-spacing: -3px;
+             line-height: 0.9; }
+    .tagline { margin-top: 16px; font-size: 19px; font-weight: 500; font-style: italic;
+               color: rgba(255,255,255,0.66); }
+    .synopsis { margin-top: 18px; font-size: 17px; line-height: 1.55;
+                color: rgba(255,255,255,0.72); }
+
+    /* metadata as a numbered index, not a row of boxes */
+    .index { margin-top: 22px; }
+    .idx { display: flex; align-items: baseline; gap: 16px; padding: 11px 0;
+           border-top: 1px solid rgba(255,255,255,0.13); }
+    .idx-n { width: 26px; flex: none; font-size: 11px; font-weight: 700;
+             color: rgba(255,255,255,0.34); }
+    .idx-k { width: 104px; flex: none; font-size: 11px; font-weight: 700; letter-spacing: 2px;
+             color: rgba(255,255,255,0.44); }
+    .idx-v { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; }
+    .cert { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.44); }
+    .star { color: #4FAFC7; }
+    .gold { color: #E8B44A; }
+
+    .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+                margin-top: auto; padding-top: 24px; }
+    .play { position: relative; display: flex; align-items: center; gap: 11px; height: 60px;
+            padding: 0 22px; background: #4FAFC7; color: #04181E; font-size: 16px;
+            font-weight: 800; letter-spacing: 0.5px; overflow: hidden; white-space: nowrap; }
+    .play-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(4,24,30,0.22); }
+    .play-bar span { display: block; height: 100%; background: rgba(4,24,30,0.6); }
+    .pill { display: flex; align-items: center; gap: 8px; height: 50px; padding: 0 13px;
+            font-size: 13px; font-weight: 600; white-space: nowrap; color: rgba(255,255,255,0.86);
+            border: 1px solid rgba(255,255,255,0.20); }
+
+    /* cast as a billing column beside the poster block */
+    .cast { width: 250px; flex: none; }
+    .cast-lab { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: rgba(255,255,255,0.44); }
+    .credit { display: flex; align-items: center; gap: 12px; padding: 12px 0;
+              border-top: 1px solid rgba(255,255,255,0.13); }
+    .credit:first-of-type { margin-top: 14px; }
+    .portrait { width: 40px; height: 40px; flex: none; border-radius: 12px; display: flex;
+                align-items: center; justify-content: center; font-size: 14px; font-weight: 800;
+                color: rgba(255,255,255,0.94); border: 1px solid rgba(255,255,255,0.16); }
+    .p-lead { border: 2px solid #E8B44A; }
+    .credit-name { font-size: 15px; font-weight: 700; }
+    .credit-role { margin-top: 2px; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.48); }
+  </style>
+</helmet>
+
+<div class="root">
+  <div class="wall"></div>
+  <div class="disc"></div>
+  <div class="grain"></div>
+
+  <div class="chrome">
+    <div class="spine">
+      <div class="genre">MOVIES / THRILLER</div>
+      <div class="spine-foot">
+        <div class="back">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path>
+          </svg>
+        </div>
+        <div class="marker">FILM<br />001</div>
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="readout">
+        <span style="display: flex; align-items: center; gap: 8px;">
+          <span class="dot"></span><span>READY TO PLAY</span>
+        </span>
+        <span class="sep">|</span><span>4K · HDR · ATMOS</span>
+      </div>
+
+      <div class="stage">
+        <div class="poster-wrap">
+          <div class="poster-offset"></div>
+          <div class="poster"><img src="poster.jpg" alt="" /></div>
+        </div>
+
+        <div class="info">
+          <div class="eyebrow">FEATURE FILM // BENTHIC PICTURES</div>
+          <h1 class="title">Undertow</h1>
+          <div class="tagline">“The tide remembers everything.”</div>
+          <p class="synopsis">When a coastal town’s tide stops turning, a marine acoustician returns
+            home to trace the silence — and finds her own past waiting beneath the surface.</p>
+
+          <div class="index">
+            <div class="idx">
+              <span class="idx-n mono">01</span><span class="idx-k mono">RATING</span>
+              <span class="idx-v"><span class="star">★</span> 8.6 <span class="cert">PG-13</span></span>
+            </div>
+            <div class="idx">
+              <span class="idx-n mono">02</span><span class="idx-k mono">RUNTIME</span>
+              <span class="idx-v">2h 14m</span>
+            </div>
+            <div class="idx">
+              <span class="idx-n mono">03</span><span class="idx-k mono">DIRECTOR</span>
+              <span class="idx-v">Mara Ellingsen</span>
+            </div>
+            <div class="idx">
+              <span class="idx-n mono">04</span><span class="idx-k mono">RELEASED</span>
+              <span class="idx-v">2026 · Benthic Pictures</span>
+            </div>
+            <div class="idx">
+              <span class="idx-n mono">05</span><span class="idx-k mono">SCORES</span>
+              <span class="idx-v">7.8 IMDb · 88% RT · 74 Meta</span>
+            </div>
+            <div class="idx">
+              <span class="idx-n mono">06</span><span class="idx-k mono">AWARDS</span>
+              <span class="idx-v gold">Won 2 Academy Awards</span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <div class="play">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#04181E"><path d="M6 4l14 8-14 8z"></path></svg>
+              <span>RESUME · 1:40:12</span>
+              <div class="play-bar"><span style="width: 26%"></span></div>
+            </div>
+            <div class="pill"><span>TRAILER</span></div>
+            <div class="pill"><span>EN · FR</span></div>
+            <div class="pill"><span>CC · OFF</span></div>
+          </div>
+        </div>
+
+        <div class="cast">
+          <div class="cast-lab mono">CAST</div>
+          <div class="credit">
+            <div class="portrait p-lead" style="background: linear-gradient(135deg, #4A7FB8, #2E5480)">ID</div>
+            <div><div class="credit-name">Ines Duval</div><div class="credit-role">Dr. Maren Cole</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #B85A86, #7F3A5C)">TM</div>
+            <div><div class="credit-name">Theo Marsh</div><div class="credit-role">Elias Vance</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #4FA36B, #33704A)">NR</div>
+            <div><div class="credit-name">Nadia Rourke</div><div class="credit-role">Capt. Okonkwo</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #C08A4A, #855E30)">SW</div>
+            <div><div class="credit-name">Sam Whitlock</div><div class="credit-role">Jonah</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #7A63C0, #524084)">PA</div>
+            <div><div class="credit-name">Priya Anand</div><div class="credit-role">Dr. Reyes</div></div>
+          </div>
+          <div class="credit">
+            <div class="portrait" style="background: linear-gradient(135deg, #3FA0A8, #2A6E74)">CR</div>
+            <div><div class="credit-name">Callum Reid</div><div class="credit-role">The Signal</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview": {"width": 1376, "height": 1032}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

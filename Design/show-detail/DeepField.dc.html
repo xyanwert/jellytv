@@ -1,0 +1,392 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&amp;display=swap" />
+  <style>
+    body { margin: 0; background: #07080C; }
+    a { color: #F0525F; } a:hover { color: #F47A83; }
+    .root {
+      position: relative; width: 1376px; height: 1032px; overflow: hidden;
+      background: #07080C; color: #F4F5F7;
+      font-family: 'Schibsted Grotesk', -apple-system, 'Helvetica Neue', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace; }
+
+    /* full-bleed key art — no blur, scrims do the legibility work */
+    .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+           object-position: 64% 44%; }
+    .scrim-left { position: absolute; inset: 0; opacity: 0.92; background:
+      linear-gradient(90deg, #07080C 0%, rgba(7,8,12,0.95) 19%, rgba(7,8,12,0.80) 34%,
+      rgba(7,8,12,0.52) 50%, rgba(7,8,12,0.20) 64%, rgba(7,8,12,0.02) 78%, rgba(7,8,12,0) 90%); }
+    .scrim-bottom { position: absolute; inset: 0; background:
+      linear-gradient(0deg, #07080C 0%, rgba(7,8,12,0.94) 9%, rgba(7,8,12,0.62) 22%,
+      rgba(7,8,12,0.16) 34%, rgba(7,8,12,0) 46%); }
+    .scrim-top { position: absolute; inset: 0; background:
+      linear-gradient(180deg, rgba(7,8,12,0.80) 0%, rgba(7,8,12,0.30) 6%, rgba(7,8,12,0) 14%); }
+
+    .chrome { position: relative; display: flex; height: 100%; }
+
+    /* left spine */
+    .spine { width: 118px; box-sizing: border-box; padding: 40px 0; flex: none;
+             display: flex; flex-direction: column; align-items: center;
+             border-right: 1px solid rgba(255,255,255,0.08); }
+    .genre { flex: 1; display: flex; align-items: center; writing-mode: vertical-rl;
+             font-size: 15px; font-weight: 600; letter-spacing: 6px;
+             color: rgba(255,255,255,0.32); }
+    .spine-foot { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+    .back { width: 54px; height: 54px; border-radius: 15px; display: flex;
+            align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); }
+    .marker { font-size: 13px; font-weight: 800; letter-spacing: 2px; line-height: 1.45;
+              text-align: center; color: #F0525F; }
+
+    /* body */
+    .body { flex: 1; min-width: 0; box-sizing: border-box; padding: 44px 64px 40px;
+            display: flex; flex-direction: column; }
+    .readout { display: flex; align-items: center; justify-content: flex-end; gap: 18px;
+               font-size: 15px; font-weight: 500; letter-spacing: 1px;
+               color: rgba(255,255,255,0.6); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #6FD68F;
+           box-shadow: 0 0 8px #6FD68F; }
+    .readout .sep { color: rgba(255,255,255,0.3); }
+
+    .dossier { max-width: 760px; margin-top: 44px; }
+    .eyebrow { font-size: 15px; font-weight: 800; letter-spacing: 4px; color: #F0525F; }
+    .tagline { margin-top: 12px; font-size: 19px; font-weight: 500; font-style: italic;
+               color: rgba(255,255,255,0.6); }
+    .title { margin: 6px 0 0; font-size: 54px; font-weight: 900; letter-spacing: -1px;
+             line-height: 1.02; color: #F4F5F7; }
+
+    .chips { display: flex; gap: 10px; margin-top: 18px; }
+    .chip { display: flex; align-items: center; gap: 9px; padding: 8px 13px;
+            border-radius: 12px; background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1); }
+    .chip-val { font-size: 19px; font-weight: 900; line-height: 1.1; }
+    .chip-lab { font-size: 11px; font-weight: 700; letter-spacing: 1px;
+                color: rgba(255,255,255,0.45); }
+
+    .rail { display: flex; margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.12);
+            border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .cell { padding: 12px 26px; }
+    .cell + .cell { border-left: 1px solid rgba(255,255,255,0.08); }
+    .cell:first-child { padding-left: 0; }
+    .cell-lab { font-size: 12px; font-weight: 600; letter-spacing: 2px;
+                color: rgba(255,255,255,0.4); }
+    .cell-val { margin-top: 3px; font-size: 20px; font-weight: 700; color: #F4F5F7;
+                display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+    .cert { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.4); }
+    .star { color: #F0525F; }
+
+    .synopsis { margin-top: 18px; max-width: 700px; font-size: 20px; line-height: 1.5;
+                color: rgba(255,255,255,0.72); }
+
+    /* cast as a poster billing block — no avatar row, no truncated names */
+    .billing { margin-top: 26px; max-width: 700px; }
+    .billing-head { display: flex; align-items: baseline; justify-content: space-between; }
+    .billing-lab { font-size: 11px; font-weight: 700; letter-spacing: 2px;
+                   color: rgba(255,255,255,0.42); }
+    .billing-more { font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+                    color: rgba(255,255,255,0.5); }
+    .billing-names { margin-top: 9px; font-size: 16px; font-weight: 600; line-height: 1.65;
+                     letter-spacing: 0.4px; color: rgba(255,255,255,0.78); }
+    .lead { color: #F4F5F7; }
+    .billing-names .div { color: rgba(255,255,255,0.26); padding: 0 7px; }
+
+    .resume { margin-top: 26px; width: 430px; box-sizing: border-box; display: flex;
+              align-items: center; gap: 14px; padding: 13px; border-radius: 16px;
+              background: rgba(14,18,24,0.92); border: 1px solid rgba(255,255,255,0.12);
+              box-shadow: 0 18px 34px rgba(0,0,0,0.55); }
+    .ring { position: relative; width: 58px; height: 58px; flex: none; }
+    .disc { position: absolute; inset: 12px; border-radius: 50%; background: #F0525F;
+            display: flex; align-items: center; justify-content: center; }
+    .resume-lab { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: #F0525F; }
+    .resume-title { margin-top: 3px; font-size: 19px; font-weight: 800; color: #F4F5F7; }
+    .resume-sub { margin-top: 3px; font-size: 14px; font-weight: 500;
+                  color: rgba(255,255,255,0.55); }
+
+    /* bottom band — seasons + episodes get the full width to themselves */
+    .band { margin-top: auto; padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.1); }
+    .band-head { display: flex; align-items: center; gap: 26px; }
+    .season-lab { font-size: 11px; font-weight: 700; letter-spacing: 2px;
+                  color: rgba(255,255,255,0.42); }
+    .tabs { display: flex; gap: 6px; }
+    .tab { appearance: none; background: none; border: 0; padding: 12px 16px;
+           font: inherit; font-size: 17px; font-weight: 700; letter-spacing: 1px;
+           color: rgba(255,255,255,0.5); cursor: pointer;
+           border-bottom: 2px solid transparent; }
+    .tab:hover { color: rgba(255,255,255,0.8); }
+    .tab-on { color: #F4F5F7; border-bottom-color: #F0525F; }
+    .count { font-size: 12px; font-weight: 600; letter-spacing: 1.5px;
+             color: rgba(255,255,255,0.4); }
+    .controls { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .pill { display: flex; align-items: center; gap: 9px; padding: 12px 18px;
+            border-radius: 13px; font-size: 16px; font-weight: 600;
+            color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.14); }
+    .pill-accent { background: #F0525F; border-color: #F0525F; color: #fff; padding: 12px 20px; }
+
+    .strip { display: flex; gap: 16px; margin-top: 20px; overflow-x: auto;
+             padding-bottom: 4px; scrollbar-width: none;
+             -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 96px), transparent 100%);
+             mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 96px), transparent 100%); }
+    .strip::-webkit-scrollbar { display: none; }
+    .ep { width: 272px; flex: none; }
+    .frame { position: relative; height: 153px; border-radius: 12px; overflow: hidden;
+             background-color: #10161f; background-size: cover; background-position: center;
+             border: 1px solid rgba(255,255,255,0.08); }
+    .frame::after { content: ''; position: absolute; inset: 0;
+                    background: linear-gradient(0deg, rgba(0,0,0,0.62), rgba(0,0,0,0) 55%); }
+    .f1 { background-image: url(./ep1.jpg); } .f2 { background-image: url(./ep2.jpg); }
+    .f3 { background-image: url(./ep3.jpg); } .f4 { background-image: url(./ep4.jpg); }
+    .f5 { background-image: url(./ep5.jpg); } .f6 { background-image: url(./ep6.jpg); }
+    .f7 { background-image: url(./ep7.jpg); } .f8 { background-image: url(./ep8.jpg); }
+    .ep-num { position: absolute; top: 12px; left: 12px; z-index: 2; padding: 3px 9px;
+              border-radius: 6px; background: rgba(0,0,0,0.45); font-size: 12px;
+              font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.85); }
+    .ep-run { position: absolute; bottom: 11px; right: 12px; z-index: 2; font-size: 13px;
+              font-weight: 500; color: rgba(255,255,255,0.72); }
+    .ep-now-chip { position: absolute; bottom: 11px; left: 12px; z-index: 2; padding: 3px 9px;
+                   border-radius: 6px; background: #F0525F; font-size: 12px; font-weight: 800;
+                   letter-spacing: 1px; color: #fff; }
+    .ep-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: 3px;
+              background: rgba(255,255,255,0.16); }
+    .ep-bar span { display: block; height: 100%; background: #F0525F; }
+    .ep-now .frame { border-color: #F0525F; box-shadow: 0 0 0 1px #F0525F; }
+    .ep-title { margin-top: 10px; font-size: 17px; font-weight: 700;
+                color: rgba(255,255,255,0.75); white-space: nowrap; overflow: hidden;
+                text-overflow: ellipsis; }
+    .ep-title-now { color: #F4F5F7; }
+
+    /* editorial hairline between the text column and the open art */
+    .rule { position: absolute; left: 962px; top: 120px; bottom: 300px; width: 1px;
+            background: linear-gradient(180deg, rgba(255,255,255,0) 0%,
+              rgba(255,255,255,0.10) 18%, rgba(255,255,255,0.10) 74%, rgba(255,255,255,0) 100%); }
+  </style>
+</helmet>
+
+<div class="root">
+  <img class="art" src="keyart.jpg" alt="" />
+  <div class="scrim-left" style="opacity: {{scrimOpacity}}"></div>
+  <div class="scrim-bottom"></div>
+  <div class="scrim-top"></div>
+  <div class="rule"></div>
+
+  <div class="chrome">
+    <div class="spine">
+      <div class="genre">TV SHOWS / SCI-FI DRAMA</div>
+      <div class="spine-foot">
+        <div class="back">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path>
+          </svg>
+        </div>
+        <div class="marker" style="color: {{accent}}">EP<br />04</div>
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="readout">
+        <span style="display: flex; align-items: center; gap: 8px;">
+          <span class="dot"></span><span>SIGNAL ●●●●○</span>
+        </span>
+        <span class="sep">|</span>
+        <span>4K · HDR · ATMOS</span>
+      </div>
+
+      <div class="dossier">
+        <div class="eyebrow" style="color: {{accent}}">SERIES 003 // BENTHIC PICTURES</div>
+        <div class="tagline">“Something down there is answering.”</div>
+        <h1 class="title">The Deep Signal</h1>
+
+        <div class="chips">
+          <div class="chip">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="#E8B44A"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg>
+            <div><div class="chip-val">8.5</div><div class="chip-lab mono">IMDb</div></div>
+          </div>
+          <div class="chip">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#3FBF8F"><circle cx="12" cy="12" r="10"></circle></svg>
+            <div><div class="chip-val">92%</div><div class="chip-lab mono">RT</div></div>
+          </div>
+          <div class="chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="#3FBF8F"><rect x="2" y="2" width="20" height="20" rx="3"></rect></svg>
+            <div><div class="chip-val">81</div><div class="chip-lab mono">META</div></div>
+          </div>
+        </div>
+
+        <div class="rail">
+          <div class="cell">
+            <div class="cell-lab">RATING</div>
+            <div class="cell-val"><span class="star" style="color: {{accent}}">★</span>8.9<span class="cert">TV-MA</span></div>
+          </div>
+          <div class="cell">
+            <div class="cell-lab">RUN</div>
+            <div class="cell-val">3 seasons · 24 ep</div>
+          </div>
+          <div class="cell">
+            <div class="cell-lab">CREATED BY</div>
+            <div class="cell-val">Mara Ellingsen</div>
+          </div>
+          <div class="cell">
+            <div class="cell-lab">YEARS</div>
+            <div class="cell-val">2023 – 2026</div>
+          </div>
+        </div>
+
+        <p class="synopsis">A deep-sea research crew uncovers a signal older than the ocean itself —
+          rhythmic, deliberate, patient. As the pings draw closer, they realize something down there
+          is not echoing them back. It is answering.</p>
+
+        <div class="billing">
+          <div class="billing-head">
+            <span class="billing-lab mono">STARRING</span>
+            <span class="billing-more mono">FULL CAST · 6</span>
+          </div>
+          <div class="billing-names">
+            <span class="lead">Ines Duval</span><span class="div">·</span>Theo Marsh<span class="div">·</span>Nadia
+            Rourke<span class="div">·</span>Sam Whitlock<span class="div">·</span>Priya
+            Anand<span class="div">·</span>Callum Reid
+          </div>
+        </div>
+
+        <div class="resume">
+          <div class="ring">
+            <svg width="58" height="58" viewBox="0 0 58 58">
+              <circle cx="29" cy="29" r="26" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="5"></circle>
+              <circle cx="29" cy="29" r="26" fill="none" stroke="{{accent}}" stroke-width="5"
+                      stroke-linecap="round" stroke-dasharray="101 163" transform="rotate(-90 29 29)"></circle>
+            </svg>
+            <div class="disc" style="background: {{accent}}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="#fff"><path d="M6 4l14 8-14 8z"></path></svg>
+            </div>
+          </div>
+          <div>
+            <div class="resume-lab" style="color: {{accent}}">RESUME</div>
+            <div class="resume-title">S3 · E4 — “Trench”</div>
+            <div class="resume-sub">31:04 LEFT · 62%</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="band">
+        <div class="band-head">
+          <span class="season-lab mono">SEASON</span>
+          <div class="tabs">
+            <sc-for list="{{tabs}}" as="tab" hint-placeholder-count="4">
+              <button class="{{tab.cls}}" onClick="{{tab.pick}}">{{tab.label}}</button>
+            </sc-for>
+          </div>
+          <span class="count mono">{{countLabel}}</span>
+          <div class="controls">
+            <div class="pill pill-accent" style="background: {{accent}}; border-color: {{accent}}">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 3h5v5"></path><path d="M4 20L21 3"></path>
+                <path d="M21 16v5h-5"></path><path d="M15 15l6 6"></path><path d="M4 4l5 5"></path>
+              </svg>
+            </div>
+            <div class="pill">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 5L6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 010 7"></path>
+              </svg>
+              <span>EN · 5.1</span>
+            </div>
+            <div class="pill">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="5" width="20" height="14" rx="3"></rect>
+                <path d="M8 11.5a2 2 0 100 3"></path><path d="M15 11.5a2 2 0 100 3"></path>
+              </svg>
+              <span>CC · OFF</span>
+            </div>
+            <div class="pill">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+                   stroke-width="2" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="strip">
+          <sc-for list="{{episodes}}" as="ep" hint-placeholder-count="4">
+            <div class="{{ep.cardClass}}">
+              <div class="{{ep.cls}}">
+                <div class="ep-num mono">{{ep.num}}</div>
+                <div class="ep-run">{{ep.runtime}}</div>
+                <sc-if value="{{ep.isCurrent}}" hint-placeholder-val="{{true}}">
+                  <div class="ep-now-chip">NOW</div>
+                  <div class="ep-bar"><span style="width: 62%; background: {{accent}}"></span></div>
+                </sc-if>
+              </div>
+              <div class="{{ep.titleClass}}">{{ep.title}}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{
+  "accent": {"editor": "color", "default": "#F0525F", "options": ["#F0525F", "#E8B44A", "#4AA8E8", "#3FBF8F"], "section": "Theme"},
+  "scrim": {"editor": "range", "default": 92, "min": 40, "max": 100, "step": 2, "unit": "%", "section": "Theme"},
+  "$preview": {"width": 1376, "height": 1032}
+}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { season: 3 };
+  }
+
+  episodesFor(season) {
+    const titled = [
+      ['Descent', '52m'], ['Pressure', '48m'], ['Blackwater', '55m'], ['Trench', '49m'],
+      ['The Answer', '51m'], ['Surfacing', '58m'], ['Undertow', '47m'], ['Origin', '61m']
+    ];
+    const count = season === 0 ? 3 : 8;
+    const out = [];
+    for (let n = 1; n <= count; n++) {
+      const t = season === 3 ? titled[n - 1] : null;
+      const isCurrent = season === 3 && n === 4;
+      out.push({
+        id: season + '-' + n,
+        num: 'E' + (n < 10 ? '0' + n : n),
+        title: t ? t[0] : (season === 0 ? 'Special ' + n : 'Episode ' + n),
+        runtime: t ? t[1] : (46 + (n * 3) % 14) + 'm',
+        cls: 'frame f' + (((season * 3 + n) % 8) + 1),
+        cardClass: isCurrent ? 'ep ep-now' : 'ep',
+        titleClass: isCurrent ? 'ep-title ep-title-now' : 'ep-title',
+        isCurrent: isCurrent
+      });
+    }
+    return out;
+  }
+
+  renderVals() {
+    const season = this.state.season;
+    const episodes = this.episodesFor(season);
+    const tabs = [1, 2, 3, 0].map((v) => ({
+      id: 'tab-' + v,
+      label: v === 0 ? 'SPECIALS' : '0' + v,
+      cls: v === season ? 'tab tab-on' : 'tab',
+      pick: () => this.setState({ season: v })
+    }));
+    return {
+      accent: this.props.accent ?? '#F0525F',
+      scrimOpacity: (this.props.scrim ?? 92) / 100,
+      tabs: tabs,
+      episodes: episodes,
+      countLabel: episodes.length + ' EPISODES'
+    };
+  }
+}
+</script>
+</body>
+</html>

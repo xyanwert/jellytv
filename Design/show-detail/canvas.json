@@ -1,0 +1,27 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Signal Drawer" },
+    { "id": "page-2", "name": "Earlier directions" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1376, "h": 1032,
+      "title": "Show detail — Signal Drawer", "page": "page-1" },
+    { "file": "DeepField.dc.html", "x": 0, "y": 0, "w": 1376, "h": 1032,
+      "title": "Option A — Deep Field", "page": "page-2", "is_interactive": true },
+    { "file": "ChapterRuler.dc.html", "x": 1496, "y": 0, "w": 1376, "h": 1032,
+      "title": "Option C — Chapter Ruler", "page": "page-2" }
+  ],
+  "annotations": [
+    { "id": "changed", "x": 0, "y": -520, "w": 420, "page": "page-1",
+      "text": "This pass:\n\n· The show's own key art is now the background, full bleed and unblurred — the app's real HeroBackdrop asset, not a stand-in. A flat 22% veil plus the left ramp is all that protects the text; no blur anywhere.\n\n· Resume is gone. In its place, one unlabelled coral control that shuffles every episode of every season — the app already has exactly this (AppState.shufflePlayRequest returns .shuffled over all seasons), so it is a wiring change, not new behaviour.\n\n· Continue-watching still lives in the drawer: E04 carries the NOW marker, its progress bar and 31:04 LEFT." },
+    { "id": "plus", "x": 470, "y": -520, "w": 420, "page": "page-1",
+      "text": "The + control does nothing today.\n\nIn ShowView.swift it is Button {} — an empty action, and the same dead stub sits on the movie screen. It is drawn as an affordance and answers no tap.\n\nIt reads as add-to-list / watchlist. Jellyfin has a favourite endpoint the player already calls (setFavorite / clearFavorite), so a heart here would be real and cheap. Say which you want and it goes in — otherwise it should come off the bar." },
+    { "id": "art-note", "x": 0, "y": 1120, "w": 620, "page": "page-1",
+      "text": "Episode stills in the drawer are still generated stand-ins — real ones come from Jellyfin per episode. Cast portraits use the app's own monogram fallback (CastPortrait), so these are exactly what shows when a headshot is missing.\n\nCopy, ratings, seasons and episodes are the app's own reference show — SampleCatalog.show, The Deep Signal." },
+    { "id": "opt-a", "x": 0, "y": -520, "w": 420, "page": "page-2",
+      "text": "A — Deep Field (not chosen)\n\nCast as a poster billing block, seasons given the full width of a bottom band, the middle of the screen left to the art.\n\nKept for reference: the billing-block treatment of cast is still the cheapest way to kill truncated names if the drawer ever gets crowded.\n\nStill carries the generated backdrop and its accent / scrim tweak chips." },
+    { "id": "opt-c", "x": 1496, "y": -520, "w": 420, "page": "page-2",
+      "text": "C — Chapter Ruler (not chosen)\n\nEvery season and every episode drawn as ticks on one baseline, the current episode as a large frame, the rest as a two-column index, cast as a right-edge credit column." }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}
