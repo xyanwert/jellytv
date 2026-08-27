@@ -67,6 +67,52 @@ struct HomeView: View {
         ProcessInfo.processInfo.environment["JT_FOCUS"] == "continue" ? .continueFirst : .heroResume
     }
 
+    /// Debug hook: `JT_SHOW_DEMO=movie|show|real-movie|real-show` opens a
+    /// detail screen straight from launch, for design screenshots. Inert
+    /// unless set, and applied only on the first appearance — see `.onAppear`.
+    @State private var didApplyDemoHook = false
+
+    private func applyDemoHookIfNeeded() {
+        guard !didApplyDemoHook else { return }
+        didApplyDemoHook = true
+        switch ProcessInfo.processInfo.environment["JT_SHOW_DEMO"] {
+        // The static samples carry full enrichment (cast/awards/ratings) for
+        // previewing the rich layout; `movie(for:)`/`show(for:)` are bare.
+        case "1", "movie": presentedDetail = .movie(SampleCatalog.movie)
+        case "show": presentedDetail = .show(SampleCatalog.show)
+        // Opens a REAL fetched item (e.g. against JT_MOCK_SERVER's TMDB/
+        // AniList-sourced catalog) via the same bare-template + on-demand
+        // enrichment path a tapped poster already uses — for verifying
+        // detail-screen layout against real, busy artwork instead of
+        // SampleCatalog's flat gradients.
+        case "real-show":
+            Task {
+                // `refresh()`'s `/UserViews` fetch (which populates the
+                // libraries `loadShows` filters against) races this same
+                // `.onAppear` — retry until it's landed.
+                for _ in 0..<25 {
+                    let items = await appState.loadShows()
+                    if let target = items.first(where: { $0.title.contains("House of the Dragon") }) ?? items.first {
+                        presentedDetail = .show(SampleCatalog.show(for: target))
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+            }
+        case "real-movie":
+            Task {
+                for _ in 0..<25 {
+                    if let target = await appState.loadMovies().first {
+                        presentedDetail = .movie(SampleCatalog.movie(for: target))
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+            }
+        default: break
+        }
+    }
+
     var body: some View {
         ZStack {
             homeBackground
@@ -101,42 +147,12 @@ struct HomeView: View {
         }
         .animation(.easeOut(duration: 0.25), value: presentedDetail)
         .onAppear {
-            switch ProcessInfo.processInfo.environment["JT_SHOW_DEMO"] {
-            // The static samples carry full enrichment (cast/awards/ratings) for
-            // previewing the rich layout; `movie(for:)`/`show(for:)` are bare.
-            case "1", "movie": presentedDetail = .movie(SampleCatalog.movie)
-            case "show": presentedDetail = .show(SampleCatalog.show)
-            // Opens a REAL fetched item (e.g. against JT_MOCK_SERVER's TMDB/
-            // AniList-sourced catalog) via the same bare-template + on-demand
-            // enrichment path a tapped poster already uses — for verifying
-            // detail-screen layout against real, busy artwork instead of
-            // SampleCatalog's flat gradients.
-            case "real-show":
-                Task {
-                    // `refresh()`'s `/UserViews` fetch (which populates the
-                    // libraries `loadShows` filters against) races this same
-                    // `.onAppear` — retry until it's landed.
-                    for _ in 0..<25 {
-                        let items = await appState.loadShows()
-                        if let target = items.first(where: { $0.title.contains("House of the Dragon") }) ?? items.first {
-                            presentedDetail = .show(SampleCatalog.show(for: target))
-                            return
-                        }
-                        try? await Task.sleep(for: .milliseconds(200))
-                    }
-                }
-            case "real-movie":
-                Task {
-                    for _ in 0..<25 {
-                        if let target = await appState.loadMovies().first {
-                            presentedDetail = .movie(SampleCatalog.movie(for: target))
-                            return
-                        }
-                        try? await Task.sleep(for: .milliseconds(200))
-                    }
-                }
-            default: break
-            }
+            // Once per launch, not once per appearance: `.onAppear` fires
+            // again every time Home comes back (dismissing a detail view,
+            // switching rails), which made the hook re-open its demo dossier
+            // and read as "the Home button goes to a dummy screen".
+            applyDemoHookIfNeeded()
+
             // Data may already be loaded (e.g. returning to Home after the
             // first fetch completed elsewhere) — adopt it before the first
             // frame so there's nothing to reveal later.
