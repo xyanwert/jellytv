@@ -91,23 +91,32 @@ struct CastPortrait: View {
 struct CastAvatar: View {
     let member: CastMember
     var size: CGFloat = 96
+    /// Overrides the default `size + 40` label column. The iPad Show strip
+    /// needs a wider one: at 56pt portraits the derived 96pt column clipped
+    /// "Nadia Rourke" / "Sam Whitlock" to "Nadia Rou…", which is the exact
+    /// truncation this layout exists to get rid of.
+    var labelWidth: CGFloat? = nil
 
     var body: some View {
         VStack(spacing: 8) {
             CastPortrait(member: member, size: size)
 
+            // Scale before truncating — a long name ("Sam Whitlock") shrinks
+            // a step rather than clipping, same treatment as `CastListItem`.
             Text(member.name)
                 .font(Typography.font(16, .bold))
                 .foregroundStyle(Palette.textPrimary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
             if let role = member.role, !role.isEmpty {
                 Text(role)
                     .font(Typography.font(14, .medium))
                     .foregroundStyle(Palette.text(0.5))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
         }
-        .frame(width: size + 40)
+        .frame(width: labelWidth ?? size + 40)
     }
 }
 

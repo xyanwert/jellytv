@@ -47,23 +47,21 @@ struct ShowView: View {
 
     var body: some View {
         ZStack {
-            DetailBackground(image: show.keyArt, artwork: show.artwork)
-            // A full-height, right-side atmospheric background on iOS — see
-            // `DetailRightBackdrop`'s doc comment. tvOS keeps the season art
-            // as the small inline `SeasonBackdropPanel` in `content` instead.
+            // iPad shows the key art itself — full bleed, deliberately
+            // unblurred, scrims doing all the legibility work. tvOS keeps the
+            // blurred atmospheric wallpaper it shares with the Movie dossier.
             #if os(iOS)
-            DetailRightBackdrop(image: season?.image ?? show.keyArt, artwork: show.artwork) {
-                if !show.resumeEpisodeLabel.isEmpty {
-                    ResumeCard(title: show.resumeEpisodeLabel, remaining: show.resumeRemaining,
-                               progress: show.resumeProgress, action: resumeCurrentEpisode)
-                        .focused($focus, equals: .resume)
-                }
-            }
+            ShowFullBackdrop(image: show.keyArt, artwork: show.artwork)
+            #else
+            DetailBackground(image: show.keyArt, artwork: show.artwork)
             #endif
             HStack(spacing: 0) {
                 DetailSpine(genreLabel: show.genreLabel, markerTop: "EP",
                             markerBottom: currentEpisode?.numberLabel ?? "—", onBack: onDismiss)
                 content
+                #if os(iOS)
+                episodeDrawer
+                #endif
             }
             .ignoresSafeArea()
         }
@@ -131,20 +129,49 @@ struct ShowView: View {
     // nor room to spare for that much top padding — see the matching
     // `SeasonBackdropPanel`/`ResumeCard` shrink in `DetailComponents.swift`.
     #if os(iOS)
-    private static let contentTopPadding: CGFloat = 14
+    // 44, not tvOS's 38 and not the old 14: `content` ignores the safe area so
+    // the readout sat under the iPad status bar's battery indicator.
+    private static let contentTopPadding: CGFloat = 44
     private static let titleRowSpacing: CGFloat = 24
     #else
     private static let contentTopPadding: CGFloat = 38
     private static let titleRowSpacing: CGFloat = 40
     #endif
 
+    #if os(iOS)
+    /// iPad: one column of dossier over the art — readout, title block, cast —
+    /// with the control row pinned to the bottom. Seasons and episodes aren't
+    /// here at all: they live in `episodeDrawer` down the right-hand edge, so
+    /// nothing has to share the middle of the screen with them.
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Left-aligned rather than tvOS's trailing readout: the drawer owns
+            // the top-right corner now. The generous top padding keeps it clear
+            // of the iPad status bar, which it used to collide with.
+            DetailTechReadout(status: "SIGNAL ●●●●○", tech: show.techLine)
+
+            titleBlock
+                .padding(.top, 30)
+
+            if !show.cast.isEmpty {
+                castStrip
+                    .padding(.top, 26)
+            }
+
+            Spacer(minLength: 24)
+
+            foot
+        }
+        .padding(.init(top: Self.contentTopPadding, leading: 64, bottom: 34, trailing: 40))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    #else
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack { Spacer(); DetailTechReadout(status: "SIGNAL ●●●●○", tech: show.techLine) }
 
             HStack(alignment: .top, spacing: Self.titleRowSpacing) {
                 titleBlock
-                #if os(tvOS)
                 Spacer(minLength: 0)
                 SeasonBackdropPanel(image: season?.image ?? show.keyArt, artwork: show.artwork) {
                     // Only ever real watch progress — never the sample's fake
@@ -155,7 +182,6 @@ struct ShowView: View {
                             .focused($focus, equals: .resume)
                     }
                 }
-                #endif
             }
             .padding(.top, 6)
 
@@ -175,6 +201,7 @@ struct ShowView: View {
         .padding(.init(top: Self.contentTopPadding, leading: 64, bottom: 30, trailing: 64))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+    #endif
     // A narrower art panel frees up width for this column on iOS — wider
     // than tvOS's 740, not narrower, since that's the whole point of
     // shrinking the panel (room for the spec sheet's values and a wider
@@ -186,14 +213,17 @@ struct ShowView: View {
     // needed here. `synopsisLineLimit` matches tvOS (3, not a shorter 2) now
     // that the tightened spec sheet leaves the room for a full 3 lines.
     #if os(iOS)
-    private static let titleBlockMaxWidth: CGFloat = 650
-    private static let studioBottomPadding: CGFloat = 8
-    private static let taglineBottomPadding: CGFloat = 6
-    private static let titleFontSize: CGFloat = 46
-    private static let ratingsTopPadding: CGFloat = 8
-    private static let specSheetTopPadding: CGFloat = 8
-    private static let synopsisLineLimit: Int = 3
-    private static let synopsisTopPadding: CGFloat = 10
+    // Wider and taller-breathing than the pre-drawer iPad pass: the episode
+    // strip and season bar left the column entirely, so the height they used
+    // to eat goes back into the title, the spec rail and the synopsis.
+    private static let titleBlockMaxWidth: CGFloat = 700
+    private static let studioBottomPadding: CGFloat = 10
+    private static let taglineBottomPadding: CGFloat = 8
+    private static let titleFontSize: CGFloat = 52
+    private static let ratingsTopPadding: CGFloat = 16
+    private static let specSheetTopPadding: CGFloat = 18
+    private static let synopsisLineLimit: Int = 4
+    private static let synopsisTopPadding: CGFloat = 16
     #else
     private static let titleBlockMaxWidth: CGFloat = 740
     private static let studioBottomPadding: CGFloat = 18
@@ -229,6 +259,10 @@ struct ShowView: View {
             }
             .padding(.top, Self.ratingsTopPadding)
 
+            #if os(iOS)
+            specRail
+                .padding(.top, Self.specSheetTopPadding)
+            #else
             SpecSheet {
                 SpecCell(label: "Rating") { SpecRating(rating: show.rating, certification: show.certification) }
             } topRight: {
@@ -239,6 +273,7 @@ struct ShowView: View {
                 SpecCell(label: "Years") { SpecValue(show.years) }
             }
             .padding(.top, Self.specSheetTopPadding)
+            #endif
 
             Text(show.synopsis)
                 .font(Typography.font(21, .regular)).foregroundStyle(Palette.text(0.72))
@@ -249,6 +284,7 @@ struct ShowView: View {
         .frame(maxWidth: Self.titleBlockMaxWidth, alignment: .leading)
     }
 
+    #if os(tvOS)
     /// Fixed width for the row-leading labels ("CAST" / season name) so both
     /// rows' labels line up and stay put — only the strip beside them scrolls.
     private static let rowLabelWidth: CGFloat = 150
@@ -347,6 +383,7 @@ struct ShowView: View {
         .padding(.top, 18)
         .overlay(alignment: .top) { Rectangle().fill(Palette.text(0.1)).frame(height: 1) }
     }
+    #endif
 
     private var seasonSelector: some View {
         // A plain HStack lets a squeezed-for-space parent compress each
@@ -386,6 +423,186 @@ struct ShowView: View {
         #endif
     }
 
+    // MARK: - iPad (design 2a-drawer)
+
+    #if os(iOS)
+    private static let drawerWidth: CGFloat = 448
+
+    /// The 2×2 `SpecSheet` folded into a single hairline row. With the drawer
+    /// taking the right third of the screen there's width for four cells but
+    /// not for two rows of them — and the height that buys is what lets the
+    /// cast strip live in this column instead of the middle of the screen.
+    /// Values are a step down from `SpecValue`'s 22pt and every cell scales
+    /// its own text, so a long creator name shrinks rather than pushing the
+    /// rail past the column.
+    private var specRail: some View {
+        HStack(spacing: 0) {
+            railBox(label: "Rating", first: true) {
+                HStack(spacing: 7) {
+                    Text("★").foregroundStyle(theme.accent)
+                    Text(show.rating)
+                    Text(show.certification)
+                        .font(Typography.font(14, .semibold))
+                        .foregroundStyle(Palette.text(0.4))
+                }
+                .font(Typography.font(19, .heavy))
+                .foregroundStyle(Palette.textPrimary)
+            }
+            railDivider
+            railBox(label: "Run") { railValue(show.runSummary) }
+            railDivider
+            railBox(label: "Created by") { railValue(show.createdBy) }
+            railDivider
+            railBox(label: "Years") { railValue(show.years) }
+            Spacer(minLength: 0)
+        }
+        .overlay(alignment: .top) { Rectangle().fill(Palette.text(0.12)).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Palette.text(0.08)).frame(height: 1) }
+    }
+
+    private func railBox<Value: View>(label: String, first: Bool = false,
+                                      @ViewBuilder value: () -> Value) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label.uppercased())
+                .font(Typography.font(12, .semibold)).tracking(2)
+                .foregroundStyle(Palette.text(0.4))
+            value()
+        }
+        .padding(.vertical, 12)
+        .padding(.leading, first ? 0 : 22)
+        .padding(.trailing, 22)
+    }
+
+    private func railValue(_ text: String) -> some View {
+        Text(text)
+            .font(Typography.font(19, .bold))
+            .foregroundStyle(Palette.textPrimary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+    }
+
+    private var railDivider: some View {
+        Rectangle().fill(Palette.text(0.08)).frame(width: 1, height: 46)
+    }
+
+    /// Cast keeps its faces on iPad, but down here in a column wide enough
+    /// that no name clips — the old strip shared a squeezed middle row with
+    /// the episodes and truncated to "Kiernan Sh…".
+    private var castStrip: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("STARRING")
+                .font(Mono.font(11, .bold)).tracking(2)
+                .foregroundStyle(Palette.text(0.42))
+            // Wide enough cells that no name clips, and scrolling rather
+            // than capped, so a big cast stays reachable instead of losing
+            // everyone past the sixth.
+            ScrollView(.horizontal, showsIndicators: false) {
+                // 106 + 10 keeps six across without scrolling on a 13-inch
+                // iPad while still clearing the longest names; a larger cast
+                // (or an 11-inch screen) scrolls into the trailing fade.
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(show.cast) { member in
+                        CastAvatar(member: member, size: 56, labelWidth: 106)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(height: 112)
+            .horizontalEdgeFade()
+        }
+    }
+
+    /// The control row. Shuffle-everything is the one large action on the
+    /// screen (`shufflePlay` already queues every episode of every season),
+    /// which is why it's an unlabelled disc rather than another pill.
+    ///
+    /// The "+" is still the empty stub it has always been — it answers no tap
+    /// on either detail screen. Left in place pending a decision on what it
+    /// should do (add-to-list is the obvious read; Jellyfin's favourite
+    /// endpoints are already wired for the player).
+    private var foot: some View {
+        HStack(spacing: 16) {
+            ShufflePlayButton(action: shufflePlay)
+            DetailPill(icon: "speaker.wave.2.fill", label: "EN·5.1")
+            DetailPill(icon: "captions.bubble", label: "CC·OFF")
+            Button {} label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(Palette.text(0.85))
+                    .frame(width: 46, height: 46)
+                    .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
+            }
+            .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 13))
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// The right-hand episode drawer: season selector on top, then the whole
+    /// selected season as a vertical list. A fixed-width, full-height panel —
+    /// translucent at its leading edge so the backdrop still reads through it
+    /// — so every episode is reachable without a sideways scroll, and long
+    /// titles have room to be read.
+    private var episodeDrawer: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("EPISODES")
+                    .font(Mono.font(11, .bold)).tracking(2)
+                    .foregroundStyle(Palette.text(0.45))
+                Spacer(minLength: 12)
+                Text(show.runSummary.uppercased())
+                    .font(Mono.font(11, .bold)).tracking(1.5)
+                    .foregroundStyle(Palette.text(0.38))
+                    .lineLimit(1)
+            }
+
+            seasonSelector
+                .padding(.top, 14)
+
+            // Same reserve-the-footprint rule as the tvOS strip: the drawer
+            // holds its full height whether it's loading or listing, so
+            // nothing reflows when a season's episodes land.
+            if season == nil || episodesLoadingSeasonId == season?.id {
+                drawerLoading
+            } else if let season {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 6) {
+                        ForEach(season.episodes) { ep in
+                            DrawerEpisodeRow(episode: ep, action: { play(episode: ep, in: season) })
+                        }
+                    }
+                    .padding(.vertical, 18)
+                }
+            }
+        }
+        .padding(.init(top: Self.contentTopPadding, leading: 32, bottom: 34, trailing: 32))
+        .frame(width: Self.drawerWidth)
+        .background(drawerBackground)
+        .overlay(alignment: .leading) { Rectangle().fill(Palette.text(0.09)).frame(width: 1) }
+    }
+
+    private var drawerBackground: some View {
+        LinearGradient(
+            stops: [
+                .init(color: Palette.screen.opacity(0.62), location: 0.0),
+                .init(color: Palette.screen.opacity(0.90), location: 0.14),
+                .init(color: Palette.screen.opacity(0.94), location: 1.0),
+            ],
+            startPoint: .leading, endPoint: .trailing
+        )
+    }
+
+    private var drawerLoading: some View {
+        VStack(spacing: 10) {
+            ProgressView().tint(theme.accent)
+            Text("Loading episodes…")
+                .font(Typography.font(15, .medium))
+                .foregroundStyle(Palette.text(0.4))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    #endif
+
     private func resumeCurrentEpisode() {
         guard let episode = currentEpisode,
               let season = show.seasons.first(where: { s in s.episodes.contains { $0.id == episode.id } }) else { return }
@@ -406,6 +623,7 @@ struct ShowView: View {
         }
     }
 
+    #if os(tvOS)
     private var controls: some View {
         HStack(spacing: 12) {
             Button(action: shufflePlay) {
@@ -438,4 +656,5 @@ struct ShowView: View {
             .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 13))
         }
     }
+    #endif
 }
