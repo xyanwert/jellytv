@@ -219,32 +219,4 @@ struct DrawerEpisodeRow: View {
             .overlay(Circle().stroke(episode.isCurrent ? .clear : Palette.text(0.16), lineWidth: 1))
     }
 }
-
-/// The Show screen's primary control: shuffle every episode of every season.
-///
-/// Deliberately unlabelled — it's the only large action on the screen, and
-/// `AppState.shufflePlayRequest` already walks all seasons, so the button
-/// needs no qualifier. Being wordless, it carries its own accessibility label.
-struct ShufflePlayButton: View {
-    var action: () -> Void = {}
-
-    @EnvironmentObject private var theme: Theme
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "shuffle")
-                .font(.system(size: 27, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 76, height: 76)
-                .background(theme.accent, in: Circle())
-                // Same lit-tube treatment as the Movie transport bar, dialled
-                // down for a small shape.
-                .overlay { NeonTube(shape: Circle(), accent: theme.accent, intensity: 0.55) }
-                .shadow(color: theme.accent.opacity(0.38), radius: 18, y: 10)
-                .shadow(color: .black.opacity(0.45), radius: 8, y: 4)
-        }
-        .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 38))
-        .accessibilityLabel("Shuffle all episodes")
-    }
-}
 #endif

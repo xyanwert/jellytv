@@ -512,29 +512,25 @@ struct ShowView: View {
         }
     }
 
-    /// The control row. Shuffle-everything is the one large action on the
-    /// screen (`shufflePlay` already queues every episode of every season),
-    /// which is why it's an unlabelled disc rather than another pill.
+    /// The control row, as one lit bar — the same object the Movie one-sheet
+    /// uses. No fill here: a series has no single progress to draw, and the
+    /// episode actually in progress carries its own in the drawer.
     ///
-    /// The "+" is still the empty stub it has always been — it answers no tap
-    /// on either detail screen. Left in place pending a decision on what it
-    /// should do (add-to-list is the obvious read; Jellyfin's favourite
-    /// endpoints are already wired for the player).
+    /// Shuffle-everything is the bar's action (`shufflePlay` already queues
+    /// every episode of every season), and the settings that used to be pills
+    /// ride along its right as a readout that lights only what is on.
+    ///
+    /// "＋ LIST" is still the empty stub it has always been on both detail
+    /// screens — left in place pending a decision on what it should do.
     private var foot: some View {
-        HStack(spacing: 16) {
-            ShufflePlayButton(action: shufflePlay)
-            DetailPill(icon: "speaker.wave.2.fill", label: "EN·5.1")
-            DetailPill(icon: "captions.bubble", label: "CC·OFF")
-            Button {} label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(Palette.text(0.85))
-                    .frame(width: 46, height: 46)
-                    .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
+        NeonTransportBar(icon: "shuffle", label: "SHUFFLE ALL",
+                         sub: show.runSummary.uppercased(), progress: 0,
+                         tint: theme.accent, action: shufflePlay) {
+            HStack(spacing: 16) {
+                NeonReadoutItem(label: "AUDIO", value: "EN 5.1", tint: theme.accent)
+                NeonReadoutItem(label: "SUBS", value: "OFF", tint: theme.accent)
+                NeonReadoutItem(label: "\u{FF0B} LIST", tint: theme.accent)
             }
-            .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 13))
-            Spacer(minLength: 0)
         }
     }
 
