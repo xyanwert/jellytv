@@ -1,0 +1,242 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&amp;display=swap" />
+  <style>
+    body { margin: 0; background: #02090D; }
+    a { color: #4FAFC7; } a:hover { color: #7FC9DB; }
+    .root { position: relative; width: 1060px; height: 940px; overflow: hidden;
+            background: #02090D; color: #F4F5F7;
+            font-family: 'Schibsted Grotesk', -apple-system, 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace; }
+
+    /* same ground the real row sits on, so these are judged honestly */
+    .bloom { position: absolute; left: -12%; top: -12%; width: 124%; height: 124%;
+             object-fit: cover; filter: blur(90px) saturate(1.2); opacity: 0.45; }
+    .veil { position: absolute; inset: 0; background: rgba(2,9,13,0.42); }
+    .field { position: absolute; inset: 0; background:
+      radial-gradient(900px 700px at 78% 12%, rgba(79,175,199,0.18), rgba(2,9,13,0) 70%); }
+
+    .sheet { position: relative; padding: 44px 56px; display: flex; flex-direction: column; gap: 0; }
+    .sheet-head { font-size: 11px; font-weight: 700; letter-spacing: 2px;
+                  color: rgba(255,255,255,0.45); }
+
+    .variant { padding: 30px 0 34px; border-bottom: 1px solid rgba(255,255,255,0.10); }
+    .variant:last-of-type { border-bottom: 0; }
+    .v-head { display: flex; align-items: baseline; gap: 14px; }
+    .v-key { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: #4FAFC7; }
+    .v-name { font-size: 19px; font-weight: 800; }
+    .v-why { margin-top: 7px; font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.58);
+             max-width: 760px; }
+    .row { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
+
+    /* ————— A · one slab ————— */
+    .a-play { display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 26px;
+              border-radius: 15px; background: #4FAFC7; color: #04181E;
+              font-size: 17px; font-weight: 800; letter-spacing: 0.5px;
+              box-shadow: 0 14px 30px rgba(79,175,199,0.30); }
+    .a-bar { display: flex; align-items: stretch; height: 60px; border-radius: 15px;
+             background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+             overflow: hidden; }
+    .a-seg { display: flex; align-items: center; gap: 9px; padding: 0 20px; font-size: 15px;
+             font-weight: 600; color: rgba(255,255,255,0.86); }
+    .a-seg + .a-seg { border-left: 1px solid rgba(255,255,255,0.11); }
+
+    /* ————— B · hairline ————— */
+    .b-play { display: flex; align-items: center; gap: 12px; height: 58px; padding: 0 26px;
+              background: #4FAFC7; color: #04181E; font-size: 17px; font-weight: 800;
+              letter-spacing: 1px; }
+    .b-ghosts { display: flex; align-items: flex-end; gap: 30px; margin-left: 8px; }
+    .b-ghost { padding-bottom: 9px; border-bottom: 1px solid rgba(255,255,255,0.28);
+               font-size: 13px; font-weight: 700; letter-spacing: 2px;
+               color: rgba(255,255,255,0.78); }
+    .b-ghost span { color: rgba(255,255,255,0.44); }
+    .b-on { border-bottom-color: #4FAFC7; color: #F4F5F7; }
+
+    /* ————— C · discs ————— */
+    .c-play { display: flex; align-items: center; gap: 13px; height: 64px; padding: 0 28px;
+              border-radius: 999px; background: #4FAFC7; color: #04181E; font-size: 17px;
+              font-weight: 800; letter-spacing: 1px;
+              box-shadow: 0 14px 30px rgba(79,175,199,0.30); }
+    .c-cell { width: 84px; text-align: center; }
+    .c-disc { width: 56px; height: 56px; margin: 0 auto; border-radius: 50%;
+              display: flex; align-items: center; justify-content: center;
+              background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); }
+    .c-cap { margin-top: 9px; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+             color: rgba(255,255,255,0.5); }
+    .c-cap b { color: rgba(255,255,255,0.82); font-weight: 700; }
+
+    /* ————— D · transport ————— */
+    .d-wrap { width: 100%; }
+    .d-bar { position: relative; display: flex; align-items: center; height: 76px;
+             padding: 0 26px; border-radius: 4px; background: rgba(255,255,255,0.06);
+             border: 1px solid rgba(255,255,255,0.12); overflow: hidden; }
+    .d-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 26%;
+              background: linear-gradient(90deg, rgba(79,175,199,0.34), rgba(79,175,199,0.14)); }
+    .d-fill::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 2px;
+                     background: #4FAFC7; }
+    .d-play { position: relative; display: flex; align-items: center; gap: 13px; }
+    .d-disc { width: 44px; height: 44px; border-radius: 50%; background: #4FAFC7;
+              display: flex; align-items: center; justify-content: center; }
+    .d-txt { font-size: 17px; font-weight: 800; letter-spacing: 1px; }
+    .d-sub { margin-top: 3px; font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+             color: rgba(255,255,255,0.5); }
+    .d-right { position: relative; margin-left: auto; display: flex; align-items: center; gap: 26px; }
+    .d-item { font-size: 12px; font-weight: 700; letter-spacing: 1.6px;
+              color: rgba(255,255,255,0.55); }
+    .d-item b { color: #F4F5F7; font-weight: 700; }
+  </style>
+</helmet>
+
+<div class="root">
+  <img class="bloom" src="poster.jpg" alt="" />
+  <div class="veil"></div>
+  <div class="field"></div>
+
+  <div class="sheet">
+    <div class="sheet-head mono">MOVIE DETAIL · ACTION ROW · FOUR TREATMENTS</div>
+
+    <div class="variant">
+      <div class="v-head"><span class="v-key mono">A</span><span class="v-name">One slab</span></div>
+      <p class="v-why">The four secondary controls stop being four objects: one capsule, hairline
+        dividers inside it, nothing repeated. Play stays the only separate thing on the row.</p>
+      <div class="row">
+        <div class="a-play">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#04181E"><path d="M6 4l14 8-14 8z"></path></svg>
+          <span>PLAY</span>
+        </div>
+        <div class="a-bar">
+          <div class="a-seg">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 5h16v14H4z"></path><path d="M10 9l5 3-5 3z"></path>
+            </svg><span>Trailer</span>
+          </div>
+          <div class="a-seg">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 5L6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 010 7"></path>
+            </svg><span>EN · 5.1</span>
+          </div>
+          <div class="a-seg">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="5" width="20" height="14" rx="3"></rect>
+              <path d="M8 11.5a2 2 0 100 3"></path><path d="M15 11.5a2 2 0 100 3"></path>
+            </svg><span>CC · Off</span>
+          </div>
+          <div class="a-seg">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                 stroke-width="2" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="v-head"><span class="v-key mono">B</span><span class="v-name">Hairline</span></div>
+      <p class="v-why">No fills at all: the secondary actions become set text on a rule, the same
+        hairline vocabulary as the metadata band above them. The accent rule marks what is on.</p>
+      <div class="row">
+        <div class="b-play">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#04181E"><path d="M6 4l14 8-14 8z"></path></svg>
+          <span>PLAY</span>
+        </div>
+        <div class="b-ghosts">
+          <div class="b-ghost mono">TRAILER</div>
+          <div class="b-ghost b-on mono">AUDIO <span>·</span> EN 5.1</div>
+          <div class="b-ghost mono">SUBTITLES <span>·</span> OFF</div>
+          <div class="b-ghost mono">＋ LIST</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="v-head"><span class="v-key mono">C</span><span class="v-name">Discs</span></div>
+      <p class="v-why">Icon-only circles with the current value set beneath each, so the row reads as
+        instruments rather than labels — and takes about half the width it does now.</p>
+      <div class="row" style="gap: 20px;">
+        <div class="c-play">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="#04181E"><path d="M6 4l14 8-14 8z"></path></svg>
+          <span>PLAY</span>
+        </div>
+        <div class="c-cell">
+          <div class="c-disc">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 5h16v14H4z"></path><path d="M10 9l5 3-5 3z"></path>
+            </svg>
+          </div>
+          <div class="c-cap mono">TRAILER</div>
+        </div>
+        <div class="c-cell">
+          <div class="c-disc">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 5L6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 010 7"></path>
+            </svg>
+          </div>
+          <div class="c-cap mono">EN <b>5.1</b></div>
+        </div>
+        <div class="c-cell">
+          <div class="c-disc">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="5" width="20" height="14" rx="3"></rect>
+              <path d="M8 11.5a2 2 0 100 3"></path><path d="M15 11.5a2 2 0 100 3"></path>
+            </svg>
+          </div>
+          <div class="c-cap mono">CC <b>OFF</b></div>
+        </div>
+        <div class="c-cell">
+          <div class="c-disc">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.86)"
+                 stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+          </div>
+          <div class="c-cap mono">MY LIST</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="v-head"><span class="v-key mono">D</span><span class="v-name">Transport</span></div>
+      <p class="v-why">One bar the width of the column, with how far you got filled into it — the
+        control and the progress are the same object. Settings ride along its right edge as a readout.</p>
+      <div class="row">
+        <div class="d-wrap">
+          <div class="d-bar">
+            <div class="d-fill"></div>
+            <div class="d-play">
+              <div class="d-disc">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="#04181E"><path d="M6 4l14 8-14 8z"></path></svg>
+              </div>
+              <div>
+                <div class="d-txt">RESUME</div>
+                <div class="d-sub mono">1:40:12 LEFT · 26%</div>
+              </div>
+            </div>
+            <div class="d-right">
+              <div class="d-item mono">TRAILER</div>
+              <div class="d-item mono">AUDIO <b>EN 5.1</b></div>
+              <div class="d-item mono">SUBS <b>OFF</b></div>
+              <div class="d-item mono">＋ LIST</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview": {"width": 1060, "height": 940}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

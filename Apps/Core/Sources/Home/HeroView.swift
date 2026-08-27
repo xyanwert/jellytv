@@ -151,6 +151,13 @@ struct HeroView: View {
                 .padding(.horizontal, 24)
                 .frame(minWidth: 220)   // ~50% wider than the Details button
                 .background(theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                // The lit-tube treatment the detail screens' primary actions
+                // wear. iPad only: tvOS already has LEDRing on focus, and two
+                // glows on one control fight each other.
+                #if os(iOS)
+                .overlay { NeonTube(shape: RoundedRectangle(cornerRadius: 14, style: .continuous),
+                                    accent: theme.accent, intensity: 0.7) }
+                #endif
                 .shadow(color: theme.accent.opacity(0.45), radius: 20, y: 6)
             }
             .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))

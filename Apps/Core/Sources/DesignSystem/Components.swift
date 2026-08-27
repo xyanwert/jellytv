@@ -21,6 +21,43 @@ struct LEDRing: View {
     }
 }
 
+/// The resting-state cousin of `LEDRing`: the same stacked-stroke recipe —
+/// widest and blurriest outside, a hot near-white core inside — dialled down
+/// from the focus ring's shout to something a control can wear all the time,
+/// plus one wide stroke clipped inside the shape so it reads as lit from
+/// within rather than merely outlined.
+///
+/// Works on any insettable shape, so a capsule bar and a play disc can carry
+/// the same light. `intensity` scales the whole effect: a small disc needs
+/// noticeably less than a full-width bar or it blooms into a smudge.
+struct NeonTube<S: InsettableShape>: View {
+    var shape: S
+    var accent: Color
+    var intensity: Double = 1
+
+    var body: some View {
+        ZStack {
+            shape.stroke(accent.opacity(0.40 * intensity), lineWidth: 9).blur(radius: 13)
+            shape.stroke(accent.opacity(0.70 * intensity), lineWidth: 3.2).blur(radius: 4)
+            shape.stroke(accent.opacity(0.95), lineWidth: 1.4)
+            shape.stroke(.white.opacity(0.50 * intensity), lineWidth: 0.7)
+            shape.stroke(accent.opacity(0.34 * intensity), lineWidth: 14)
+                .blur(radius: 10)
+                .clipShape(shape)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    /// Lights text the way `NeonTube` lights an edge — two shadows, tight and
+    /// wide, in the tube's own colour.
+    func neonGlow(_ accent: Color, intensity: Double = 1) -> some View {
+        shadow(color: accent.opacity(0.85 * intensity), radius: 7)
+            .shadow(color: accent.opacity(0.45 * intensity), radius: 18)
+    }
+}
+
 /// Shared tvOS focus treatment: a punchy scale-up, a diffused-LED ring, and a
 /// springy pop — deliberately loud so focus reads at a glance from across a
 /// room, not a subtle nudge you have to look for.

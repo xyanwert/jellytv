@@ -237,7 +237,9 @@ struct ShufflePlayButton: View {
                 .foregroundStyle(.white)
                 .frame(width: 76, height: 76)
                 .background(theme.accent, in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
+                // Same lit-tube treatment as the Movie transport bar, dialled
+                // down for a small shape.
+                .overlay { NeonTube(shape: Circle(), accent: theme.accent, intensity: 0.55) }
                 .shadow(color: theme.accent.opacity(0.38), radius: 18, y: 10)
                 .shadow(color: .black.opacity(0.45), radius: 8, y: 4)
         }

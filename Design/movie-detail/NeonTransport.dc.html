@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&amp;display=swap" />
+  <style>
+    body { margin: 0; background: #02090D; }
+    a { color: #4FAFC7; } a:hover { color: #7FC9DB; }
+    .root { position: relative; width: 1060px; height: 880px; overflow: hidden;
+            background: #02090D; color: #F4F5F7;
+            font-family: 'Schibsted Grotesk', -apple-system, 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace; }
+
+    .bloom { position: absolute; left: -12%; top: -12%; width: 124%; height: 124%;
+             object-fit: cover; filter: blur(90px) saturate(1.2); opacity: 0.40; }
+    .veil { position: absolute; inset: 0; background: rgba(2,9,13,0.52); }
+
+    .sheet { position: relative; padding: 44px 56px; }
+    .sheet-head { font-size: 11px; font-weight: 700; letter-spacing: 2px;
+                  color: rgba(255,255,255,0.45); }
+    .variant { padding: 34px 0 40px; border-bottom: 1px solid rgba(255,255,255,0.09); }
+    .variant:last-of-type { border-bottom: 0; }
+    .v-head { display: flex; align-items: baseline; gap: 14px; }
+    .v-key { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: #4FAFC7; }
+    .v-name { font-size: 19px; font-weight: 800; }
+    .v-why { margin-top: 7px; font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.58);
+             max-width: 780px; }
+
+    /* shared transport skeleton */
+    .bar { position: relative; display: flex; align-items: center; height: 78px; padding: 0 24px;
+           border-radius: 6px; overflow: hidden; }
+    .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 26%; }
+    .play { position: relative; display: flex; align-items: center; gap: 14px; }
+    .disc { position: relative; width: 46px; height: 46px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; }
+    .txt { font-size: 17px; font-weight: 800; letter-spacing: 1.2px; }
+    .sub { margin-top: 3px; font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+           color: rgba(255,255,255,0.5); }
+    .right { position: relative; margin-left: auto; display: flex; align-items: center; gap: 26px; }
+    .item { font-size: 12px; font-weight: 700; letter-spacing: 1.6px; color: rgba(255,255,255,0.45); }
+    .item b { font-weight: 700; }
+
+    /* ——— D1 · filament: only the leading edge is lit ——— */
+    .d1 .bar { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); }
+    .d1 .fill { background: linear-gradient(90deg, rgba(79,175,199,0.20), rgba(79,175,199,0.06)); }
+    .d1 .edge { position: absolute; top: -4px; bottom: -4px; left: 26%; width: 2px;
+                background: #DFF7FF;
+                box-shadow: 0 0 26px 5px rgba(79,175,199,0.75), 0 0 9px 2px rgba(79,175,199,0.95); }
+    .d1 .disc { background: #4FAFC7;
+                box-shadow: 0 0 22px rgba(79,175,199,0.65), 0 0 7px rgba(79,175,199,0.9); }
+    .d1 .txt { text-shadow: 0 0 16px rgba(79,175,199,0.45); }
+    .d1 .item b { color: #F4F5F7; }
+
+    /* ——— D2 · tube: the whole bar is the lamp ——— */
+    .d2 .bar { background: rgba(6,26,33,0.55); border: 1px solid rgba(79,175,199,0.85);
+               box-shadow: 0 0 44px rgba(79,175,199,0.42), 0 0 15px rgba(79,175,199,0.55),
+                           inset 0 0 22px rgba(79,175,199,0.20),
+                           inset 0 0 0 1px rgba(223,247,255,0.55); }
+    .d2 .fill { background: linear-gradient(90deg, rgba(79,175,199,0.30), rgba(79,175,199,0.10)); }
+    .d2 .edge { position: absolute; top: 0; bottom: 0; left: 26%; width: 2px; background: #EAFBFF;
+                box-shadow: 0 0 20px 4px rgba(79,175,199,0.8); }
+    .d2 .disc { background: transparent; border: 1.5px solid #9FE4F3;
+                box-shadow: 0 0 20px rgba(79,175,199,0.7), inset 0 0 12px rgba(79,175,199,0.55); }
+    .d2 .txt { color: #EAFBFF;
+               text-shadow: 0 0 22px rgba(79,175,199,0.9), 0 0 8px rgba(79,175,199,0.8); }
+    .d2 .sub { color: rgba(159,228,243,0.72); }
+    /* unlit tubes, and the values that are actually on */
+    .d2 .item { color: rgba(159,228,243,0.30); }
+    .d2 .item b { color: #DFF7FF; text-shadow: 0 0 14px rgba(79,175,199,0.85); }
+
+    /* ——— D3 · lamp: the bar is dark, the light lands on the page ——— */
+    .d3 { position: relative; }
+    .d3 .spill { position: absolute; left: 4%; right: 4%; top: 26px; height: 190px; z-index: 0;
+                 border-radius: 50%; filter: blur(46px);
+                 background: radial-gradient(60% 100% at 50% 40%, rgba(79,175,199,0.55),
+                             rgba(79,175,199,0.16) 55%, rgba(79,175,199,0) 78%); }
+    .d3 .bar { z-index: 1; background: rgba(3,13,17,0.86); border: 1px solid rgba(79,175,199,0.35);
+               box-shadow: 0 18px 60px rgba(79,175,199,0.30); }
+    .d3 .fill { background: linear-gradient(90deg, rgba(79,175,199,0.18), rgba(79,175,199,0.04)); }
+    .d3 .edge { position: absolute; top: 8px; bottom: 8px; left: 26%; width: 3px; border-radius: 3px;
+                background: #EAFBFF;
+                box-shadow: 0 0 34px 8px rgba(79,175,199,0.85), 0 0 12px 3px rgba(159,228,243,0.95); }
+    .d3 .disc { background: #DFF7FF;
+                box-shadow: 0 0 30px 6px rgba(79,175,199,0.85), 0 0 10px rgba(223,247,255,0.9); }
+    .d3 .txt { color: #F4F5F7; }
+    .d3 .item b { color: #DFF7FF; }
+  </style>
+</helmet>
+
+<div class="root">
+  <img class="bloom" src="poster.jpg" alt="" />
+  <div class="veil"></div>
+
+  <div class="sheet">
+    <div class="sheet-head mono">TRANSPORT BAR · THREE AMOUNTS OF LIGHT</div>
+
+    <div class="variant d1">
+      <div class="v-head"><span class="v-key mono">D1</span><span class="v-name">Filament</span></div>
+      <p class="v-why">Only the leading edge of your progress is lit — a hot 2px filament with a bloom
+        either side of it, and the play disc glowing. The bar itself stays furniture.</p>
+      <div class="bar" style="margin-top: 24px;">
+        <div class="fill"></div>
+        <div class="edge"></div>
+        <div class="play">
+          <div class="disc">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#04181E"><path d="M6 4l14 8-14 8z"></path></svg>
+          </div>
+          <div>
+            <div class="txt">RESUME</div>
+            <div class="sub mono">1:40:12 LEFT · 26%</div>
+          </div>
+        </div>
+        <div class="right">
+          <div class="item mono">TRAILER</div>
+          <div class="item mono">AUDIO <b>EN 5.1</b></div>
+          <div class="item mono">SUBS <b>OFF</b></div>
+          <div class="item mono">＋ LIST</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant d2">
+      <div class="v-head"><span class="v-key mono">D2</span><span class="v-name">Tube</span></div>
+      <p class="v-why">The whole bar is the lamp: an accent tube around it, lit from inside, the same
+        four-layer recipe as the app's LEDRing. The settings read as unlit glass until they carry a
+        value — only what is on glows.</p>
+      <div class="bar" style="margin-top: 24px;">
+        <div class="fill"></div>
+        <div class="edge"></div>
+        <div class="play">
+          <div class="disc">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#EAFBFF"><path d="M6 4l14 8-14 8z"></path></svg>
+          </div>
+          <div>
+            <div class="txt">RESUME</div>
+            <div class="sub mono">1:40:12 LEFT · 26%</div>
+          </div>
+        </div>
+        <div class="right">
+          <div class="item mono">TRAILER</div>
+          <div class="item mono">AUDIO <b>EN 5.1</b></div>
+          <div class="item mono">SUBS <b>OFF</b></div>
+          <div class="item mono">＋ LIST</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant d3">
+      <div class="v-head"><span class="v-key mono">D3</span><span class="v-name">Lamp</span></div>
+      <p class="v-why">The bar is dark and throws its light onto the page instead — a neon lamp on a
+        wall rather than a neon sign. The colour spilling underneath is the poster's, so it changes
+        with the film.</p>
+      <div class="spill"></div>
+      <div class="bar" style="margin-top: 24px;">
+        <div class="fill"></div>
+        <div class="edge"></div>
+        <div class="play">
+          <div class="disc">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#04181E"><path d="M6 4l14 8-14 8z"></path></svg>
+          </div>
+          <div>
+            <div class="txt">RESUME</div>
+            <div class="sub mono">1:40:12 LEFT · 26%</div>
+          </div>
+        </div>
+        <div class="right">
+          <div class="item mono">TRAILER</div>
+          <div class="item mono">AUDIO <b>EN 5.1</b></div>
+          <div class="item mono">SUBS <b>OFF</b></div>
+          <div class="item mono">＋ LIST</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview": {"width": 1060, "height": 880}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

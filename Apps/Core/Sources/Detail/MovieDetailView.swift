@@ -393,37 +393,31 @@ struct MovieDetailView: View {
             .minimumScaleFactor(0.7)
     }
 
-    /// "RESUME · 1:40:12" once there is progress to resume from, otherwise a
-    /// plain Play — the remaining time comes off the item, never invented.
-    private var playLabel: String {
-        guard movie.resumeProgress > 0 else { return "PLAY" }
-        let time = movie.resumeRemaining.split(separator: " ").first.map(String.init) ?? ""
-        return time.isEmpty ? "RESUME" : "RESUME \u{00B7} \(time)"
+    /// "RESUME" once there is progress to resume from, otherwise "PLAY" — the
+    /// remaining time rides under it and comes off the item, never invented.
+    private var playLabel: String { movie.resumeProgress > 0 ? "RESUME" : "PLAY" }
+
+    private var playSubLabel: String {
+        movie.resumeProgress > 0 ? movie.resumeRemaining : movie.runtime
     }
 
+    /// The action row is one lit bar (design D2): Play/Resume and the progress
+    /// are the same object, and the settings that used to be pills ride along
+    /// its right side as a readout that lights only what is switched on.
     private var actionsIOS: some View {
-        HStack(spacing: 12) {
-            OneSheetPlayButton(label: playLabel, progress: movie.resumeProgress,
-                               tint: tint, action: play)
-                .focused($focus, equals: .play)
-
-            DetailPill(label: "Trailer", compact: true)
-            DetailPill(icon: "speaker.wave.2.fill", label: "EN\u{00B7}5.1", compact: true)
-            DetailPill(icon: "captions.bubble", label: "CC\u{00B7}OFF", compact: true)
-
-            // Still the empty stub it has always been on both detail screens —
-            // left in place pending a decision on what it should do.
-            Button {} label: {
-                Image(systemName: "plus").font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(Palette.text(0.85))
-                    .frame(width: 46, height: 46)
-                    .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
+        NeonTransportBar(label: playLabel, sub: playSubLabel,
+                         progress: movie.resumeProgress, tint: tint, action: play) {
+            HStack(spacing: 16) {
+                NeonReadoutItem(label: "TRAILER", tint: tint)
+                NeonReadoutItem(label: "AUDIO", value: "EN 5.1", tint: tint)
+                NeonReadoutItem(label: "SUBS", value: "OFF", tint: tint)
+                // Same empty stub it has always been on both detail screens —
+                // left in place pending a decision on what it should do.
+                NeonReadoutItem(label: "\u{FF0B} LIST", tint: tint)
             }
-            .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 14))
-
-            Spacer(minLength: 0)
         }
+        .focused($focus, equals: .play)
     }
+
     #endif
 }
