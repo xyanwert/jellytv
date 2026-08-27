@@ -36,6 +36,13 @@ final class AppState: ObservableObject {
     @Published private(set) var libraryTags: [String: [String]] {
         didSet { persist(libraryTags, forKey: "jelly:library.tags") }
     }
+    /// How long Night mode plays before it stops itself (Settings →
+    /// Playback). Read once when Night mode is engaged — the deadline is
+    /// wall-clock from that moment, so changing this mid-sleep changes the
+    /// *next* night, not the one already running.
+    @Published var sleepTimer: SleepTimer {
+        didSet { UserDefaults.standard.set(sleepTimer.rawValue, forKey: "jelly:player.sleepTimer") }
+    }
     /// Set to present the player via `RootView`'s `.fullScreenCover(item:)`.
     /// `PlaybackRequest.id` is content-derived, so re-setting the same
     /// request (e.g. an unrelated `AppState` publish) doesn't retrigger it.
@@ -75,6 +82,8 @@ final class AppState: ObservableObject {
         omdbApiKey = UserDefaults.standard.string(forKey: "jelly:omdb.apiKey") ?? ""
         tmdbEnabled = UserDefaults.standard.object(forKey: "jelly:tmdb.enabled") as? Bool ?? false
         tmdbApiKey = UserDefaults.standard.string(forKey: "jelly:tmdb.apiKey") ?? ""
+        let sleep = UserDefaults.standard.object(forKey: "jelly:player.sleepTimer") as? Double
+        sleepTimer = sleep.flatMap(SleepTimer.init(rawValue:)) ?? .default
         libraryOverrides = Self.loadPersisted(forKey: "jelly:library.overrides") ?? [:]
         libraryTags = Self.loadPersisted(forKey: "jelly:library.tags") ?? [:]
     }

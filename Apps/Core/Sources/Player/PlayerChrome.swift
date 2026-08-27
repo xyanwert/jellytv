@@ -76,8 +76,9 @@ final class ChromeIdleTimer {
 /// `PlayerController`** — see that type's doc comment for the contract.
 ///
 /// Owns auto-hide (3s idle on tvOS, never while paused, re-armed by any
-/// D-pad nudge or control tap). The Night toggle only flips its own button
-/// state for now — the actual dim/warm treatment is deferred, not wired up.
+/// D-pad nudge or control tap) and hosts Night mode: while the lock is on,
+/// the chrome isn't rendered at all and `NightLockOverlay` has every touch —
+/// see `NightModeController` for the rest of that behaviour.
 struct PlayerChrome: View {
     let controller: PlayerController
     @Binding var visible: Bool
@@ -85,16 +86,33 @@ struct PlayerChrome: View {
     let onOpenScenes: () -> Void
 
     @EnvironmentObject private var theme: Theme
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focus: PlayerFocusField?
-    @State private var nightMode = false
+    @State private var night = NightModeController()
     @State private var idleTimer = ChromeIdleTimer()
     @State private var sonarPulse = false
 
     private var accent: Color { theme.accent }
 
+    /// Screenshot hook, inert unless set: `JT_NIGHT` / `RT_NIGHT` =
+    /// `on` (engaged, lock open) | `locked` | `ending` (deep in the
+    /// wind-down) | `ended` (the timer has fired) | `fast` (the whole thing
+    /// for real, compressed into 90 seconds). Same convention as
+    /// `JT_SHOW_PLAYER`.
+    private static var nightSeed: String? {
+        let env = ProcessInfo.processInfo.environment
+        return env["JT_NIGHT"] ?? env["RT_NIGHT"]
+    }
+
     var body: some View {
         ZStack {
-            if visible {
+            if night.isOn {
+                NightVeil(windDown: night.windDown, ended: night.phase == .ended)
+                    .transition(.opacity)
+            }
+
+            if visible && !night.isLocked {
                 #if os(iOS)
                 // tvOS reveals/hides chrome via the Menu button
                 // (`PlayerView`'s `.onExitCommand`) and idle-timeout alone.
@@ -112,9 +130,9 @@ struct PlayerChrome: View {
                         item: controller.currentItem,
                         queuePositionLabel: controller.queuePositionLabel,
                         accent: accent,
-                        nightMode: nightMode,
+                        night: night,
                         onBack: onClose,
-                        onToggleNight: { interact(); nightMode.toggle() },
+                        onToggleNight: toggleNight,
                         focus: $focus
                     )
                     Spacer()
@@ -155,7 +173,19 @@ struct PlayerChrome: View {
             } else {
                 hiddenCatcher
             }
+
+            // Last in the stack on purpose: while the lock is on it takes
+            // every touch on the screen, including the ones that would
+            // otherwise reach the hidden catcher underneath.
+            if night.isLocked {
+                NightLockOverlay(
+                    remainingLabel: SleepTimer.remainingLabel(night.remaining),
+                    onUnlock: { withAnimation(.easeOut(duration: 0.25)) { night.unlock() } }
+                )
+                .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.9), value: night.isOn)
         .onAppear {
             withAnimation(.easeOut(duration: 4).repeatForever(autoreverses: false)) { sonarPulse = true }
             // tvOS-only: seeding `@FocusState` gives the remote's directional
@@ -168,6 +198,24 @@ struct PlayerChrome: View {
             focus = .playPause
             #endif
             armIdleTimer()
+            night.attach(controller)
+            applyNightSeedIfNeeded()
+        }
+        .onDisappear {
+            // Night mode holds the display's brightness down — hand it back
+            // the moment the player leaves the screen, whatever the reason.
+            night.disable(immediate: true)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            night.setForeground(phase == .active)
+        }
+        .onChange(of: night.isLocked) { _, locked in
+            if locked {
+                idleTimer.cancel()
+            } else {
+                visible = true
+                armIdleTimer()
+            }
         }
         #if os(tvOS)
         .onMoveCommand { _ in interact() }
@@ -238,6 +286,34 @@ struct PlayerChrome: View {
         PlayerDiagnostics.log("chrome: interact — reveal")
         visible = true
         armIdleTimer()
+        // The re-lock counts idleness, so every deliberate touch pushes it
+        // back out — the lock only closes on someone who has actually
+        // stopped using the controls.
+        night.noteInteraction()
+    }
+
+    /// Engaging Night mode locks the chrome straight away — that's the whole
+    /// point of it — so put the controls away in the same movement.
+    private func toggleNight() {
+        interact()
+        withAnimation(.easeInOut(duration: 0.4)) {
+            night.toggle(sleepTimer: appState.sleepTimer)
+        }
+        if night.isLocked {
+            idleTimer.cancel()
+            visible = false
+        }
+    }
+
+    private func applyNightSeedIfNeeded() {
+        guard let seed = Self.nightSeed else { return }
+        switch seed {
+        case "on": night.enable(appState.sleepTimer, locked: false)
+        case "locked": night.enable(appState.sleepTimer, locked: true)
+        case "ending", "ended": night.previewSeed(appState.sleepTimer, ended: seed == "ended")
+        case "fast": night.previewFast(locked: false)
+        default: break
+        }
     }
 
     #if os(iOS)
@@ -286,7 +362,7 @@ struct PlayerChrome: View {
 /// nothing layered on top. Used where a button must be genuinely invisible
 /// even while focused (`hiddenCatcher`), which `.plain`/`.automatic` don't
 /// guarantee on tvOS.
-private struct InvisibleButtonStyle: ButtonStyle {
+struct InvisibleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
     }

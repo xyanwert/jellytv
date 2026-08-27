@@ -69,6 +69,12 @@ final class PlayerController {
     func pause() { engine.pause() }
     func togglePlay() { engine.togglePlay() }
 
+    /// App-level output gain (0…1). Owned by `NightModeController`, which
+    /// captures the level on the way in and restores it on the way out — no
+    /// other caller should be moving it.
+    var volume: Float { engine.volume }
+    func setVolume(_ value: Float) { engine.volume = value }
+
     func seek(to seconds: Double) async {
         await engine.seek(to: seconds)
     }

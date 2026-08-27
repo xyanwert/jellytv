@@ -178,6 +178,14 @@ final class PlayerEngine {
         isPlaying ? pause() : play()
     }
 
+    /// The app's own output gain, 0…1 — distinct from the system volume the
+    /// hardware buttons move, which no app may touch. Night mode's wind-down
+    /// rides on this and hands it back when it's done.
+    var volume: Float {
+        get { avPlayer.volume }
+        set { avPlayer.volume = max(0, min(1, newValue)) }
+    }
+
     func seek(to seconds: Double) async {
         let target = max(0, min(duration > 0 ? duration : seconds, seconds))
         let cm = CMTime(seconds: target, preferredTimescale: 600)

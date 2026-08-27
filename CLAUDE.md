@@ -225,8 +225,32 @@ equivalent — it's a local-only `UserDefaults` flag owned by `PlayerController`
 
 **Scenes (Phase 2) is not implemented** — the chrome's SCENES transport tile exists but its tap
 handler is a no-op. **The tags row is omitted from the chrome entirely** (Phase 3, interactive
-tags — not just hidden, never rendered). **Night mode is a bare toggle** — the button flips its
-own on/off visual and nothing else; the dim/warm video treatment it's meant to drive isn't wired up.
+tags — not just hidden, never rendered).
+
+**Night mode** (`NightModeController` + `NightModeOverlay.swift`) is a sleep aid, not a colour
+filter, and every part of it exists to survive someone falling asleep holding the iPad:
+
+- **It locks the chrome.** Engaging it hides the controls and puts a full-screen catcher over
+  everything, so a stray touch is *inert* — a tap only wakes the status badge. Only a press held
+  for `unlockHoldSeconds` (1.2s, with a ring that fills as it's held) opens the lock, and an open
+  lock closes itself again after `relockSeconds` (15s) of idleness. That countdown measures
+  idleness, so every deliberate control tap pushes it back out (`noteInteraction`, called from
+  `PlayerChrome.interact`) — and a *paused* player holds it open indefinitely, same rule as the
+  chrome's own auto-hide.
+- **It dims and de-blues.** `UIScreen.brightness` to its minimum (iOS only — tvOS has no such
+  knob) *plus* `NightVeil`: a warm wash `.blendMode(.multiply)`'d into the picture. Multiply is
+  what actually removes blue; a normal-blended warm layer only lifts the blacks. The blend does
+  **not** leak onto the chrome drawn above it (verified on device). There is no public API for
+  system Night Shift, so this is the app's own filter over its own video.
+- **It stops itself.** A wall-clock sleep timer (`SleepTimer`, 1/2/8 hrs, Settings → Playback,
+  persisted on `AppState.sleepTimer`), and across its last `fadeFraction` (15%) the app's output
+  gain — `AVPlayer.volume`, never the system volume — rides from wherever the user had it to
+  zero while the veil deepens in step. At zero it pauses, opens the lock (waking to a screen you
+  can't get into is worse than a stray touch) and hands the gain back.
+- **Everything it took, it gives back**: brightness and volume are captured on the way in and
+  restored on the way out — switching Night mode off, tearing the player down (`onDisappear`),
+  and whenever the app leaves the foreground (an app's brightness change outlives it, so
+  `setForeground(false)` returns the user's level and coming back re-takes it).
 
 ## Verification & workflow
 
@@ -239,6 +263,10 @@ own on/off visual and nothing else; the dim/warm video treatment it's meant to d
   `JT_SHOW_MOVIES=1`, `JT_SHOW_SETTINGS=1`, `JT_SHOW_DEMO=movie|show`,
   `JT_SHOW_PLAYER=1` (or `=failed` / `=hidden`) — the last renders `PlayerChrome` over
   `PlayerPreviewFixture` (fixture state, no live `AVPlayer`/network) for chrome-only iteration.
+  `JT_NIGHT`/`RT_NIGHT` = `on` | `locked` | `ending` | `ended` seeds Night mode's states, and
+  `=fast` runs a *real* one — lock, countdown, volume wind-down, auto-stop — compressed into 90
+  seconds, so the end of the timer can be watched instead of taken on trust. Pair it with
+  `JT_PLAYER_LOG=1`: the wind-down logs its percentage and the live volume each quarter.
   Crop/zoom with ImageMagick (`magick … -crop`) for close inspection. These are permanent,
   inert-unless-set hooks (same convention as `JT_SHOW_MOVIES` etc.) — nothing to revert.
   `SIMCTL_CHILD_<VAR>=<value> xcrun simctl launch <device> <bundle-id>` sets the env var directly

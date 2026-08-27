@@ -11,6 +11,7 @@ struct PlaybackDetail: View {
         uniqueKeysWithValues: SampleCatalog.playbackToggles.map { ($0.label, $0.isOnByDefault) }
     )
     @EnvironmentObject private var server: ServerConnection
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -26,6 +27,22 @@ struct PlaybackDetail: View {
 
             DetailRow(label: "Playback method", description: "Direct Play avoids re-encoding when possible") {
                 SegmentedControl(options: SampleCatalog.playbackMethodOptions, selection: $method)
+            }
+            DetailDivider()
+
+            DetailRow(label: "Sleep timer",
+                      description: "How long Night mode plays before it stops itself") {
+                SegmentedControl(
+                    options: SleepTimer.allCases.map(\.label),
+                    selection: Binding(
+                        get: { appState.sleepTimer.label },
+                        set: { label in
+                            if let match = SleepTimer.allCases.first(where: { $0.label == label }) {
+                                appState.sleepTimer = match
+                            }
+                        }
+                    )
+                )
             }
             DetailDivider()
 

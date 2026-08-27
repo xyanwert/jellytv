@@ -174,6 +174,21 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertEqual(HeroRotation.s30.seconds, 30)
     }
 
+    func testSleepTimer() {
+        XCTAssertEqual(SleepTimer.allCases.count, 3)
+        XCTAssertEqual(SleepTimer.default, .h2)
+        XCTAssertEqual(SleepTimer.h2.seconds, 7200)
+        // The wind-down is a share of the whole timer, so every setting fades
+        // for a proportional stretch rather than a fixed one.
+        XCTAssertEqual(SleepTimer.h1.fadeSeconds, 540, accuracy: 0.001)
+        XCTAssertEqual(SleepTimer.h8.fadeSeconds, 4320, accuracy: 0.001)
+        // Hours and minutes never read as each other.
+        XCTAssertEqual(SleepTimer.remainingLabel(7080), "1h 58m")
+        XCTAssertEqual(SleepTimer.remainingLabel(724), "12:04")
+        XCTAssertEqual(SleepTimer.remainingLabel(0), "0:00")
+        XCTAssertEqual(SleepTimer.remainingLabel(-5), "0:00")
+    }
+
     func testContinueProgressInRange() {
         for item in SampleCatalog.continueWatching {
             XCTAssert((0...1).contains(item.progress), "\(item.title) progress out of range")
