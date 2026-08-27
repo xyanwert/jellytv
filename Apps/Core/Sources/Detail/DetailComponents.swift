@@ -99,6 +99,9 @@ struct DetailSpine: View {
     let markerTop: String
     let markerBottom: String
     let onBack: () -> Void
+    /// Overrides the marker's colour — the Movie one-sheet tints its whole
+    /// screen from the poster, spine included, rather than the app accent.
+    var accent: Color? = nil
 
     @EnvironmentObject private var theme: Theme
 
@@ -132,7 +135,7 @@ struct DetailSpine: View {
                     .tracking(2)
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
-                    .foregroundStyle(theme.accent)
+                    .foregroundStyle(accent ?? theme.accent)
             }
         }
         .padding(.vertical, 40)
@@ -424,16 +427,22 @@ struct ResumeCard: View {
 struct DetailPill: View {
     var icon: String?
     let label: String
+    /// A tighter size for rows that carry a primary button plus several pills
+    /// in one column — the Movie one-sheet's actions, which don't have the
+    /// full screen width the tvOS bar does.
+    var compact: Bool = false
     var action: () -> Void = {}
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                if let icon { Image(systemName: icon).font(.system(size: 18, weight: .semibold)) }
+            HStack(spacing: compact ? 8 : 10) {
+                if let icon {
+                    Image(systemName: icon).font(.system(size: compact ? 15 : 18, weight: .semibold))
+                }
                 Text(label).lineLimit(1).fixedSize()
             }
-            .font(Typography.font(18, .semibold)).foregroundStyle(Palette.text(0.85))
-            .padding(.horizontal, 22).padding(.vertical, 12)
+            .font(Typography.font(compact ? 15 : 18, .semibold)).foregroundStyle(Palette.text(0.85))
+            .padding(.horizontal, compact ? 16 : 22).padding(.vertical, compact ? 14 : 12)
             .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
         }

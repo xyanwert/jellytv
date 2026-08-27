@@ -29,6 +29,11 @@ struct MovieDetailView: View {
     /// Live Jellyfin + OMDb detail; replaces the initial (often sample-derived)
     /// movie once it resolves. All `movie.*` reads below go through `movie`.
     @State private var detail: Movie?
+    #if os(iOS)
+    /// The poster's dominant colour, extracted once the art is in hand — the
+    /// one-sheet layout takes every accent on the screen from it.
+    @State private var posterTint: Color?
+    #endif
 
     init(movie: Movie, onDismiss: @escaping () -> Void) {
         self.initialMovie = movie
@@ -39,13 +44,19 @@ struct MovieDetailView: View {
 
     var body: some View {
         ZStack {
+            #if os(iOS)
+            PosterBloom(image: posterImage, artwork: movie.artwork, tint: tint)
+            #else
             DetailBackground(image: movie.keyArt, artwork: movie.artwork)
+            #endif
             HStack(spacing: 0) {
-                DetailSpine(genreLabel: movie.genreLabel, markerTop: "FILM",
-                            markerBottom: "001", onBack: onDismiss)
                 #if os(iOS)
+                DetailSpine(genreLabel: movie.genreLabel, markerTop: "FILM",
+                            markerBottom: "001", onBack: onDismiss, accent: tint)
                 contentIOS
                 #else
+                DetailSpine(genreLabel: movie.genreLabel, markerTop: "FILM",
+                            markerBottom: "001", onBack: onDismiss)
                 content
                 #endif
             }
@@ -54,6 +65,9 @@ struct MovieDetailView: View {
         .background(Color(hex: "#070A10").ignoresSafeArea())
         .defaultFocus($focus, .resume)
         .task { await loadDetail() }
+        #if os(iOS)
+        .task(id: posterImage) { await loadPosterTint() }
+        #endif
         #if os(tvOS)
         .onExitCommand(perform: onDismiss)
         #endif
@@ -248,179 +262,157 @@ struct MovieDetailView: View {
         }
     }
 
-    // MARK: - iOS/iPad (design 1b-iPad)
+    // MARK: - iOS/iPad (design 1b-onesheet)
 
     #if os(iOS)
-    private static let rightColumnWidth: CGFloat = 452
+    /// The poster (Jellyfin `Primary`), falling back to the landscape backdrop
+    /// on an item that has no poster — cropped to 2:3 rather than left blank.
+    private var posterImage: String? { movie.posterArt ?? movie.keyArt }
+
+    /// Every accent on this screen: the poster's dominant colour, or the app
+    /// accent until (or unless) the extraction lands.
+    private var tint: Color { posterTint ?? theme.accent }
+
+    private func loadPosterTint() async {
+        guard let image = posterImage else { return }
+        if image.hasPrefix("http"), let url = URL(string: image) {
+            posterTint = await DominantColor.of(url: url, fallback: theme.accent)
+        } else {
+            posterTint = DominantColor.of(image, fallback: theme.accent)
+        }
+    }
+
+    /// The poster is the tallest thing on the screen, so it — not the text —
+    /// is what has to give when the device is shorter. Everything else on the
+    /// screen has a fixed height, so subtracting that from what we're given
+    /// leaves the poster's; the 2:3 width follows from it.
+    private func posterHeight(in size: CGSize) -> CGFloat {
+        let chrome: CGFloat = movie.cast.isEmpty ? 174 : 336
+        return max(300, min(645, size.height - chrome))
+    }
 
     private var contentIOS: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(movie.studioLine.uppercased())
-                    .font(Typography.font(13, .heavy)).tracking(3).foregroundStyle(theme.accent)
-                Spacer()
-                DetailTechReadout(status: "READY TO PLAY", tech: "4K · HDR · ATMOS")
+        GeometryReader { geo in
+            VStack(alignment: .leading, spacing: 0) {
+                HStack { Spacer(); DetailTechReadout(status: "READY TO PLAY", tech: "4K · HDR · ATMOS") }
+
+                // Both columns are sized explicitly. Left to negotiate it
+                // themselves inside a GeometryReader, the text column takes
+                // its ideal (single-line) width from the synopsis and runs
+                // straight off the right edge of the screen, trailing padding
+                // and all.
+                let posterH = posterHeight(in: geo.size)
+                let posterW = OneSheetPoster.width(for: posterH)
+                let infoW = max(340, geo.size.width - 128 - posterW - 56)
+                HStack(alignment: .top, spacing: 56) {
+                    OneSheetPoster(image: posterImage, artwork: movie.artwork, height: posterH)
+                    oneSheetInfo(height: posterH, width: infoW)
+                }
+                .padding(.top, 34)
+
+                if !movie.cast.isEmpty {
+                    Spacer(minLength: 20)
+                    CastBand(cast: movie.cast)
+                }
             }
-
-            // Both columns' content has a fixed natural height (a poster
-            // panel, a spec sheet, a few lines of synopsis) that doesn't
-            // grow with the screen, but the row between the top bar and
-            // bottom bar does — a big iPad Pro 13" leaves far more of it
-            // than an iPad mini. Centering the two-column block vertically
-            // (an equal-height Spacer on each side, rather than one fixed
-            // gap that only happened to look right on one specific device)
-            // spreads that leftover evenly instead of dumping it all in one
-            // spot, so the layout holds up across the whole iPad size range.
-            Spacer(minLength: 12)
-
-            HStack(alignment: .top, spacing: 40) {
-                titleBlockIOS
-                rightColumnIOS
-            }
-
-            Spacer(minLength: 12)
-
-            bottomBarIOS
+            .padding(.init(top: 44, leading: 64, bottom: 40, trailing: 64))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(.init(top: 22, leading: 40, bottom: 22, trailing: 40))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var titleBlockIOS: some View {
+    /// The text column, held to the poster's exact height so its controls line
+    /// up with the poster's bottom edge instead of floating mid-air.
+    private func oneSheetInfo(height: CGFloat, width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(movie.title)
-                .font(Typography.font(58, .black)).foregroundStyle(Palette.textPrimary)
-                .lineLimit(2).minimumScaleFactor(0.5).lineSpacing(-4)
+            Text(movie.studioLine.uppercased())
+                .font(Typography.font(15, .heavy)).tracking(4)
+                .foregroundStyle(tint)
+                .lineLimit(1)
 
-            SpecSheet {
-                SpecCell(label: "Rating") { SpecRating(rating: movie.rating, certification: movie.certification) }
-            } topRight: {
-                SpecCell(label: "Runtime") { SpecValue(movie.runtime.isEmpty ? "—" : movie.runtime) }
-            } bottomLeft: {
-                SpecCell(label: "Director") { SpecValue(movie.director.isEmpty ? "—" : movie.director) }
-            } bottomRight: {
-                SpecCell(label: "Year") { SpecValue(movie.year.isEmpty ? "—" : movie.year) }
+            if let tagline = movie.tagline, !tagline.isEmpty {
+                Text("\u{201C}\(tagline)\u{201D}")
+                    .font(Typography.font(20, .medium)).italic()
+                    .foregroundStyle(Palette.text(0.62))
+                    .lineLimit(2)
+                    .padding(.top, 12)
             }
-            .padding(.top, 18)
-            // Sitting in a VStack that's given a tall `.frame(maxHeight:
-            // .infinity)` (below, so the trailing Spacer can push the
-            // Starring/Audio credits toward the bottom) proposes far more
-            // height than this spec sheet needs — `SpecSheet`'s divider
-            // `Rectangle()` (no explicit height, so it fills whatever it's
-            // given) stretches to fill it, leaving huge gaps between rows.
-            // `.fixedSize` pins this view to its own ideal height regardless
-            // of how much its parent offers it (see `MoreLikeThisCard`'s
-            // isolated-clip fix for the same class of stretch bug).
-            .fixedSize(horizontal: false, vertical: true)
+
+            Text(movie.title)
+                .font(Typography.font(88, .black)).foregroundStyle(Palette.textPrimary)
+                .lineLimit(2).minimumScaleFactor(0.42).lineSpacing(-12)
+                .padding(.top, 8)
+
+            HStack(spacing: 10) {
+                RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
+                if movie.awards?.academyAwardsLabel != nil { AwardsBadge(awards: movie.awards) }
+            }
+            .padding(.top, 24)
+
+            HairlineRail {
+                RailCell(label: "Rating", first: true) { ratingValue }
+            } second: {
+                RailCell(label: "Runtime") { railValue(movie.runtime) }
+            } third: {
+                RailCell(label: "Director") { railValue(movie.director) }
+            } fourth: {
+                RailCell(label: "Year") { railValue(movie.year) }
+            }
+            .padding(.top, 26)
 
             Text(movie.synopsis)
-                .font(Typography.font(17, .regular)).foregroundStyle(Palette.text(0.74))
-                .lineSpacing(6)
-                .lineLimit(6)
-                .padding(.top, 16)
+                .font(Typography.font(20, .regular)).foregroundStyle(Palette.text(0.74))
+                .lineSpacing(7).lineLimit(4)
+                .padding(.top, 22)
 
-            // The design pins this row to the bottom of the column via a
-            // bare `flex: 1` spacer — on its 820pt-tall mockup canvas that's
-            // a modest gap, but the real iPad's much taller column turns the
-            // same spacer into a disproportionate void. A fixed gap instead
-            // keeps the credits reading as "right after the synopsis" at
-            // any device height.
-            HStack(spacing: 40) {
-                if !movie.starring.isEmpty {
-                    credit(label: "Starring", value: movie.starring)
-                }
-                if !movie.audioLine.isEmpty {
-                    credit(label: "Audio", value: movie.audioLine)
-                }
-            }
-            .padding(.top, 32)
+            Spacer(minLength: 24)
+
+            actionsIOS
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(width: width, height: height, alignment: .topLeading)
     }
 
-    private var rightColumnIOS: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            keyArtPanelIOS
-            ResumeCard(title: movie.resumeLabel, remaining: movie.resumeRemaining,
-                       progress: movie.resumeProgress, width: Self.rightColumnWidth, action: play)
-                .focused($focus, equals: .resume)
-            moreLikeThisIOS
-        }
-        .frame(width: Self.rightColumnWidth, alignment: .leading)
-    }
-
-    private var keyArtPanelIOS: some View {
-        artworkIOS
-            .frame(width: Self.rightColumnWidth, height: 258)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Palette.text(0.1), lineWidth: 1))
-            .overlay(alignment: .topLeading) { cornerTickIOS(topLeading: true) }
-            .overlay(alignment: .bottomTrailing) { cornerTickIOS(topLeading: false) }
-            .shadow(color: .black.opacity(0.6), radius: 24, y: 12)
-    }
-
-    @ViewBuilder private var artworkIOS: some View {
-        if let image = movie.keyArt, image.hasPrefix("http"), let url = URL(string: image) {
-            JellyfinAsyncImage(url: url, fallback: movie.artwork.gradient)
-        } else if let image = movie.keyArt {
-            Image(image).resizable().scaledToFill()
-        } else {
-            movie.artwork.gradient
-        }
-    }
-
-    private func cornerTickIOS(topLeading: Bool) -> some View {
-        Path { p in
-            if topLeading {
-                p.move(to: CGPoint(x: 0, y: 22)); p.addLine(to: CGPoint(x: 0, y: 0)); p.addLine(to: CGPoint(x: 22, y: 0))
-            } else {
-                p.move(to: CGPoint(x: 0, y: 22)); p.addLine(to: CGPoint(x: 22, y: 22)); p.addLine(to: CGPoint(x: 22, y: 0))
+    private var ratingValue: some View {
+        HStack(spacing: 8) {
+            Text("\u{2605}").foregroundStyle(tint)
+            Text(movie.rating.isEmpty ? "\u{2014}" : movie.rating)
+            if !movie.certification.isEmpty {
+                Text(movie.certification)
+                    .font(Typography.font(15, .semibold))
+                    .foregroundStyle(Palette.text(0.42))
             }
         }
-        .stroke(theme.accent, lineWidth: 2)
-        .frame(width: 22, height: 22)
-        .offset(x: topLeading ? -7 : 7, y: topLeading ? -7 : 7)
+        .font(Typography.font(20, .heavy))
+        .foregroundStyle(Palette.textPrimary)
     }
 
-    private var moreLikeThisIOS: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("MORE LIKE THIS")
-                .font(Typography.font(13, .heavy)).tracking(2).foregroundStyle(Palette.text(0.5))
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 11) {
-                    ForEach(movie.moreLikeThis) { item in
-                        MoreLikeThisCard(item: item, size: CGSize(width: 78, height: 116),
-                                          titleFontSize: 12, contentPadding: 8)
-                            .focused($focus, equals: .poster(item.id))
-                    }
-                }
-                .padding(.vertical, 6)
-            }
-            .horizontalEdgeFade(width: 20)
-        }
+    private func railValue(_ text: String) -> some View {
+        Text(text.isEmpty ? "\u{2014}" : text)
+            .font(Typography.font(20, .bold))
+            .foregroundStyle(Palette.textPrimary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
 
-    private var bottomBarIOS: some View {
+    /// "RESUME · 1:40:12" once there is progress to resume from, otherwise a
+    /// plain Play — the remaining time comes off the item, never invented.
+    private var playLabel: String {
+        guard movie.resumeProgress > 0 else { return "PLAY" }
+        let time = movie.resumeRemaining.split(separator: " ").first.map(String.init) ?? ""
+        return time.isEmpty ? "RESUME" : "RESUME \u{00B7} \(time)"
+    }
+
+    private var actionsIOS: some View {
         HStack(spacing: 12) {
-            Button(action: play) {
-                HStack(spacing: 11) {
-                    Image(systemName: "play.fill").font(.system(size: 18))
-                    Text("Play")
-                }
-                .font(Typography.font(19, .heavy)).foregroundStyle(.white)
-                .padding(.horizontal, 30).padding(.vertical, 13)
-                .background(theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 14))
-            .focused($focus, equals: .play)
+            OneSheetPlayButton(label: playLabel, progress: movie.resumeProgress,
+                               tint: tint, action: play)
+                .focused($focus, equals: .play)
 
-            DetailPill(label: "Trailer")
+            DetailPill(label: "Trailer", compact: true)
+            DetailPill(icon: "speaker.wave.2.fill", label: "EN\u{00B7}5.1", compact: true)
+            DetailPill(icon: "captions.bubble", label: "CC\u{00B7}OFF", compact: true)
 
-            Spacer()
-
-            DetailPill(icon: "speaker.wave.2.fill", label: "EN·5.1")
-            DetailPill(icon: "captions.bubble", label: "CC·OFF")
-
+            // Still the empty stub it has always been on both detail screens —
+            // left in place pending a decision on what it should do.
             Button {} label: {
                 Image(systemName: "plus").font(.system(size: 22, weight: .regular))
                     .foregroundStyle(Palette.text(0.85))
@@ -429,9 +421,9 @@ struct MovieDetailView: View {
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
             }
             .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 14))
+
+            Spacer(minLength: 0)
         }
-        .padding(.top, 18)
-        .overlay(alignment: .top) { Rectangle().fill(Palette.text(0.1)).frame(height: 1) }
     }
     #endif
 }

@@ -139,7 +139,8 @@ extension JellyfinAPI.JellyfinItem {
             imdbId: providerIds?["Imdb"],
             runtimeTicks: runTimeTicks,
             resumePositionTicks: userData?.playbackPositionTicks,
-            isFavorite: userData?.isFavorite ?? false
+            isFavorite: userData?.isFavorite ?? false,
+            posterArt: primaryImageURLString(imageBaseURL, maxWidth: 900)
         )
     }
 
@@ -280,10 +281,12 @@ extension JellyfinAPI.JellyfinItem {
 
     /// Absolute Primary-image URL (poster / episode still), or nil without a
     /// base URL or tag. Views detect the `http` prefix to load it remotely.
-    private func primaryImageURLString(_ base: URL?) -> String? {
+    /// Absolute Primary-image (poster) URL. 500pt suits a grid card; the
+    /// Movie one-sheet shows the poster at ~430pt wide, so it asks for more.
+    private func primaryImageURLString(_ base: URL?, maxWidth: Int = 500) -> String? {
         guard let base, let tag = imageTags?["Primary"] else { return nil }
         return JellyfinAPI.imageURL(baseURL: base, itemId: id, imageType: "Primary",
-                                    tag: tag, maxWidth: 500)?.absoluteString
+                                    tag: tag, maxWidth: maxWidth)?.absoluteString
     }
 
     /// Absolute Backdrop-image URL for the hero still — falls back to a parent
@@ -808,6 +811,10 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
     public var genreLabel: String      // spine text, "Movies / Thriller"
     public var synopsis: String
     public var keyArt: String?
+    /// The poster (Jellyfin `Primary`, 2:3). `keyArt` above is the landscape
+    /// backdrop; the iPad one-sheet layout needs the portrait art and takes
+    /// every colour on the screen from it.
+    public var posterArt: String?
     public var artwork: Artwork
     public var resumeLabel: String     // "Undertow"
     public var resumeProgress: Double
@@ -840,7 +847,8 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
                 communityRating: Double? = nil, criticRating: Double? = nil,
                 imdbId: String? = nil, externalRatings: ExternalRatings? = nil,
                 awards: MovieAwards? = nil, runtimeTicks: Int64? = nil,
-                resumePositionTicks: Int64? = nil, isFavorite: Bool = false) {
+                resumePositionTicks: Int64? = nil, isFavorite: Bool = false,
+                posterArt: String? = nil) {
         self.id = id
         self.title = title
         self.studioLine = studioLine
@@ -870,6 +878,7 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
         self.runtimeTicks = runtimeTicks
         self.resumePositionTicks = resumePositionTicks
         self.isFavorite = isFavorite
+        self.posterArt = posterArt
     }
 
     /// Normalized shape the player queues/seeks/reports-progress against.
