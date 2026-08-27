@@ -10,16 +10,32 @@ import UIKit
 /// by hue and weight each by saturation×value, pick the heaviest bucket, then
 /// normalize brightness so the color reads as an accent.
 enum DominantColor {
+    // Reached from several places at once — card bodies on the main actor and
+    // the detail screens' async extraction on whatever thread URLSession
+    // resumes on. An unguarded static dictionary corrupts under that (a real
+    // crash: doesNotRecognizeSelector inside Dictionary.subscript.setter), so
+    // every read and write goes through the lock.
+    private static let lock = NSLock()
     private static var cache: [String: Color] = [:]
 
+    private static func cached(_ key: String) -> Color? {
+        lock.lock(); defer { lock.unlock() }
+        return cache[key]
+    }
+
+    private static func store(_ color: Color, for key: String) {
+        lock.lock(); defer { lock.unlock() }
+        cache[key] = color
+    }
+
     static func of(_ imageName: String, fallback: Color = .gray) -> Color {
-        if let cached = cache[imageName] { return cached }
+        if let cached = cached(imageName) { return cached }
         #if canImport(UIKit)
         let color = compute(UIImage(named: imageName)) ?? fallback
         #else
         let color = fallback
         #endif
-        cache[imageName] = color
+        store(color, for: imageName)
         return color
     }
 
@@ -28,14 +44,14 @@ enum DominantColor {
     /// Home) don't re-download or recompute.
     static func of(url: URL, fallback: Color = .gray) async -> Color {
         let key = url.absoluteString
-        if let cached = cache[key] { return cached }
+        if let cached = cached(key) { return cached }
         #if canImport(UIKit)
         guard let (data, _) = try? await URLSession.shared.data(from: url) else { return fallback }
         let color = compute(UIImage(data: data)) ?? fallback
         #else
         let color = fallback
         #endif
-        cache[key] = color
+        store(color, for: key)
         return color
     }
 
