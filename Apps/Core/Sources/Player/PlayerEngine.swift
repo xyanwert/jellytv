@@ -43,6 +43,13 @@ final class PlayerEngine {
     /// during mid-playback rebuffering instead of a silently frozen frame.
     private(set) var isBuffering: Bool = false
     private(set) var currentItem: PlayableItem?
+    /// The media source the server actually negotiated for this item. Kept
+    /// because trickplay sheets are addressed per media source — it was
+    /// previously computed during `wireUp` and thrown away.
+    private(set) var currentMediaSourceId: String?
+    /// Scene thumbnails. Lives here so its sheet cache outlives any one
+    /// opening of the panel.
+    let trickplayClient: TrickplayClient
     private(set) var isFavorite: Bool = false
     private(set) var repeatOne: Bool = false
     private(set) var queue: [PlayableItem] = []
@@ -105,6 +112,7 @@ final class PlayerEngine {
         // down the app-wide session behind `RemoteApp`'s back. tvOS has no
         // equivalent knob to set.
         self.resolver = PlaybackInfoResolver(client: client, userId: userId)
+        self.trickplayClient = TrickplayClient(client: client, userId: userId)
     }
 
     // MARK: - Public API
@@ -315,6 +323,7 @@ final class PlayerEngine {
     // MARK: - Wire-up
 
     private func wireUp(resolved: ResolvedPlayback, item: PlayableItem, token: Int) async {
+        currentMediaSourceId = resolved.mediaSourceId
         let primary = resolved.directURL ?? resolved.hlsURL
         let fallback: URL? = resolved.directURL != nil ? resolved.hlsURL : nil
 

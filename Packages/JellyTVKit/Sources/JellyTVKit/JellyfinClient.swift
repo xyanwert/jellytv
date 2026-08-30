@@ -93,7 +93,7 @@ public struct JellyfinClient: Sendable {
     /// only returns `CriticRating` when it's requested alongside — omitting it
     /// silently drops the critic score.
     public func fetchItemDetail(userId: String, itemId: String) async throws -> JellyfinAPI.JellyfinItem {
-        let fields = "Overview,Genres,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,"
+        let fields = "Overview,Genres,Tags,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,"
             + "PremiereDate,People,Studios,Taglines,ProductionLocations,ProviderIds,ChildCount,"
             + "Status,EndDate,BackdropImageTags,ParentBackdropImageTags"
         let query = [URLQueryItem(name: "fields", value: fields)]
@@ -145,6 +145,34 @@ public struct JellyfinClient: Sendable {
         guard let url = buildURL(path: "/Items/\(itemId)/Images/\(type)",
                                   query: components.queryItems) else { return nil }
         return url
+    }
+
+    // MARK: - Trickplay (scene thumbnails)
+
+    /// One trickplay sprite sheet. Served token-less like the other image
+    /// endpoints, so the `api_key` rides on the query string.
+    public func trickplayTileURL(itemId: String, width: Int, tileIndex: Int,
+                                 mediaSourceId: String) -> URL? {
+        buildURL(path: "/Videos/\(itemId)/Trickplay/\(width)/\(tileIndex).jpg", query: [
+            URLQueryItem(name: "MediaSourceId", value: mediaSourceId),
+            URLQueryItem(name: "api_key", value: apiKey),
+        ])
+    }
+
+    /// The item's trickplay geometry, keyed media-source → width.
+    ///
+    /// Deliberately its own request rather than another entry in
+    /// `fetchItemDetail`'s `fields` string: this is a heavy nested dictionary
+    /// that only the scenes panel ever wants, and every detail screen in the
+    /// app would otherwise pay for it on every open.
+    public func fetchTrickplayInfo(userId: String, itemId: String) async throws
+        -> [String: [String: JellyfinAPI.TrickplayInfo]]? {
+        guard let url = buildURL(path: "/Users/\(userId)/Items/\(itemId)",
+                                 query: [URLQueryItem(name: "fields", value: "Trickplay")]) else {
+            throw JellyfinRequestError.invalidURL
+        }
+        let response: JellyfinAPI.TrickplayResponse = try await request(url: url)
+        return response.trickplay
     }
 
     // MARK: - Playback

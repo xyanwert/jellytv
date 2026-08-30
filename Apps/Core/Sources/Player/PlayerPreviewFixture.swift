@@ -25,11 +25,17 @@ struct PlayerPreviewFixture: View {
                 id: "ep-0", seriesId: "series-1", title: "Aida",
                 subtitle: "S1 · E0 — \"Una nueva vida (Piloto)\"",
                 runtimeTicks: 33_160_000_000, resumePositionTicks: 40_000_000,
-                isFavorite: true, imageURL: nil
+                isFavorite: true, imageURL: nil,
+                // No `logoURL`: the fixture has no server to fetch artwork
+                // from, so it deliberately exercises the *title* fallback.
+                // Tags are inline, so the chip row can be seen without one.
+                tags: ["Drama", "Spanish", "Watched before"]
             )
             let showFailure = ProcessInfo.processInfo.environment["JT_SHOW_PLAYER"] == "failed"
             e.previewSeed(
-                item: item, currentTime: 4, duration: 3316, isPlaying: true, isFavorite: true,
+                // Parked 27 minutes in rather than at zero, so the position
+                // readout shows something worth reading in a screenshot.
+                item: item, currentTime: 1620, duration: 3316, isPlaying: true, isFavorite: true,
                 queue: Array(repeating: item, count: 68), queueIndex: 0,
                 failureMessage: showFailure ? "Playback failed — the server returned repeated 500 errors and a fresh session didn't recover." : nil
             )

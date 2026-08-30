@@ -602,12 +602,15 @@ struct ShowView: View {
     private func resumeCurrentEpisode() {
         guard let episode = currentEpisode,
               let season = show.seasons.first(where: { s in s.episodes.contains { $0.id == episode.id } }) else { return }
-        appState.requestPlayback(.single(episode.asPlayableItem(seriesTitle: show.title, seasonNumber: season.number)))
+        appState.requestPlayback(.single(episode.asPlayableItem(
+            seriesTitle: show.title, seasonNumber: season.number,
+            logoURL: show.logoArt, tags: show.tags)))
     }
 
     private func play(episode: Episode, in season: Season) {
         guard let request = appState.episodeQueueRequest(
-            episodes: season.episodes, seriesTitle: show.title, seasonNumber: season.number, startEpisodeId: episode.id
+            episodes: season.episodes, seriesTitle: show.title, seasonNumber: season.number,
+            startEpisodeId: episode.id, seriesLogoURL: show.logoArt, seriesTags: show.tags
         ) else { return }
         appState.requestPlayback(request)
     }

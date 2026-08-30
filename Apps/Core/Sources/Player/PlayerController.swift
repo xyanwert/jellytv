@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import UIKit
 import Observation
 import JellyTVKit
 
@@ -27,6 +28,16 @@ final class PlayerController {
     private static let mashCoalesceSeconds: TimeInterval = 0.25
 
     private var favoriteChangeInFlight = false
+
+    /// Where a burst of jump taps is heading. Non-nil only while a burst is
+    /// settling; see `jump(by:)`.
+    private(set) var pendingSeekTarget: Double?
+    private var seekCommitTask: Task<Void, Never>?
+    private var seekInFlight = false
+    /// How long after the last jump tap the accumulated seek commits.
+    /// Comfortably longer than a double-tap, comfortably shorter than the
+    /// seek itself — a single tap is not perceptibly delayed by it.
+    private static let seekCoalesceSeconds: Duration = .milliseconds(280)
 
     private static let dislikedIdsKey = "jelly:player.dislikedItemIds"
 
@@ -75,14 +86,98 @@ final class PlayerController {
     var volume: Float { engine.volume }
     func setVolume(_ value: Float) { engine.volume = value }
 
+    /// What the position readout should show: where a settling burst of taps
+    /// is *heading*, or the real position when nothing is pending.
+    ///
+    /// This is what makes the coalesce below invisible. The number moves the
+    /// instant a circle is pressed, even though the picture follows a beat
+    /// later — press +30s four times and the readout counts up by two
+    /// minutes immediately, which is the feedback that stops someone pressing
+    /// again to check whether it worked.
+    var displayTime: Double { pendingSeekTarget ?? engine.currentTime }
+
+    /// Nudge the position by `delta` seconds. **Safe to mash.**
+    ///
+    /// Each tap adds to a running target and re-arms a short timer; the burst
+    /// commits as exactly one seek when the tapping stops. Two things this
+    /// fixes, both of which are live in the shipping code today:
+    ///
+    /// 1. **Taps used to be swallowed.** The old version computed its target
+    ///    from `currentTime` read at tap time, and every tap spawned its own
+    ///    `Task`. Taps landing before the first `await avPlayer.seek` resolved
+    ///    all read the *same* stale position, so three fast taps on +30s
+    ///    produced one +30s jump rather than +90s — which reads as the button
+    ///    not registering. Accumulating onto `pendingSeekTarget` instead of
+    ///    re-reading the clock makes every tap count.
+    /// 2. **N precise seeks became one.** Each `seek` was frame-accurate
+    ///    (`tolerance .zero`) and, on a transcoded HLS stream, can restart the
+    ///    server-side transcode. A burst of those is how playback ends up
+    ///    wedged rather than merely late.
+    ///
+    /// v1 (`/Users/xyan/code/jelly-tv-ios`) never gated seeks either — its
+    /// seek strip only carried `.disabled(isLoading)`, which guards
+    /// item-resolve latency, not this. What it did leave behind is the
+    /// principle, in its own port plan: *"Coalesce + busy gate solves mash,
+    /// debounce alone does not."* Hence the in-flight guard as well as the
+    /// timer, and the same 250ms-ish window `next()`/`previous()` already use.
+    func jump(by delta: Double) {
+        let base = pendingSeekTarget ?? engine.currentTime
+        pendingSeekTarget = clampToItem(base + delta)
+        scheduleSeekCommit()
+    }
+
+    /// Jump to an absolute position — "start over from the beginning". Cancels
+    /// any accumulated nudge rather than fighting it, then coalesces on the
+    /// same timer so a mashed restart is also one seek.
+    func jump(to seconds: Double) {
+        pendingSeekTarget = clampToItem(seconds)
+        scheduleSeekCommit()
+    }
+
+    /// Direct, uncoalesced seek — for callers that already know their exact
+    /// target and are not driven by a mashable control (a scenes thumbnail,
+    /// a resume position). Cancels any pending nudge so the two can't race.
     func seek(to seconds: Double) async {
+        seekCommitTask?.cancel()
+        seekCommitTask = nil
+        pendingSeekTarget = nil
         await engine.seek(to: seconds)
     }
 
-    /// Skip forward (positive) or backward (negative) seconds — the ±10s/
-    /// ±30s seek-strip buttons.
-    func seekRelative(by delta: Double) async {
-        await engine.seekRelative(delta)
+    private func scheduleSeekCommit() {
+        seekCommitTask?.cancel()
+        seekCommitTask = Task { @MainActor [self] in
+            try? await Task.sleep(for: Self.seekCoalesceSeconds)
+            guard !Task.isCancelled else { return }
+            await commitPendingSeek()
+        }
+    }
+
+    /// The busy gate. A commit that lands while the previous seek is still
+    /// resolving re-arms the timer instead of stacking a second
+    /// `avPlayer.seek` on top of the first — the accumulated target is not
+    /// lost, it just waits its turn.
+    private func commitPendingSeek() async {
+        guard let target = pendingSeekTarget else { return }
+        guard !seekInFlight else {
+            scheduleSeekCommit()
+            return
+        }
+        seekInFlight = true
+        // Cleared *before* awaiting, so taps arriving during the seek start a
+        // fresh burst from the committed position rather than re-adding to a
+        // target that is already being applied.
+        pendingSeekTarget = nil
+        await engine.seek(to: target)
+        seekInFlight = false
+    }
+
+    private func clampToItem(_ seconds: Double) -> Double {
+        let duration = engine.duration
+        guard duration > 0 else { return max(0, seconds) }
+        // Never park exactly on the end: that trips end-of-item handling and
+        // auto-advances, which is not what "+1 min" near the credits means.
+        return min(max(0, seconds), max(0, duration - 1))
     }
 
     // MARK: - Actions — queue traversal
@@ -124,6 +219,32 @@ final class PlayerController {
         guard now >= queueCoalesceUntil else { return false }
         queueCoalesceUntil = now.addingTimeInterval(Self.mashCoalesceSeconds)
         return true
+    }
+
+    // MARK: - Scenes (trickplay)
+
+    /// The media source trickplay sheets are addressed against.
+    var currentMediaSourceId: String? { engine.currentMediaSourceId }
+
+    /// The current item's trickplay geometry, or nil when the server has none
+    /// — which is the gate the scenes panel uses to decide whether it can
+    /// offer anything at all.
+    func resolveTrickplay() async -> (widthKey: String, info: JellyfinAPI.TrickplayInfo)? {
+        guard let itemId = currentItem?.id else { return nil }
+        return await engine.trickplayClient.resolve(itemId: itemId,
+                                                    mediaSourceId: engine.currentMediaSourceId)
+    }
+
+    /// One scene thumbnail. Nil for anything missing, so a cell stays empty
+    /// rather than showing the wrong frame.
+    func trickplayThumbnail(at seconds: Double, widthKey: String,
+                            info: JellyfinAPI.TrickplayInfo) async -> UIImage? {
+        guard let itemId = currentItem?.id,
+              let mediaSourceId = engine.currentMediaSourceId else { return nil }
+        return await engine.trickplayClient.thumbnail(
+            forSeconds: seconds, itemId: itemId, widthKey: widthKey,
+            info: info, mediaSourceId: mediaSourceId
+        )
     }
 
     // MARK: - Actions — favorite / dislike / repeat

@@ -10,8 +10,9 @@ import JellyTVKit
 /// through behind the rail for free: the rail and the backdrop are siblings
 /// in the *same* screen's `ZStack`, not a separate column bolted on here.
 ///
-/// Settings isn't wired into the rail yet (not in `NavDestination`'s iOS-
-/// reachable set) — deferred rather than shipped half-adapted.
+/// Settings is reachable from the rail's bottom cog. Search still isn't —
+/// there's no dedicated search screen on iOS yet, and the library screens
+/// carry their own search field.
 struct RootView: View {
     @StateObject private var theme = Theme()
     @StateObject private var server = ServerConnection()
@@ -29,9 +30,10 @@ struct RootView: View {
     /// `.fullScreenCover(item:)` doesn't reliably stack — fold the debug
     /// fixture and real playback into one cover driven by a single optional,
     /// same as tvOS's `RootView`.
-    @State private var playerPresentation: PlayerPresentation? = {
-        ProcessInfo.processInfo.environment["RT_SHOW_PLAYER"] != nil ? .fixture : nil
-    }()
+    @State private var playerPresentation: PlayerPresentation?
+    /// One-shot: the screenshot fixture is raised once, on first appear, and
+    /// never re-raised after it is dismissed.
+    @State private var didSeedFixture = false
 
     private enum PlayerPresentation: Identifiable, Equatable {
         case fixture
@@ -46,12 +48,47 @@ struct RootView: View {
     }
 
     var body: some View {
-        Group {
+        // **A `ZStack`, not a `Group`.** The `.fullScreenCover` below hangs off
+        // this container, and a `Group` whose branch switches (setup ↔ split
+        // view) changes identity when `server.isConnected` flips — taking any
+        // presented cover down with it. That is what made `RT_SHOW_PLAYER`
+        // land on the setup screen instead of the player: stored credentials
+        // are tried, fail, and the resulting flip drops the cover. A stable
+        // container keeps the presentation across the swap.
+        ZStack {
             if server.isConnected {
                 splitView
             } else {
                 SetupView(server: server)
             }
+
+            // **The player cover hangs off this, not off the branch above.**
+            // `server.isConnected` flips whenever stored credentials are
+            // tried, fail, or later succeed, and each flip changes the
+            // identity of whichever branch is showing — which tears down any
+            // cover presented from it. A `Color.clear` sibling never changes
+            // identity, so a player presented from here survives the swap.
+            // That matters beyond the screenshot hook: a server blip during
+            // playback used to drop the user out of the film.
+            Color.clear
+                .allowsHitTesting(false)
+                .fullScreenCover(item: $playerPresentation) { presentation in
+                    Group {
+                        switch presentation {
+                        case .fixture:
+                            PlayerPreviewFixture()
+                        case .request(let request):
+                            if let client = appState.jellyfinClient {
+                                PlayerView(request: request, client: client,
+                                           userId: appState.currentUserId)
+                            }
+                        }
+                    }
+                    // `.fullScreenCover` content doesn't reliably inherit
+                    // `@EnvironmentObject`s from the presenting view.
+                    .environmentObject(theme)
+                    .environmentObject(appState)
+                }
         }
         .environmentObject(theme)
         .environmentObject(server)
@@ -62,28 +99,14 @@ struct RootView: View {
             // immediately (belt-and-suspenders alongside the static
             // Info.plist restriction and the AppDelegate override).
             OrientationLock.shared.applyToCurrentScene()
+            raiseScreenshotFixtureIfRequested()
         }
         .onChange(of: appState.activePlaybackRequest) { _, request in
             guard let request else { return }
             playerPresentation = .request(request)
         }
-        .fullScreenCover(item: $playerPresentation) { presentation in
-            Group {
-                switch presentation {
-                case .fixture:
-                    PlayerPreviewFixture()
-                case .request(let request):
-                    if let client = appState.jellyfinClient {
-                        PlayerView(request: request, client: client, userId: appState.currentUserId)
-                    }
-                }
-            }
-            // `.fullScreenCover` content doesn't reliably inherit
-            // `@EnvironmentObject`s from the presenting view.
-            .environmentObject(theme)
-            .environmentObject(appState)
-        }
         .onChange(of: playerPresentation) { _, presentation in
+            PlayerDiagnostics.log("root: playerPresentation -> \(presentation?.id ?? "nil")")
             if presentation == nil { appState.activePlaybackRequest = nil }
         }
         .onChange(of: server.isConnected) { _, connected in
@@ -103,6 +126,21 @@ struct RootView: View {
                 appState.stopRefreshTimer()
             }
         }
+    }
+
+    /// `RT_SHOW_PLAYER` — the player-chrome screenshot hook, inert unless set.
+    ///
+    /// Raised here rather than as `playerPresentation`'s initial value:
+    /// SwiftUI drops a `.fullScreenCover` whose item is already non-nil on the
+    /// very first render pass often enough to be useless, and this one races
+    /// the setup screen's own connect attempt on top of that. Setting it after
+    /// the first frame has committed presents every time.
+    private func raiseScreenshotFixtureIfRequested() {
+        guard !didSeedFixture,
+              ProcessInfo.processInfo.environment["RT_SHOW_PLAYER"] != nil else { return }
+        didSeedFixture = true
+        playerPresentation = .fixture
+        PlayerDiagnostics.log("root: raised screenshot fixture")
     }
 
     private var splitView: some View {
@@ -127,9 +165,9 @@ struct RootView: View {
         appState.requestPlayback(request)
     }
 
-    /// Maps a rail tap back onto `selection`. `.search`/`.settings`/
-    /// `.libraries` are tvOS-only concepts (no submenu, no dedicated search
-    /// or settings screen wired into the iOS rail yet) — no-ops here.
+    /// Maps a rail tap back onto `selection`. `.search` and `.libraries`
+    /// remain tvOS-only concepts (no submenu, no dedicated search screen on
+    /// iOS) — no-ops here.
     private func handleRailSelection(_ target: RailTarget) {
         switch target {
         case .home: selection = .home
@@ -137,7 +175,8 @@ struct RootView: View {
         case .tv: selection = .tv
         case .animeLibrary: selection = .animeLibrary
         case .lateNight: selection = .lateNight
-        case .search, .settings, .libraries: break
+        case .settings: selection = .settings
+        case .search, .libraries: break
         }
     }
 
@@ -154,7 +193,9 @@ struct RootView: View {
             AnimeLibraryView(isLibrariesOpen: false, onSelectRail: handleRailSelection)
         case .lateNight:
             LateNightLibraryView(isLibrariesOpen: false, onSelectRail: handleRailSelection)
-        case .settings, .search:
+        case .settings:
+            SettingsView(isLibrariesOpen: false, onSelectRail: handleRailSelection)
+        case .search:
             HomeView(isLibrariesOpen: false, onSelectRail: handleRailSelection, onOpenSettings: {})
         }
     }

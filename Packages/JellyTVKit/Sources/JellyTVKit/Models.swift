@@ -140,7 +140,9 @@ extension JellyfinAPI.JellyfinItem {
             runtimeTicks: runTimeTicks,
             resumePositionTicks: userData?.playbackPositionTicks,
             isFavorite: userData?.isFavorite ?? false,
-            posterArt: primaryImageURLString(imageBaseURL, maxWidth: 900)
+            posterArt: primaryImageURLString(imageBaseURL, maxWidth: 900),
+            logoArt: logoImageURLString(imageBaseURL),
+            tags: tags ?? []
         )
     }
 
@@ -159,6 +161,8 @@ extension JellyfinAPI.JellyfinItem {
         show.imdbId = providerIds?["Imdb"]
         show.seasonCount = childCount
         show.premiereYear = productionYear.map(String.init)
+        show.logoArt = logoImageURLString(imageBaseURL)
+        show.tags = tags ?? []
         if let years = formattedYearRange() { show.years = years }
         if let overview, !overview.isEmpty { show.synopsis = overview }
         return show
@@ -283,6 +287,23 @@ extension JellyfinAPI.JellyfinItem {
     /// base URL or tag. Views detect the `http` prefix to load it remotely.
     /// Absolute Primary-image (poster) URL. 500pt suits a grid card; the
     /// Movie one-sheet shows the poster at ~430pt wide, so it asks for more.
+    /// Logo artwork + free-form tags, without building a whole `Movie`/`Show`
+    /// around them — exactly what the player chrome needs to borrow from an
+    /// episode's owning series.
+    public func playerIdentity(imageBaseURL: URL? = nil) -> (logoURL: String?, tags: [String]) {
+        (logoImageURLString(imageBaseURL), tags ?? [])
+    }
+
+    /// Absolute Logo-image URL — the title set as artwork, which the player
+    /// chrome prefers over the title in type. Nil unless the server actually
+    /// has a logo for this item (`ImageTags.Logo`), which is the whole gate:
+    /// there is no fallback logo to invent.
+    private func logoImageURLString(_ base: URL?, maxWidth: Int = 640) -> String? {
+        guard let base, let tag = imageTags?["Logo"] else { return nil }
+        return JellyfinAPI.imageURL(baseURL: base, itemId: id, imageType: "Logo",
+                                    tag: tag, maxWidth: maxWidth)?.absoluteString
+    }
+
     private func primaryImageURLString(_ base: URL?, maxWidth: Int = 500) -> String? {
         guard let base, let tag = imageTags?["Primary"] else { return nil }
         return JellyfinAPI.imageURL(baseURL: base, itemId: id, imageType: "Primary",
@@ -573,7 +594,11 @@ public struct Episode: Equatable, Sendable, Hashable, Identifiable {
     public var numberLabel: String { String(format: "%02d", number) }
 
     /// Normalized shape the player queues/seeks/reports-progress against.
-    public func asPlayableItem(seriesTitle: String, seasonNumber: Int) -> PlayableItem {
+    /// `logoURL`/`tags` come from the owning *show* — Jellyfin almost never
+    /// gives an individual episode either one, and the player chrome wants
+    /// the series' identity on screen anyway.
+    public func asPlayableItem(seriesTitle: String, seasonNumber: Int,
+                               logoURL: String? = nil, tags: [String] = []) -> PlayableItem {
         PlayableItem(
             id: id,
             seriesId: seriesId,
@@ -582,7 +607,9 @@ public struct Episode: Equatable, Sendable, Hashable, Identifiable {
             runtimeTicks: runtimeTicks,
             resumePositionTicks: resumePositionTicks,
             isFavorite: isFavorite,
-            imageURL: image
+            imageURL: image,
+            logoURL: logoURL,
+            tags: tags
         )
     }
 }
@@ -750,6 +777,12 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
     public var seasonCount: Int?            // real season count (Jellyfin `ChildCount`)
     public var premiereYear: String?        // real first-air year (Jellyfin `ProductionYear`)
     public var network: Network?            // TMDB-sourced network branding, opt-in
+    /// The title set as artwork (Jellyfin `Logo`) — the player chrome shows it
+    /// in place of the title. An episode inherits its series' logo, since
+    /// Jellyfin rarely gives an individual episode one.
+    public var logoArt: String?
+    /// Jellyfin's free-form `Tags`, shown as chips in the player chrome.
+    public var tags: [String]
 
     public init(id: String, title: String, studioLine: String, rating: String,
                 certification: String, runSummary: String, createdBy: String,
@@ -761,7 +794,8 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
                 communityRating: Double? = nil, criticRating: Double? = nil,
                 imdbId: String? = nil, externalRatings: ExternalRatings? = nil,
                 awards: MovieAwards? = nil, seasonCount: Int? = nil,
-                premiereYear: String? = nil, network: Network? = nil) {
+                premiereYear: String? = nil, network: Network? = nil,
+                logoArt: String? = nil, tags: [String] = []) {
         self.id = id
         self.title = title
         self.studioLine = studioLine
@@ -790,6 +824,8 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
         self.seasonCount = seasonCount
         self.premiereYear = premiereYear
         self.network = network
+        self.logoArt = logoArt
+        self.tags = tags
     }
 
     /// Index of the season containing the current/resume episode (or the last).
@@ -837,6 +873,12 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
     public var runtimeTicks: Int64?
     public var resumePositionTicks: Int64?
     public var isFavorite: Bool
+    /// The title set as artwork (Jellyfin `Logo`). The player chrome shows it
+    /// in place of the title; nil whenever the server has no logo.
+    public var logoArt: String?
+    /// Jellyfin's free-form `Tags` — the chips the player chrome shows under
+    /// the title, and what the library screens' tag search filters against.
+    public var tags: [String]
 
     public init(id: String, title: String, studioLine: String, rating: String,
                 certification: String, runtime: String, director: String, year: String,
@@ -848,7 +890,7 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
                 imdbId: String? = nil, externalRatings: ExternalRatings? = nil,
                 awards: MovieAwards? = nil, runtimeTicks: Int64? = nil,
                 resumePositionTicks: Int64? = nil, isFavorite: Bool = false,
-                posterArt: String? = nil) {
+                posterArt: String? = nil, logoArt: String? = nil, tags: [String] = []) {
         self.id = id
         self.title = title
         self.studioLine = studioLine
@@ -879,6 +921,8 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
         self.resumePositionTicks = resumePositionTicks
         self.isFavorite = isFavorite
         self.posterArt = posterArt
+        self.logoArt = logoArt
+        self.tags = tags
     }
 
     /// Normalized shape the player queues/seeks/reports-progress against.
@@ -889,7 +933,9 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
             runtimeTicks: runtimeTicks,
             resumePositionTicks: resumePositionTicks,
             isFavorite: isFavorite,
-            imageURL: keyArt
+            imageURL: keyArt,
+            logoURL: logoArt,
+            tags: tags
         )
     }
 }

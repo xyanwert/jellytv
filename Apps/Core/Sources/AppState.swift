@@ -622,9 +622,13 @@ final class AppState: ObservableObject {
 
     /// A season's episodes, already loaded by `ShowView` — sync, no fetch.
     func episodeQueueRequest(episodes: [Episode], seriesTitle: String, seasonNumber: Int,
-                             startEpisodeId: String) -> PlaybackRequest? {
+                             startEpisodeId: String,
+                             seriesLogoURL: String? = nil, seriesTags: [String] = []) -> PlaybackRequest? {
         guard !episodes.isEmpty else { return nil }
-        let items = episodes.map { $0.asPlayableItem(seriesTitle: seriesTitle, seasonNumber: seasonNumber) }
+        let items = episodes.map {
+            $0.asPlayableItem(seriesTitle: seriesTitle, seasonNumber: seasonNumber,
+                              logoURL: seriesLogoURL, tags: seriesTags)
+        }
         let startIndex = items.firstIndex { $0.id == startEpisodeId } ?? 0
         return .queue(items, startIndex: startIndex)
     }
@@ -632,38 +636,85 @@ final class AppState: ObservableObject {
     /// Flattens every season's episodes into one shuffled queue.
     func shufflePlayRequest(seriesId: String, seriesTitle: String) async -> PlaybackRequest? {
         guard let allSeasons = await seasons(for: seriesId) else { return nil }
+        let series = await seriesIdentity(for: seriesId)
         var items: [PlayableItem] = []
         for season in allSeasons {
             guard let episodes = await episodes(seriesId: seriesId, seasonId: season.id) else { continue }
-            items.append(contentsOf: episodes.map { $0.asPlayableItem(seriesTitle: seriesTitle, seasonNumber: season.number) })
+            items.append(contentsOf: episodes.map {
+                $0.asPlayableItem(seriesTitle: seriesTitle, seasonNumber: season.number,
+                                  logoURL: series.logoURL, tags: series.tags)
+            })
         }
         guard !items.isEmpty else { return nil }
         return .shuffled(items)
     }
 
     func resumeRequest(for hero: HeroFeature) async -> PlaybackRequest? {
-        guard let item = await resumePlayableItem(id: hero.id, itemType: hero.itemType,
-                                                   seriesId: hero.seriesId, fallbackTitle: hero.title) else { return nil }
-        return .single(item)
+        await resumeRequest(id: hero.id, itemType: hero.itemType,
+                            seriesId: hero.seriesId, fallbackTitle: hero.title)
     }
 
     func resumeRequest(for item: ContinueWatchingItem) async -> PlaybackRequest? {
-        guard let playable = await resumePlayableItem(id: item.id, itemType: item.itemType,
-                                                       seriesId: item.seriesId, fallbackTitle: item.title) else { return nil }
-        return .single(playable)
+        await resumeRequest(id: item.id, itemType: item.itemType,
+                            seriesId: item.seriesId, fallbackTitle: item.title)
     }
 
-    private func resumePlayableItem(id: String, itemType: String?, seriesId: String?, fallbackTitle: String) async -> PlayableItem? {
+    /// **Resuming an episode queues the rest of its season, not just that one
+    /// episode.**
+    ///
+    /// Carrying on from Home used to build a single-item queue, which quietly
+    /// disabled everything downstream that depends on there being a next
+    /// episode: auto-advance when the episode ends, and the player's own
+    /// next-video affordances. Someone resuming episode 4 of a season plainly
+    /// means to keep watching, so the queue is the season from episode 4
+    /// onward — the same queue the Show screen builds when you press play
+    /// there.
+    ///
+    /// A movie stays a single item: there is nothing to advance to.
+    private func resumeRequest(id: String, itemType: String?, seriesId: String?,
+                               fallbackTitle: String) async -> PlaybackRequest? {
         switch itemType {
         case "Movie":
             guard let movie = await movieDetail(for: id) else { return nil }
-            return movie.asPlayableItem()
+            return .single(movie.asPlayableItem())
+
         case "Episode":
             guard let raw = await detailItem(for: id) else { return nil }
-            let episode = raw.toEpisode(imageBaseURL: imageBaseURL, seriesId: seriesId ?? raw.seriesId)
-            return episode.asPlayableItem(seriesTitle: raw.seriesName ?? fallbackTitle, seasonNumber: raw.parentIndexNumber ?? 0)
+            let owningSeriesId = seriesId ?? raw.seriesId
+            let seriesTitle = raw.seriesName ?? fallbackTitle
+            let seasonNumber = raw.parentIndexNumber ?? 0
+            let series = await seriesIdentity(for: owningSeriesId)
+
+            // The season, when we can get it — cached, so this is usually free
+            // by the time anyone reaches it.
+            if let owningSeriesId, let seasonId = raw.seasonId,
+               let episodes = await episodes(seriesId: owningSeriesId, seasonId: seasonId),
+               let startIndex = episodes.firstIndex(where: { $0.id == id }) {
+                let items = episodes.map {
+                    $0.asPlayableItem(seriesTitle: seriesTitle, seasonNumber: seasonNumber,
+                                      logoURL: series.logoURL, tags: series.tags)
+                }
+                return .queue(items, startIndex: startIndex)
+            }
+
+            // No season listing (a stray episode, or the fetch failed): still
+            // play the thing that was asked for.
+            let episode = raw.toEpisode(imageBaseURL: imageBaseURL, seriesId: owningSeriesId)
+            return .single(episode.asPlayableItem(
+                seriesTitle: seriesTitle, seasonNumber: seasonNumber,
+                logoURL: series.logoURL, tags: series.tags))
+
         default:
             return nil
         }
+    }
+
+    /// The owning series' logo artwork and tags, for an episode being queued.
+    /// Jellyfin puts neither on the episode itself, so the player chrome would
+    /// otherwise fall back to plain type and show no chips. Goes through
+    /// `detailItem(for:)`, so a season's worth of episodes costs one fetch.
+    private func seriesIdentity(for seriesId: String?) async -> (logoURL: String?, tags: [String]) {
+        guard let seriesId, let raw = await detailItem(for: seriesId) else { return (nil, []) }
+        return raw.playerIdentity(imageBaseURL: imageBaseURL)
     }
 }

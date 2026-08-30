@@ -121,7 +121,51 @@ public enum JellyfinAPI {
     }
 
     /// A Jellyfin media item (Movie, Series, Episode, etc.) from `GET /Items`.
-    public struct JellyfinItem: Decodable, Equatable, Sendable, Identifiable {
+    /// One trickplay resolution's sprite-sheet geometry.
+    ///
+    /// **Trickplay** is Jellyfin's pre-generated scrubbing preview: for each
+    /// item it bakes a grid of small frames, sampled every `interval` ms, into
+    /// a few big JPEG "sheets". A client downloads one sheet and slices every
+    /// thumbnail out of it locally — no per-frame network call and no
+    /// AVPlayer seek, which is the difference between ~80ms and ~1.1s for a
+    /// page of six previews.
+    public struct TrickplayInfo: Decodable, Equatable, Sendable {
+        /// One frame's pixel size inside the sheet.
+        public let width: Int
+        public let height: Int
+        /// The sheet's grid, in frames.
+        public let tileWidth: Int
+        public let tileHeight: Int
+        /// Milliseconds of video between consecutive frames.
+        public let interval: Int
+        /// Jellyfin's own count — **never gate rendering on this.** It counts
+        /// only non-black frames, so an item whose opening is a fade can
+        /// report `1` while the sheet holds a full valid grid.
+        public let thumbnailCount: Int
+        public let bandwidth: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case width = "Width", height = "Height"
+            case tileWidth = "TileWidth", tileHeight = "TileHeight"
+            case interval = "Interval", thumbnailCount = "ThumbnailCount"
+            case bandwidth = "Bandwidth"
+        }
+
+        /// Frames per sheet.
+        public var thumbsPerTile: Int { tileWidth * tileHeight }
+    }
+
+    /// **The `Trickplay` field nests two levels**, media-source id then width:
+    /// `{"Trickplay": {"<mediaSourceId>": {"320": {…}, "1280": {…}}}}`.
+    /// Reading the media-source key as if it were a width is a decode failure
+    /// that looks like "this item has no trickplay" rather than an error —
+    /// v1 shipped that bug for a while before catching it.
+    public struct TrickplayResponse: Decodable, Sendable {
+        public let trickplay: [String: [String: TrickplayInfo]]?
+        enum CodingKeys: String, CodingKey { case trickplay = "Trickplay" }
+    }
+
+        public struct JellyfinItem: Decodable, Equatable, Sendable, Identifiable {
         public let id: String
         public let name: String?
         public let type: String?

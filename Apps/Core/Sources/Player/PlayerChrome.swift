@@ -5,8 +5,11 @@ import JellyTVKit
 /// every subview via `@FocusState.Binding` so the tvOS focus engine treats
 /// the chrome as a single spatial layout, not per-component islands.
 enum PlayerFocusField: Hashable {
-    case back, night, repeatOne, playPause, favorite, next, dislike
-    case transport(Int)
+    case back, night
+    /// The five transport circles, left to right.
+    case restart, back30, playPause, forward30, forwardMinute
+    /// The foot: an opinion either way, and scenes between them.
+    case dislike, scenes, favorite
     case failureRetry, failureSkip, failureClose
 }
 
@@ -70,10 +73,30 @@ final class ChromeIdleTimer {
     }
 }
 
-/// Full custom chrome, matching the "Jelly-tv Player" design: top bar,
-/// center repeat + play, right-rail favorite/next/dislike, scrubber, bottom
-/// seek strip. **All chrome talks to `PlayerController` and only
-/// `PlayerController`** — see that type's doc comment for the contract.
+/// Full custom chrome, matching the "Grandma menu" design (canvas artboard
+/// A): BACK plus the item's logo and tags top-left, AirPlay and Night
+/// top-right, five transport circles across the middle over a `00:27/01:17`
+/// readout, and three actions in the foot.
+///
+/// **What this replaced, and why.** The previous chrome carried thirteen
+/// controls in four clusters: a repeat toggle beside play, a right-hand rail
+/// of favourite/next/dislike, a progress bar, and a seven-tile seek strip
+/// (±10s / ±30s / ±1min around SCENES). The brief was that it should be
+/// usable without aiming or reading, so:
+///
+/// - the **progress bar went** — it invited dragging, and a dragged bar is
+///   the easiest way to lose your place by accident (`PlayerClockReadout`);
+/// - the **seek strip collapsed** from seven tiles to two circles, ±30s,
+///   joined by start-over and one-minute-ahead (`PlayerTransportRow`);
+/// - **every caption went** except BACK, which is what buys five full-size
+///   targets in one row;
+/// - **repeat-one and next lost their buttons.** The engine still supports
+///   both (`PlayerController.toggleRepeatOne` / `.next`, and auto-advance at
+///   end of item is untouched) — there is simply no longer a control for
+///   them, per the design's "get rid of the rest of the options".
+///
+/// **All chrome talks to `PlayerController` and only `PlayerController`** —
+/// see that type's doc comment for the contract.
 ///
 /// Owns auto-hide (3s idle on tvOS, never while paused, re-armed by any
 /// D-pad nudge or control tap) and hosts Night mode: while the lock is on,
@@ -91,6 +114,13 @@ struct PlayerChrome: View {
     @FocusState private var focus: PlayerFocusField?
     @State private var night = NightModeController()
     @State private var idleTimer = ChromeIdleTimer()
+    /// **Local to the chrome, deliberately.** Opening scenes pauses playback,
+    /// and `onChange(of: controller.isPlaying)` below forces `visible = true`
+    /// whenever playback stops — so if this lived in `PlayerView` and drove
+    /// the shared `visible` binding, opening the panel would summon the chrome
+    /// underneath it. Keeping it here lets the whole chrome subtree be gated
+    /// on `!scenesOpen`, which makes that write harmless.
+    @State private var scenesOpen = false
     @State private var sonarPulse = false
 
     private var accent: Color { theme.accent }
@@ -112,7 +142,7 @@ struct PlayerChrome: View {
                     .transition(.opacity)
             }
 
-            if visible && !night.isLocked {
+            if visible && !night.isLocked && !scenesOpen {
                 #if os(iOS)
                 // tvOS reveals/hides chrome via the Menu button
                 // (`PlayerView`'s `.onExitCommand`) and idle-timeout alone.
@@ -123,41 +153,53 @@ struct PlayerChrome: View {
                 tapCatcher(action: toggleVisible)
                 #endif
 
+                // Legibility scrims, top and bottom. The chrome used to sit
+                // on raw picture, which is where its contrast went the moment
+                // a scene was bright — and this version leans harder on white
+                // type and thin strokes than the one it replaced, so it needs
+                // them more. Behind everything, and never hit-testable.
+                legibilityScrims
+
                 sonarMotif
 
-                VStack {
+                // One column, top to bottom: header, the circles centred in
+                // whatever is left, the foot. The circles take the slack, so
+                // they stay centred whether or not the item has tags.
+                VStack(spacing: 0) {
                     PlayerTopBar(
                         item: controller.currentItem,
-                        queuePositionLabel: controller.queuePositionLabel,
                         accent: accent,
                         night: night,
                         onBack: onClose,
                         onToggleNight: toggleNight,
                         focus: $focus
                     )
-                    Spacer()
-                }
-                .padding(.top, 44)
-                .padding(.horizontal, 56)
 
-                PlayerCenterControls(controller: controller, accent: accent, onInteract: interact, focus: $focus)
+                    Spacer(minLength: 24)
 
-                HStack {
-                    Spacer()
-                    PlayerRightRail(controller: controller, accent: accent, onInteract: interact, focus: $focus)
-                        .padding(.trailing, 44)
-                }
-
-                VStack {
-                    Spacer()
-                    VStack(spacing: 48) {
-                        PlayerScrubber(currentTime: controller.currentTime, duration: controller.duration, accent: accent)
-                        PlayerTransportStrip(
+                    VStack(spacing: 34) {
+                        PlayerTransportRow(
                             controller: controller, accent: accent,
-                            onInteract: interact, onOpenScenes: onOpenScenes, focus: $focus
+                            onInteract: interact, focus: $focus
+                        )
+                        PlayerClockReadout(
+                            // `displayTime`, not `currentTime`: while a burst
+                            // of jump taps is settling this shows where they
+                            // are heading, so the number moves on the tap
+                            // rather than on the seek.
+                            currentTime: controller.displayTime,
+                            duration: controller.duration
                         )
                     }
+
+                    Spacer(minLength: 24)
+
+                    PlayerFootActions(
+                        controller: controller, accent: accent,
+                        onInteract: interact, onOpenScenes: openScenes, focus: $focus
+                    )
                 }
+                .padding(.top, 44)
                 .padding(.bottom, 44)
                 .padding(.horizontal, 56)
 
@@ -170,8 +212,14 @@ struct PlayerChrome: View {
                         focus: $focus
                     )
                 }
-            } else {
+            } else if !scenesOpen {
                 hiddenCatcher
+            }
+
+            if scenesOpen {
+                PlayerScenesPanel(controller: controller, accent: accent,
+                                  onDismiss: closeScenes)
+                    .transition(.opacity)
             }
 
             // Last in the stack on purpose: while the lock is on it takes
@@ -186,7 +234,11 @@ struct PlayerChrome: View {
             }
         }
         .animation(.easeInOut(duration: 0.9), value: night.isOn)
+        .onChange(of: visible) { _, v in
+            PlayerDiagnostics.log("chrome: visible -> \(v)")
+        }
         .onAppear {
+            PlayerDiagnostics.log("chrome: onAppear visible=\(visible)")
             withAnimation(.easeOut(duration: 4).repeatForever(autoreverses: false)) { sonarPulse = true }
             // tvOS-only: seeding `@FocusState` gives the remote's directional
             // pad something focused at launch. On iPadOS, driving this same
@@ -282,6 +334,19 @@ struct PlayerChrome: View {
         #endif
     }
 
+    /// Scenes is its own surface: the chrome goes away entirely while it is
+    /// up, and the 3s auto-hide has nothing to hide, so the timer stops.
+    private func openScenes() {
+        onOpenScenes()
+        idleTimer.cancel()
+        withAnimation(.easeInOut(duration: 0.22)) { scenesOpen = true }
+    }
+
+    private func closeScenes() {
+        withAnimation(.easeInOut(duration: 0.22)) { scenesOpen = false }
+        interact()
+    }
+
     private func interact() {
         PlayerDiagnostics.log("chrome: interact — reveal")
         visible = true
@@ -335,6 +400,27 @@ struct PlayerChrome: View {
                 visible = false
             }
         }
+    }
+
+    /// A top and bottom darkening pass, each fading to nothing well before
+    /// the middle so the picture itself stays untouched where the eye
+    /// actually is.
+    private var legibilityScrims: some View {
+        VStack(spacing: 0) {
+            LinearGradient(
+                colors: [.black.opacity(0.86), .black.opacity(0.42), .clear],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: 340)
+            Spacer(minLength: 0)
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.46), .black.opacity(0.90)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: 420)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 
     /// Decorative concentric-ring motif, top-right — the same idiom as

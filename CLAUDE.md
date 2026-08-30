@@ -13,8 +13,12 @@ real, working logic in it worth mining.
 **Before implementing any new mechanism, screen, or capability in this repo, look at whether
 `/Users/xyan/code/jelly-tv-ios` already solved it.** Concretely:
 
-- Search its `Core/`, `iOS/`, `tvOS/`, and `docs/` for an existing implementation, component,
-  or shader before designing one from scratch here.
+- **Send the `v1-scout` subagent first** (`.claude/agents/v1-scout.md`) — before writing code or a
+  proposal. It knows the v1 tree, reads its header docs and git history, and comes back with a
+  briefing: what v1 did, the hard-won details, and what to port / adapt / leave. Do this once per
+  feature, at the start; it is cheap next to rediscovering a solved problem.
+- Or search its `Core/`, `iOS/`, `tvOS/`, and `docs/` yourself for an existing implementation,
+  component, or shader before designing one from scratch here.
 - If something is worth bringing over, port the *idea* (and code where it's clean enough)
   deliberately — don't copy its structural mess along with it. Note in the proposal/design doc
   what was ported from where (see `openspec/changes/archive/2026-07-11-hero-carousel-transitions/`
@@ -189,8 +193,9 @@ in `Apps/JellyTV/Sources/Player/`:
   of natural end-of-video so the re-resolve doesn't cancel the in-flight end-of-video/auto-advance
   handler); 20s load-timeout watchdog for an item stuck on `.unknown`; 3-strike queue auto-skip.
 - **`PlayerController`** — thin chrome-facing facade. **All chrome talks to this controller and
-  only this controller**, never `PlayerEngine` directly. Owns mash-protection (250ms leading-edge
-  coalesce + re-entrancy guard) for queue navigation and favorite toggles.
+  only this controller**, never `PlayerEngine` directly. Owns mash-protection for queue
+  navigation and favorite toggles (250ms leading-edge coalesce + re-entrancy guard) *and* for
+  seeking (see below).
 - **`PlayerLayerView`** — `UIViewRepresentable` wrapping a `UIView` whose `layerClass` IS
   `AVPlayerLayer`. Deliberately not `AVPlayerViewController` / SwiftUI `VideoPlayer` — both always
   ship some system chrome.
@@ -223,9 +228,93 @@ retried (a duplicate creates a ghost session server-side); 401 is never retried.
 Favorite → real Jellyfin endpoint (`setFavorite`/`clearFavorite`). Dislike has no Jellyfin
 equivalent — it's a local-only `UserDefaults` flag owned by `PlayerController`.
 
-**Scenes (Phase 2) is not implemented** — the chrome's SCENES transport tile exists but its tap
-handler is a no-op. **The tags row is omitted from the chrome entirely** (Phase 3, interactive
-tags — not just hidden, never rendered).
+**The chrome is the "Grandma menu"** (design canvas artboard A) — five circles in one row over a
+position readout, three actions in the foot, and nothing written on any of them except BACK:
+
+    ⏮ start over  ·  ↺30  ·  play/pause  ·  ↻30  ·  ↻1min          (`PlayerTransportRow`)
+    27:00 / 55:16                                                   (`PlayerClockReadout`)
+    [👎]  [ SCENES ]  [❤️]                                           (`PlayerFootActions`)
+
+It replaced a 13-control chrome (repeat, a right-hand rail of favourite/next/dislike, a progress
+bar, and a 7-tile seek strip). Things that went, and stay gone unless someone asks: **the progress
+bar** (a bar invites dragging, and a dragged bar is the easiest way to lose your place by
+accident), **every caption except BACK** (which is what buys five full-size targets in one row),
+and **the repeat and next buttons** — the engine still auto-advances and `PlayerController` still
+exposes `toggleRepeatOne()`/`next()`, there is simply no control for them.
+
+Where an item has **logo artwork** (`/Items/{id}/Images/Logo`) that artwork *is* the title; plain
+type is the fallback, and only the fallback. Tags render as chips under it. Both required new
+plumbing — `PlayableItem.logoURL`/`.tags`, `Movie`/`Show.logoArt`/`.tags`, and `Tags` added to
+`fetchItemDetail`'s `fields` (Jellyfin won't return it otherwise). An episode borrows its
+*series'* logo and tags via `AppState.seriesIdentity(for:)`; Jellyfin almost never gives an
+episode either.
+
+**Seeks are coalesced, because five big circles are the most mashable surface in the app.**
+`PlayerController.jump(by:)`/`jump(to:)` accumulate a burst of taps onto a running target and
+commit **one** seek 280ms after the tapping stops, with a busy gate so a commit landing mid-seek
+re-arms rather than stacking a second `avPlayer.seek`. `seek(to:)` stays uncoalesced for callers
+that already know an exact target and aren't mashable (a scenes thumbnail). Two real bugs this
+fixes, both of which shipped in v1 as well as here: the old version re-read `currentTime` per tap,
+so taps landing before the first seek resolved all read the *same stale* position and three fast
+taps on +30s produced **one** +30s jump (reads as the button not registering); and each seek was
+frame-accurate, so a burst of them hammered a possibly-transcoding server. `displayTime` exposes
+the pending target so the readout moves on the tap while the picture follows a beat later — that
+feedback is what stops someone pressing again to check. v1 never gated seeks at all; its own port
+plan states the principle it didn't apply here: *"coalesce + busy gate solves mash, debounce alone
+does not."*
+
+**The position readout is `M:SS` / `H:MM:SS`, never hours:minutes.** The design mockup drew
+`00:27/01:17`; implemented literally that changes once a minute (looks frozen against the engine's
+4Hz tick) and `00:27` reads as twenty-seven *seconds*. `formatPlayerClock(_:matching:)` formats
+**both halves against the duration**, so a long film can't render `8:03 / 2:11:00` — the pair
+keeps one width for the whole runtime.
+
+**AirPlay is real** (`AirPlayButton`): a live `AVRoutePickerView` held at 2% alpha over our own
+button, because a fully transparent `UIView` stops hit-testing. It reads the actual route name off
+`AVAudioSession.currentRoute` and lights up when output leaves the device. tvOS has no route
+picker — the TV owns routing — so there it is an inert readout.
+
+**Scenes / trickplay** (`TrickplayClient` + `PlayerScenesPanel`) — a grid of thumbnails around the
+current moment, swipe to travel, tap one to go there. **It never scrubs the video to build these.**
+Jellyfin pre-bakes frames into sprite sheets; one sheet download plus bitmap arithmetic gives a
+whole page, measured at ~80ms against ~1.1s for a frame-accurate seek per thumbnail. Three
+protocol landmines, all of which cost v1 a bugfix commit each:
+
+- **The `Trickplay` field nests two levels** — `mediaSourceId → widthString → info`. Reading the
+  media-source key as a width is a *decode failure that presents as "this item has no trickplay"*,
+  not as an error, so it fails silently and permanently.
+- **Never gate on `ThumbnailCount`.** It counts only non-black frames, so an item whose opening is
+  a fade reports `1` while the sheet holds a full valid grid. Fetch and crop; let 404 /
+  decode-failure / out-of-bounds be the only rejections.
+- **Dedupe in-flight sheet fetches.** Six cells missing the cache at once otherwise pull the same
+  sheet six times and only the last write survives.
+
+Sheets are cached LRU (24) on an actor, wiped explicitly on sign-out — the URLs carry an
+`api_key` but the decoded images have no auth boundary of their own.
+
+Panel behaviour worth keeping: **times past the runtime are filtered out before anything renders**
+(a cell that can never load spins forever — that was a real bug), rows collapse to
+`ceil(count/3)` with *invisible* spacers so surviving tiles keep their one-third width, and the
+**"Next video" tile sits in the grid** in the slot the next thumbnail would have occupied rather
+than on an edge page of its own. Paging widens as you travel (10s per cell near the current
+moment, then 50s, then 60s). `TabView(.page)` does the swiping — v1 shipped a hand-rolled
+`DragGesture` carousel first and replaced it because the commit-vs-settle race made the outgoing
+page slide back in; the native pager also can't be spammed, since a drag must physically complete
+to land a page. `.page` style is **iOS-only**: on tvOS a `TabView` without it paints a tab bar
+across the panel, so tvOS renders the current page directly and travels by the footer buttons.
+
+**Resuming an episode queues the rest of its season.** `AppState.resumeRequest` used to return
+`.single(item)` for Continue Watching, which silently disabled everything downstream that needs a
+next episode — auto-advance at end of item, and the scenes panel's Next-video tile. Someone
+resuming episode 4 means to keep watching. A movie stays a single item.
+
+**A `.fullScreenCover` must hang off a container whose identity never changes.** `RootView`'s
+cover previously sat on a `Group` whose branch swaps when `server.isConnected` flips — which it
+does whenever stored credentials are tried, fail, or later succeed — and each flip tore the
+presented cover down. It now hangs off a `Color.clear` sibling inside a `ZStack`. This is not just
+the screenshot hook: a server blip mid-film used to drop the user out of the player. Presenting a
+cover from an initial `@State` value is separately unreliable (SwiftUI drops it during the first
+render pass), so the `RT_SHOW_PLAYER` fixture is raised in `.onAppear` instead.
 
 **Night mode** (`NightModeController` + `NightModeOverlay.swift`) is a sleep aid, not a colour
 filter, and every part of it exists to survive someone falling asleep holding the iPad:
@@ -273,6 +362,20 @@ filter, and every part of it exists to survive someone falling asleep holding th
   when driving the simulator outside XcodeBuildMCP's `launch_app_sim`. The Apple TV simulator's
   screenshot capture sometimes comes back portrait-rotated (e.g. 450×800 instead of landscape) —
   `magick screenshot.jpg -rotate -90 out.png` before inspecting it.
+- **The simulator fights you when verifying the player.** Two failure modes that both look like
+  app bugs and are not: the sim's display sleeps within seconds and **suspends the app**, so
+  injected taps do nothing and timers don't fire (a screenshot loop keeps it awake — `sleep`
+  doesn't); and `axe describe-ui` regularly returns a **stale hierarchy**, happily reporting the
+  view *under* a presented cover. Neither is visible as an error. When behaviour is in question,
+  read the app's own log rather than the AX tree:
+  `xcrun simctl launch --console-pty <udid> <bundle>` captures stdout, and `JT_PLAYER_LOG=1` puts
+  chrome visibility transitions, cover presentation, and the trickplay path on it. Hours went into
+  chasing a "chrome never reappears" bug that was display sleep.
+- Real HID injection for touch/swipe is AXe (bundled with XcodeBuildMCP):
+  `~/.npm/_npx/*/node_modules/xcodebuildmcp/bundled/axe {tap,touch,swipe,key} … --udid <udid>`.
+  `touch --down --up` is more reliable than `tap` for a control that may still be animating in.
+  Coordinates are device points. For real playback without tap automation, `RT_AUTOPLAY=<substring>`
+  resumes a Continue Watching entry at launch (any non-empty value falls back to the first one).
 - SourceKit frequently shows stale `No such module 'JellyTVKit'` (or missing-member) errors in the
   editor after package edits; trust the actual `xcodebuild` / `swift test` result, not the inline
   diagnostics.
