@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&display=swap">
+  <style>
+    body { margin: 0; background: #07080C; color: #F4F5F7;
+           font-family: 'Schibsted Grotesk', ui-rounded, system-ui, sans-serif;
+           -webkit-font-smoothing: antialiased; }
+    a { color: #B14EFF; } a:hover { color: #c887ff; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .step { display: flex; align-items: center; gap: 15px; }
+    .steplabel { font-size: 17px; font-weight: 700; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: #07080C">
+
+  <div style="position: absolute; inset: 0; background:
+      radial-gradient(120% 62% at 82% 4%, #241338 0%, #150b22 38%, #0a0710 72%, #07080C 100%)"></div>
+  <svg viewBox="0 0 390 844" style="position: absolute; inset: 0; width: 390px; height: 844px" fill="none">
+    <g stroke="#B14EFF" stroke-width="1">
+      <circle cx="332" cy="66" r="58" opacity="0.2"></circle>
+      <circle cx="332" cy="66" r="126" opacity="0.12"></circle>
+      <circle cx="332" cy="66" r="206" opacity="0.06"></circle>
+    </g>
+  </svg>
+
+  <div style="position: absolute; top: 58px; left: 20px; right: 20px; display: flex; align-items: center; gap: 14px">
+    <div style="position: relative; width: 56px; height: 56px; border-radius: 16px; overflow: hidden;
+        background: linear-gradient(150deg, #7b2fd0, #4a1b7d); border: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 0 8px 22px rgba(0,0,0,0.55)">
+      <svg viewBox="0 0 56 56" style="position: absolute; inset: 0; width: 56px; height: 56px" fill="none">
+        <g stroke="#F4F5F7" stroke-width="1.6" opacity="0.85">
+          <circle cx="28" cy="30" r="7"></circle><circle cx="28" cy="30" r="15" opacity="0.5"></circle></g>
+        <circle cx="28" cy="30" r="2.6" fill="#F4F5F7"></circle></svg>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <div style="font-size: 24px; font-weight: 900; letter-spacing: -0.8px">
+        Why<span style="color: #B14EFF">.</span>So<span style="color: #B14EFF">.</span>Jelly?</div>
+      <span class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 3px;
+          color: rgba(255,255,255,0.42)">JELLYFIN CLIENT</span>
+    </div>
+  </div>
+
+  <div style="position: absolute; top: 148px; left: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px">
+    <span class="mono" style="font-size: 11px; font-weight: 800; letter-spacing: 2.4px;
+        color: rgba(177,78,255,0.9)">SETUP // CONNECTING</span>
+    <span style="font-size: 34px; font-weight: 900; letter-spacing: -1.1px">Connecting…</span>
+    <span class="mono" style="font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.45)">
+      reef.local · 192.168.1.150:8096</span>
+  </div>
+
+  <!-- THE LOG — the same four milestones the connection actually reports. -->
+  <div style="position: absolute; top: 288px; left: 20px; right: 20px; display: flex; flex-direction: column; gap: 26px">
+
+    <div class="step">
+      <div style="display: grid; place-items: center; width: 30px; height: 30px; border-radius: 999px;
+          background: #58D399; box-shadow: 0 0 16px rgba(88,211,153,0.45)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#052012" stroke-width="3.4"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 L10 17.5 L19 6.5"></path></svg>
+      </div>
+      <span class="steplabel" style="color: rgba(255,255,255,0.85)">Reaching server</span>
+    </div>
+
+    <div class="step">
+      <div style="display: grid; place-items: center; width: 30px; height: 30px; border-radius: 999px;
+          background: #58D399; box-shadow: 0 0 16px rgba(88,211,153,0.45)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#052012" stroke-width="3.4"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 L10 17.5 L19 6.5"></path></svg>
+      </div>
+      <span class="steplabel" style="color: rgba(255,255,255,0.85)">Handshake established</span>
+    </div>
+
+    <div class="step">
+      <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+        <circle cx="15" cy="15" r="12.5" stroke="rgba(177,78,255,0.22)" stroke-width="3"></circle>
+        <path d="M15 2.5 A 12.5 12.5 0 0 1 26.5 10.2" stroke="#B14EFF" stroke-width="3"
+              stroke-linecap="round"></path></svg>
+      <span class="steplabel" style="color: #F4F5F7">Authenticating</span>
+    </div>
+
+    <div class="step">
+      <div style="display: grid; place-items: center; width: 30px; height: 30px">
+        <div style="width: 9px; height: 9px; border-radius: 999px; background: rgba(255,255,255,0.22)"></div>
+      </div>
+      <span class="steplabel" style="color: rgba(255,255,255,0.38); font-weight: 600">Synchronizing libraries</span>
+    </div>
+  </div>
+
+  <!-- The line that runs while it works, so a slow server doesn't read as a hang. -->
+  <div style="position: absolute; top: 536px; left: 20px; right: 20px">
+    <div style="height: 4px; border-radius: 999px; background: rgba(255,255,255,0.1)">
+      <div style="width: 58%; height: 4px; border-radius: 999px; background: #B14EFF;
+          box-shadow: 0 0 14px rgba(177,78,255,0.6)"></div>
+    </div>
+  </div>
+
+  <div style="position: absolute; top: 574px; left: 20px; right: 20px; font-size: 14px; font-weight: 500;
+      line-height: 1.45; color: rgba(255,255,255,0.42); text-wrap: pretty">
+    Signing in as marina. This usually takes a couple of seconds on a local network.</div>
+
+  <!-- A way out, because a stalled connect with no exit is the worst version of this screen. -->
+  <div style="position: absolute; top: 762px; left: 20px; right: 20px; display: flex; align-items: center;
+      justify-content: center; height: 52px; border-radius: 14px; background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12); font-size: 16px; font-weight: 800;
+      color: rgba(255,255,255,0.6)">Cancel</div>
+
+</div>
+</x-dc>
+</body>
+</html>

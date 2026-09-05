@@ -44,6 +44,18 @@ final class ServerConnection: ObservableObject {
     @Published var password: String = ""
     @Published var apiKey: String = ""
 
+    /// The in-flight `connect()`/`reconnect()` task, if any. Stored so
+    /// `cancelConnect()` can actually reach and cancel it — `URLSession`'s
+    /// async `data(for:)` and `Task.sleep` are both cancellation-aware, so
+    /// cancelling this task unwinds the attempt at its next suspension point
+    /// rather than leaving it running to flip `status` (or post an error)
+    /// out from under a form the user has already backed out to. See the
+    /// `Task.isCancelled` guards inside `connect()`/`reconnect()` — without
+    /// them, a cancelled attempt's `nil` network results would still read as
+    /// ordinary failures and post a misleading "couldn't reach the server"
+    /// banner over a screen the user cancelled on purpose.
+    private var connectTask: Task<Void, Never>?
+
     // Persisted state
     private let userDefaults = UserDefaults.standard
     private let hostKey = "jelly:server.host"
@@ -104,7 +116,7 @@ final class ServerConnection: ObservableObject {
             // Enter the connecting state synchronously so the very first frame is
             // the progress screen, not a flash of the empty form.
             status = .connecting("Reconnecting…")
-            Task { await reconnect() }
+            connectTask = Task { [weak self] in await self?.reconnect() }
         }
     }
 
@@ -161,10 +173,43 @@ final class ServerConnection: ObservableObject {
         return true
     }
 
+    /// Starts `connect()` as a cancellable task — the phone Connecting
+    /// screen's Cancel button calls `cancelConnect()` against the task
+    /// stored here. Any caller that fires `connect()` without going through
+    /// this (there shouldn't be one) leaves nothing for Cancel to reach.
+    func beginConnect() {
+        connectTask?.cancel()
+        connectTask = Task { [weak self] in await self?.connect() }
+    }
+
+    /// Cancels an in-flight `connect()`/`reconnect()` and returns to the
+    /// form. Deliberately does not call `fail(_:)` or otherwise post an
+    /// error message — see `connectTask`'s doc comment for why the
+    /// in-flight attempt's own `Task.isCancelled` guards (not this method)
+    /// are what stop it from posting a misleading failure after the user
+    /// cancelled on purpose. `errorMessage` is cleared here in case one is
+    /// already showing from a previous attempt.
+    func cancelConnect() {
+        connectTask?.cancel()
+        connectTask = nil
+        errorMessage = nil
+        connectStep = 0
+        status = .disconnected
+    }
+
     /// Validate inputs and attempt a connection, driving `connectStep` through
     /// the staged log as each real milestone completes. On failure, sets
     /// `errorMessage` and returns to the form; on success, holds the "All set"
     /// banner briefly before flipping to `.connected` (which routes to Home).
+    ///
+    /// Every step past the first `dwell()` re-checks `Task.isCancelled` before
+    /// treating a `nil`/failure result as real and posting an error — a
+    /// cancelled `URLSession.data(for:)` or `Task.sleep` surfaces exactly the
+    /// same way a genuine timeout or rejection would, and without the guard
+    /// a deliberate Cancel would read as "couldn't reach the server" instead
+    /// of just… cancelling. The one exception is the final post-success hold:
+    /// by then credentials are already saved and the handshake genuinely
+    /// succeeded, so there's nothing left to roll back.
     func connect() async {
         errorMessage = nil
         guard let baseURL = buildURL() else {
@@ -179,15 +224,18 @@ final class ServerConnection: ObservableObject {
         status = .connecting("Connecting…")
         connectStep = 0
         await dwell()   // let "Reaching server…" register
+        guard !Task.isCancelled else { return }
 
         // Steps 1 & 2 — reach + handshake, verified with the unauthenticated
         // public info endpoint (also gives us the server name for both modes).
         guard let publicInfo = await fetchPublicSystemInfo(baseURL: baseURL) else {
+            guard !Task.isCancelled else { return }
             fail("Couldn't reach a Jellyfin server at \(hostReadout). Check the host and port.")
             return
         }
         connectStep = 2
         await dwell()
+        guard !Task.isCancelled else { return }
 
         // Step 3 — authenticate (API key or username/password).
         var finalApiKey = apiKey
@@ -198,6 +246,7 @@ final class ServerConnection: ObservableObject {
                 ? await fetchFirstUserId(baseURL: baseURL, apiKey: apiKey)
                 : await resolveUser(baseURL: baseURL, apiKey: apiKey, username: username)
             guard let resolved else {
+                guard !Task.isCancelled else { return }
                 fail("The server is reachable, but that API key was rejected.")
                 return
             }
@@ -208,16 +257,20 @@ final class ServerConnection: ObservableObject {
                 finalApiKey = auth.accessToken
                 userId = auth.userId
             case .failure(let reason):
+                guard !Task.isCancelled else { return }
                 fail(reason)
                 return
             }
         }
+        guard !Task.isCancelled else { return }
         connectStep = 3
         await dwell()
+        guard !Task.isCancelled else { return }
 
         // Step 4 — synchronize + persist.
         saveCredentials(host: host, port: port, apiKey: finalApiKey, userId: userId)
         await dwell()
+        guard !Task.isCancelled else { return }
         connectStep = 4   // shows the "All set" success banner
 
         let info = ServerInfo(
@@ -228,7 +281,8 @@ final class ServerConnection: ObservableObject {
             baseURL: baseURL
         )
         // Hold the success banner (status stays .connecting so RootView keeps
-        // showing this screen), then flip to Home.
+        // showing this screen), then flip to Home. No cancellation guard here
+        // on purpose — see the doc comment above.
         try? await Task.sleep(for: .milliseconds(1100))
         status = .connected(info)
     }
@@ -236,6 +290,10 @@ final class ServerConnection: ObservableObject {
     /// Reconnect with stored credentials, driving the same visible steps.
     /// Retries up to 3 times with increasing backoff if the server is unreachable,
     /// so a slow network or server restart doesn't dump the user on the form.
+    /// Same `Task.isCancelled` guards as `connect()`, and for the same reason
+    /// — `cancelConnect()` cancels this task too, and without the guards a
+    /// cancelled attempt's `nil` results would post a real failure message
+    /// (or silently retry) instead of just returning to the form.
     private func reconnect() async {
         guard let baseURL = buildURL(), !apiKey.isEmpty else {
             status = .disconnected
@@ -247,21 +305,26 @@ final class ServerConnection: ObservableObject {
             connectStep = 0
 
             guard let publicInfo = await fetchPublicSystemInfo(baseURL: baseURL) else {
+                guard !Task.isCancelled else { return }
                 if attempt < 3 {
                     connectStep = 0
                     errorMessage = "Server unreachable. Retrying (\(attempt)/3)…"
                     try? await Task.sleep(for: .seconds(TimeInterval(attempt * 2)))
+                    guard !Task.isCancelled else { return }
                     continue
                 }
                 fail("Couldn't reach \(hostReadout). Sign in again.")
                 return
             }
             connectStep = 2
+            guard !Task.isCancelled else { return }
 
             guard await fetchFirstUserId(baseURL: baseURL, apiKey: apiKey) != nil else {
+                guard !Task.isCancelled else { return }
                 fail("Your saved session has expired. Sign in again.")
                 return
             }
+            guard !Task.isCancelled else { return }
             connectStep = 4
 
             let userId = userDefaults.string(forKey: userIdKey) ?? ""

@@ -68,9 +68,13 @@ struct AccountDetail: View {
                     .foregroundStyle(theme.accent)
             }
             .padding(.vertical, 26)
-            .padding(.horizontal, 8)
+            // 20, not 8: the focus style's accent bar sits in the first 8pt,
+            // so less than this and it touches the S.
+            .padding(.horizontal, 20)
             .contentShape(Rectangle())
         }
-        .buttonStyle(RowFocusStyle())
+        // Full-column row: at 1.03 the trailing glyph landed outside the
+        // (unscaled) tint. Tint + bar + glow carry focus alone.
+        .buttonStyle(RowFocusStyle(scale: 1))
     }
 }

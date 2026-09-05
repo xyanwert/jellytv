@@ -49,7 +49,10 @@ struct LibrariesSubmenu: View {
     }
 }
 
-private struct LibraryRow: View {
+/// Not `private`: `PhoneMoreSheet` reuses this exact row for the phone
+/// "More" sheet's library list, rather than re-declaring the same folder
+/// icon + name + count + adult-badge chrome a second time.
+struct LibraryRow: View {
     let library: Library
     @EnvironmentObject private var theme: Theme
     @EnvironmentObject private var appState: AppState

@@ -495,6 +495,7 @@ final class PlayerEngine {
                 // Skip the resume seek if we're essentially at the start
                 // (fresh) or within 30s of the end (treat as completed).
                 if resumeSeconds > 5 && (total <= 0 || resumeSeconds < total - 30) {
+                    PlayerDiagnostics.log("resume seek → \(Int(resumeSeconds))s of \(Int(total))s")
                     await seek(to: resumeSeconds)
                 }
             }

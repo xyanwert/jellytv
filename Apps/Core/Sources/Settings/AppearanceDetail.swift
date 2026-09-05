@@ -16,6 +16,28 @@ struct AppearanceDetail: View {
             }
             DetailDivider()
 
+            // iOS only. tvOS points its library backdrop at the *focused*
+            // poster and is meant to read as a picture, so it deliberately
+            // ignores this preference — showing the control there would be a
+            // switch that does nothing.
+            #if os(iOS)
+            DetailRow(label: "Background library image effect",
+                      description: "Treatment for the artwork behind Movies, TV Shows, and the category libraries") {
+                SegmentedControl(
+                    options: LibraryBackdropEffect.allCases.map(\.label),
+                    selection: Binding(
+                        get: { theme.libraryBackdropEffect.label },
+                        set: { label in
+                            if let match = LibraryBackdropEffect.allCases.first(where: { $0.label == label }) {
+                                theme.libraryBackdropEffect = match
+                            }
+                        }
+                    )
+                )
+            }
+            DetailDivider()
+            #endif
+
             Spacer(minLength: 0)
         }
     }

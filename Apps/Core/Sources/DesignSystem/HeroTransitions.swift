@@ -27,6 +27,25 @@ struct HeroDepartureModifier: ViewModifier, Animatable {
     var canvasSize: CGSize
     var accent: Color
     var time: Double              // absolute time for ember animation
+    // Drops the organic-warp octaves, the ember particles, and the stretch
+    // motion-blur resample inside `hexCrumble` — see the call site in
+    // `HomeView.departingLayer` for why tvOS passes `true` here.
+    var lite: Bool = false
+    /// Layer points per screen point — the content this modifies has been
+    /// laid out at `renderScale` × its on-screen size and is scaled back up
+    /// by the caller, so the shader runs on `renderScale²` of the fragments.
+    /// `canvasSize` stays in screen points; the shader converts at its texture
+    /// taps (`unitScale`). 1 leaves the layer alone.
+    var renderScale: CGFloat = 1
+    /// How far tiles fly, as a fraction of the designed flight. The sample
+    /// margin the layer is rendered with has to cover that flight, and at the
+    /// full 600×560pt it more than doubled the layer's area — so on a TV the
+    /// tiles travel less and the margin shrinks with them.
+    var flightScale: Double = 1
+
+    /// The margin the full-flight crumble needs: ~460pt drift plus gravity
+    /// sag, inflated by the shrink-factor resampling, or tiles clip.
+    private static let fullFlightMargin = CGSize(width: 600, height: 560)
 
     nonisolated var animatableData: Double {
         get { progress }
@@ -46,11 +65,17 @@ struct HeroDepartureModifier: ViewModifier, Animatable {
                     .float(Float(progress)),
                     .float2(canvasSize),
                     .color(accent),
-                    .float(Float(time))
+                    .float(Float(time)),
+                    .float(lite ? 1 : 0),
+                    .float(Float(renderScale)),
+                    .float(Float(flightScale))
                 ),
-                // Cover the shader's max tile flight (~460pt drift + gravity
-                // sag, inflated by the shrink-factor resampling) or tiles clip.
-                maxSampleOffset: CGSize(width: 600, height: 560)
+                // In layer points: the designed margin, scaled by how far the
+                // tiles actually fly and by the layer's own scale.
+                maxSampleOffset: CGSize(
+                    width: Self.fullFlightMargin.width * flightScale * renderScale,
+                    height: Self.fullFlightMargin.height * flightScale * renderScale
+                )
             )
         case .fade:
             content.opacity(progress)

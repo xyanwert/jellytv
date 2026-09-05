@@ -54,6 +54,16 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertTrue(m.cast.isEmpty)
         XCTAssertNil(m.awards)
         XCTAssertNil(m.externalRatings)
+        // Bare all the way down: the fields the detail fetch fills start
+        // empty, not at the demo's "Mara Ellingsen · 2h 14m", and the item's
+        // own list-level facts come from the item.
+        XCTAssertTrue(m.director.isEmpty)
+        XCTAssertTrue(m.runtime.isEmpty)
+        XCTAssertTrue(m.starring.isEmpty)
+        XCTAssertTrue(m.moreLikeThis.isEmpty)
+        XCTAssertEqual(m.resumeProgress, 0)
+        XCTAssertEqual(m.synopsis, item.synopsis ?? "")
+        XCTAssertEqual(m.communityRating, item.rating)
     }
 
     func testAdultLibraries() {
@@ -100,12 +110,14 @@ final class SampleCatalogTests: XCTestCase {
         let item = SampleCatalog.recommended[0]
         let show = SampleCatalog.show(for: item)
         XCTAssertEqual(show.title, item.title)
-        XCTAssertEqual(show.keyArt, item.image)
+        XCTAssertEqual(show.keyArt, item.backdropImage ?? item.image)
         // Bare: seasons/episodes come from the live per-show/per-season fetch,
         // never the demo template — never fake episode thumbnails.
         XCTAssertTrue(show.seasons.isEmpty)
         XCTAssertTrue(show.runSummary.isEmpty)
-        XCTAssertTrue(show.years.isEmpty)
+        XCTAssertTrue(show.createdBy.isEmpty)
+        XCTAssertTrue(show.techLine.isEmpty)
+        XCTAssertEqual(show.years, item.year ?? "")
         XCTAssertTrue(show.resumeEpisodeLabel.isEmpty)
     }
 
@@ -117,8 +129,12 @@ final class SampleCatalogTests: XCTestCase {
 
     func testShowSynopsis() {
         XCTAssertFalse(SampleCatalog.show.synopsis.isEmpty)
-        XCTAssertEqual(SampleCatalog.show(for: SampleCatalog.recommended[0]).synopsis,
-                       SampleCatalog.show.synopsis)
+        // A real item's bare show carries the *item's* synopsis (or none) —
+        // never the demo's, which is what this test used to assert.
+        let item = SampleCatalog.recommended[0]
+        XCTAssertEqual(SampleCatalog.show(for: item).synopsis, item.synopsis ?? "")
+        XCTAssertEqual(SampleCatalog.show(for: item).rating,
+                       item.rating.map { String(format: "%.1f", $0) } ?? "")
     }
 
     func testMediaItemKind() {
@@ -143,7 +159,8 @@ final class SampleCatalogTests: XCTestCase {
         let item = SampleCatalog.recommended[0]   // "Undertow · Movie · Thriller"
         let m = SampleCatalog.movie(for: item)
         XCTAssertEqual(m.title, item.title)
-        XCTAssertEqual(m.keyArt, item.image)
+        XCTAssertEqual(m.keyArt, item.backdropImage ?? item.image)
+        XCTAssertEqual(m.posterArt, item.image)
         XCTAssertEqual(m.resumeLabel, item.title)
         XCTAssertTrue(m.genreLabel.hasPrefix("Movies / "))
     }

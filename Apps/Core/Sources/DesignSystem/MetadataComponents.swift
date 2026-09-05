@@ -120,32 +120,6 @@ struct CastAvatar: View {
     }
 }
 
-/// A horizontal cast entry (portrait beside name/character) for the Movies
-/// dossier's two-column cast grid.
-struct CastListItem: View {
-    let member: CastMember
-    var portrait: CGFloat = 42
-
-    var body: some View {
-        HStack(spacing: 10) {
-            CastPortrait(member: member, size: portrait)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(member.name)
-                    .font(Typography.font(15, .bold))
-                    .foregroundStyle(Palette.textPrimary)
-                    .lineLimit(1).minimumScaleFactor(0.8)
-                if let role = member.role, !role.isEmpty {
-                    Text(role)
-                        .font(Mono.font(12, .medium))
-                        .foregroundStyle(Palette.text(0.45))
-                        .lineLimit(1).minimumScaleFactor(0.8)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-    }
-}
-
 /// A compact strip of rating chips — IMDb (0–10), Rotten Tomatoes (%, tinted by
 /// freshness) and Metacritic (0–100). Each chip renders only when its value is
 /// present, so absent sources leave no gap. Adapted from v1's `ratingsStrip`.
@@ -210,91 +184,5 @@ struct AwardsBadge: View {
             .background(Self.gold.opacity(0.12), in: Capsule())
             .overlay(Capsule().stroke(Self.gold.opacity(0.4), lineWidth: 1))
         }
-    }
-}
-
-/// A TV network's branding lockup for the Shows dossier's top panel — sits
-/// where the Movies dossier shows critics/audience stat boxes. Renders the
-/// real TMDB logo when available (opt-in, external image → plain
-/// `AsyncImage` per the app's external-image convention, with a text-badge
-/// fallback on load failure); else falls back to the network name alone
-/// (Jellyfin's plain `Studios` field, no TMDB key needed); else nothing, so
-/// absent data leaves no gap.
-struct NetworkLockup: View {
-    let network: Network?
-    var fallbackName: String? = nil
-    var minHeight: CGFloat = 64
-
-    private var displayName: String? {
-        let name = network?.name ?? fallbackName
-        return (name?.isEmpty ?? true) ? nil : name
-    }
-
-    var body: some View {
-        if displayName != nil {
-            content
-                .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
-                .padding(.horizontal, 18)
-                .background(Palette.text(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.1), lineWidth: 1))
-        }
-    }
-
-    @ViewBuilder private var content: some View {
-        if let logoURL = network?.logoURL, let url = URL(string: logoURL) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fit).frame(maxHeight: 34)
-                case .empty, .failure: textBadge
-                @unknown default: textBadge
-                }
-            }
-        } else {
-            textBadge
-        }
-    }
-
-    @ViewBuilder private var textBadge: some View {
-        if let displayName {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(displayName.uppercased())
-                    .font(Typography.font(22, .black))
-                    .foregroundStyle(Palette.textPrimary)
-                    .lineLimit(1).minimumScaleFactor(0.6)
-                Text("NETWORK")
-                    .font(Mono.font(11, .bold)).tracking(1.5)
-                    .foregroundStyle(Palette.text(0.42))
-            }
-        }
-    }
-}
-
-/// A compact circular percentage ring for a critics score — the Shows
-/// dossier's bottom-panel critics row. Reuses the trimmed-circle idiom from
-/// `Detail/DetailComponents.swift`'s `ResumeCard`, colored by the same
-/// freshness tiers `RatingChips` uses.
-struct CriticsGauge: View {
-    let percent: Int
-    var size: CGFloat = 44
-
-    private var color: Color {
-        if percent >= 75 { return Color(hex: "#3FBF8F") }
-        if percent >= 60 { return Color(hex: "#E8B44A") }
-        return Color(hex: "#E8544A")
-    }
-
-    var body: some View {
-        ZStack {
-            Circle().stroke(Palette.text(0.14), lineWidth: 4)
-            Circle().trim(from: 0, to: Double(percent) / 100)
-                .stroke(color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-            Text("\(percent)%")
-                .font(Typography.font(size * 0.26, .black))
-                .foregroundStyle(Palette.textPrimary)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(width: size, height: size)
     }
 }

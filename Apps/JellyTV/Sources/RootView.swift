@@ -5,6 +5,10 @@ struct RootView: View {
     @StateObject private var theme = Theme()
     @StateObject private var server = ServerConnection()
     @StateObject private var appState = AppState()
+    /// "Play On" from other Jellyfin apps — attached to `appState` once the
+    /// server connection is up; its own object so the Home top bar can
+    /// observe just it.
+    @StateObject private var remote = RemoteControl()
     @State private var destination: NavDestination = {
         let env = ProcessInfo.processInfo.environment
         if env["JT_SHOW_SETTINGS"] == "1" { return .settings }
@@ -12,6 +16,13 @@ struct RootView: View {
         if env["JT_SHOW_TV"] == "1" { return .tv }
         if env["JT_SHOW_ANIME"] == "1" { return .animeLibrary }
         if env["JT_SHOW_LATE_NIGHT"] == "1" { return .lateNight }
+        if env["JT_SHOW_SEARCH"] == "1" { return .search }
+        // `1` for Home Videos, `nsfw` for After Hours — the two libraries a
+        // `homevideos` collection resolves to. See `Remote`'s `RootView` for
+        // the same hook on iPad.
+        if let videos = env["JT_SHOW_VIDEOS"] {
+            return .videosLibrary(videos == "nsfw" ? .porn : .videos)
+        }
         return .home
     }()
     @State private var isLibrariesOpen = ProcessInfo.processInfo.environment["JT_SHOW_LIBRARIES"] == "1"
@@ -48,10 +59,17 @@ struct RootView: View {
         .environmentObject(theme)
         .environmentObject(server)
         .environmentObject(appState)
+        .environmentObject(remote)
         .preferredColorScheme(.dark)
         .onChange(of: appState.activePlaybackRequest) { _, request in
-            guard let request else { return }
-            playerPresentation = .request(request)
+            if let request {
+                playerPresentation = .request(request)
+            } else if case .request = playerPresentation {
+                // Cleared from outside the player — a remote Stop/GoHome
+                // (`RemoteControl`). The cover's own dismiss already nils the
+                // request (below), so this is a no-op in that direction.
+                playerPresentation = nil
+            }
         }
         .fullScreenCover(item: $playerPresentation) { presentation in
             Group {
@@ -69,6 +87,18 @@ struct RootView: View {
             // explicitly (`PlayerChrome` reads `theme` directly).
             .environmentObject(theme)
             .environmentObject(appState)
+            // **tvOS dismisses this cover on Menu before any SwiftUI code
+            // runs — `.interactiveDismissDisabled()` does not stop it.**
+            // Verified three ways, all producing an unconditional exit back
+            // to whatever presented the cover, with zero log line from
+            // `PlayerChrome.handleMenuPress`/`interact` — meaning the press
+            // never reaches the view at all: raw HID keycode 41, a real
+            // `System Events key code 53` (routed through Simulator.app's
+            // own remote translation, not a bypass), and with
+            // `.interactiveDismissDisabled()` attached here (tried and
+            // removed — no effect on tvOS's cover-dismiss gesture, whatever
+            // it does on iOS/iPadOS sheets). See `PlayerChrome`'s own doc
+            // comment for what this means for Menu inside the player.
         }
         .onChange(of: playerPresentation) { _, presentation in
             // The cover's own dismiss (back button / exit command) only
@@ -88,8 +118,15 @@ struct RootView: View {
             case .hentai:
                 destination = .lateNight
                 isLibrariesOpen = false
-            default:
-                break   // no dedicated screen yet for this category
+            case .videos, .porn:
+                destination = .videosLibrary(category)
+                isLibrariesOpen = false
+            case .movies, .moviesxxx:
+                destination = .movies
+                isLibrariesOpen = false
+            case .shows:
+                destination = .tv
+                isLibrariesOpen = false
             }
         }
         .onChange(of: server.isConnected) { _, connected in
@@ -102,8 +139,10 @@ struct RootView: View {
                 )
                 Task { await appState.refresh() }
                 appState.startRefreshTimer()
+                remote.attach(appState)
             } else {
                 appState.stopRefreshTimer()
+                remote.detach()
             }
         }
     }
@@ -120,7 +159,7 @@ struct RootView: View {
         case .settings:
             SettingsView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .search:
-            placeholder
+            SearchLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .movies:
             MoviesLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .tv:
@@ -129,32 +168,9 @@ struct RootView: View {
             AnimeLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .lateNight:
             LateNightLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
-        }
-    }
-
-    private var placeholder: some View {
-        HStack(spacing: 0) {
-            NavRail(
-                destination: destination,
-                isLibrariesOpen: isLibrariesOpen,
-                onSelect: handleRailSelection
-            )
-            LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems()) {
-                ComingSoon(title: placeholderTitle)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .background(Palette.background.ignoresSafeArea())
-        .ignoresSafeArea()
-        .onExitCommand { handleRailSelection(isLibrariesOpen ? .libraries : .home) }
-    }
-
-    private var placeholderTitle: String {
-        switch destination {
-        case .search: return "Search"
-        case .movies: return "Movies"
-        case .tv: return "TV Shows"
-        case .home, .settings, .animeLibrary, .lateNight: return ""
+        case .videosLibrary(let category):
+            VideosLibraryView(category: category, isLibrariesOpen: isLibrariesOpen,
+                              onSelectRail: handleRailSelection)
         }
     }
 

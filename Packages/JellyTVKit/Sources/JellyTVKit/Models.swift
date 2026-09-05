@@ -52,7 +52,16 @@ extension JellyfinAPI.JellyfinItem {
             // item has one, else a high-res Primary — not the 500px poster
             // `image` carries for the grid tiles.
             backdropImage: backdropImageURLString(imageBaseURL, maxWidth: 1920),
-            tags: tags ?? []
+            tags: tags ?? [],
+            runtimeTicks: runTimeTicks,
+            resumePositionTicks: userData?.playbackPositionTicks,
+            isFavorite: userData?.isFavorite ?? false,
+            played: userData?.played ?? false,
+            logoImage: logoImageURLString(imageBaseURL),
+            takenAt: MovieNightFacts.date(fromJellyfin: premiereDate),
+            width: width,
+            height: height,
+            trickplay: trickplay
         )
     }
 
@@ -100,7 +109,9 @@ extension JellyfinAPI.JellyfinItem {
             resumeLabel: resumeLabel,
             artwork: artworkGradient(libraryCategory: libraryCategory),
             itemType: type,
-            seriesId: seriesId
+            seriesId: seriesId,
+            seriesTitle: seriesName,
+            isFavorite: userData?.isFavorite ?? false
         )
     }
 
@@ -129,7 +140,7 @@ extension JellyfinAPI.JellyfinItem {
             resumeProgress: playbackProgress(),
             resumeRemaining: remainingTimeString(),
             starring: cast.map(\.name).joined(separator: ", "),
-            audioLine: "",
+            audioLine: audioSummary(),
             moreLikeThis: moreLikeThis,
             cast: cast,
             tagline: taglines?.first,
@@ -142,8 +153,83 @@ extension JellyfinAPI.JellyfinItem {
             isFavorite: userData?.isFavorite ?? false,
             posterArt: primaryImageURLString(imageBaseURL, maxWidth: 900),
             logoArt: logoImageURLString(imageBaseURL),
-            tags: tags ?? []
+            tags: tags ?? [],
+            chapters: chapterList(imageBaseURL: imageBaseURL),
+            subtitleLanguages: subtitleLanguageList(),
+            tmdbId: providerIds?["Tmdb"],
+            directorId: (people ?? []).first { $0.type == "Director" }?.id
         )
+    }
+
+    /// A person item (`/Users/{u}/Items/{personId}`) as the facts the cast
+    /// lineup shows. Jellyfin reuses the item schema for people: the biography
+    /// is `Overview`, the birth date `PremiereDate`, the death date `EndDate`,
+    /// the birthplace `ProductionLocations[0]`.
+    public func toPerson(imageBaseURL: URL? = nil) -> Person {
+        Person(
+            id: id,
+            name: name ?? "Unknown",
+            bio: overview?.trimmingCharacters(in: .whitespacesAndNewlines),
+            birthDate: MovieNightFacts.date(fromJellyfin: premiereDate),
+            deathDate: MovieNightFacts.date(fromJellyfin: endDate),
+            birthplace: productionLocations?.first,
+            imageURL: primaryImageURLString(imageBaseURL, maxWidth: 600)
+        )
+    }
+
+    /// "English 5.1" — the default (or first) audio stream's language and
+    /// layout. Jellyfin's `DisplayLanguage` is already a word ("English");
+    /// the three-letter `Language` code is only the fallback.
+    private func audioSummary() -> String {
+        let audio = (mediaStreams ?? []).filter { $0.type == "Audio" }
+        guard let stream = audio.first(where: { $0.isDefault == true }) ?? audio.first else { return "" }
+        let language = stream.displayLanguage ?? stream.language?.uppercased() ?? ""
+        let layout: String
+        if let channelLayout = stream.channelLayout, !channelLayout.isEmpty {
+            layout = channelLayout.capitalized
+        } else if let channels = stream.channels {
+            layout = channels >= 6 ? "5.1" : (channels == 2 ? "Stereo" : (channels == 1 ? "Mono" : "\(channels) ch"))
+        } else {
+            layout = ""
+        }
+        return [language, layout].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// Distinct subtitle languages, in stream order, capped so the chip stays
+    /// a chip.
+    private func subtitleLanguageList() -> [String] {
+        var seen = Set<String>()
+        return (mediaStreams ?? [])
+            .filter { $0.type == "Subtitle" }
+            .compactMap { $0.displayLanguage ?? $0.language?.uppercased() }
+            .filter { seen.insert($0).inserted }
+            .prefix(4)
+            .map { $0 }
+    }
+
+    private func chapterList(imageBaseURL: URL?) -> [Chapter] {
+        (chapters ?? []).enumerated().map { index, chapter in
+            Chapter(
+                index: index,
+                title: chapter.name ?? "Chapter \(index + 1)",
+                startSeconds: Double(chapter.startPositionTicks ?? 0) / 10_000_000,
+                imageURL: chapterImageURLString(index: index, tag: chapter.imageTag, base: imageBaseURL)
+            )
+        }
+    }
+
+    /// `/Items/{id}/Images/Chapter/{index}` — token-less like the other image
+    /// endpoints. Nil without a tag: no tag means the server never extracted
+    /// a frame for this chapter, and the strip only shows chapters it can show.
+    private func chapterImageURLString(index: Int, tag: String?, base: URL?) -> String? {
+        guard let base, let tag, !tag.isEmpty,
+              var components = URLComponents(url: base, resolvingAgainstBaseURL: true) else { return nil }
+        components.path = (components.path as NSString).appendingPathComponent("/Items/\(id)/Images/Chapter/\(index)")
+        components.queryItems = [
+            URLQueryItem(name: "tag", value: tag),
+            URLQueryItem(name: "maxWidth", value: "640"),
+        ]
+        return components.url?.absoluteString
     }
 
     /// Enriches an existing `Show` (which already carries its sample/real
@@ -163,6 +249,7 @@ extension JellyfinAPI.JellyfinItem {
         show.premiereYear = productionYear.map(String.init)
         show.logoArt = logoImageURLString(imageBaseURL)
         show.tags = tags ?? []
+        show.isFavorite = userData?.isFavorite ?? false
         if let years = formattedYearRange() { show.years = years }
         if let overview, !overview.isEmpty { show.synopsis = overview }
         return show
@@ -218,7 +305,8 @@ extension JellyfinAPI.JellyfinItem {
             runtimeTicks: runTimeTicks,
             resumePositionTicks: userData?.playbackPositionTicks,
             isFavorite: userData?.isFavorite ?? false,
-            seriesId: seriesId
+            seriesId: seriesId,
+            overview: overview
         )
     }
 
@@ -240,10 +328,12 @@ extension JellyfinAPI.JellyfinItem {
     }
 
     /// Headshot URL for a person (`/Items/{personId}/Images/Primary`), or nil.
+    /// 600px, not 240: the tvOS cast lineup cuts these out and stands them
+    /// 230pt tall on a 4K panel, and a 240px source there is a smear.
     private func personImageURLString(_ person: JellyfinAPI.JellyfinPerson, base: URL?) -> String? {
         guard let base, let pid = person.id, let tag = person.primaryImageTag else { return nil }
         return JellyfinAPI.imageURL(baseURL: base, itemId: pid, imageType: "Primary",
-                                    tag: tag, maxWidth: 240)?.absoluteString
+                                    tag: tag, maxWidth: 600)?.absoluteString
     }
 
     private func playbackProgress() -> Double {
@@ -363,14 +453,53 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
     /// library's selected-item backdrop) — distinct from `image`, which is a
     /// small poster sized for grid tiles.
     public var backdropImage: String?
+    /// The title set as artwork (`ImageTags.Logo`), when the server has one —
+    /// carried on the list item so a library screen's hero can show the logo
+    /// for whatever is focused *without* a detail fetch first. Without this
+    /// the hero rendered the title in type and then swapped to the logo a
+    /// beat later, on every focus move. Nil is the whole gate: no logo, no
+    /// fallback logo to invent.
+    public var logoImage: String?
     /// Jellyfin's free-form `Tags` (distinct from `Genres`) — only populated
     /// when a fetch explicitly requests the `Tags` field. What the library
     /// screens' tag-chip search filters against.
     public var tags: [String]
+    /// Runtime, for the surfaces that show a duration on the card itself —
+    /// home videos, whose file names are usually meaningless, lean on this
+    /// and the tags instead of a title.
+    public var runtimeTicks: Int64?
+    /// Where the user left off, and whether they've hearted it.
+    ///
+    /// **Carried on the list item so a queue can be built from the grid
+    /// without a fetch per card.** Jellyfin returns `UserData` on every
+    /// user-scoped `/Items` response whether or not anything asks for it, so
+    /// these are free — and without them, tapping the third home video and
+    /// letting it roll on would restart the fourth from zero even though the
+    /// server knows you were halfway through it.
+    public var resumePositionTicks: Int64?
+    public var isFavorite: Bool
+    /// Jellyfin's `UserData.Played` — fully watched, distinct from merely
+    /// having a resume position. What an "Unwatched" filter chip checks.
+    public var played: Bool
+    /// When the video was shot (`PremiereDate`, to the day) — for a home
+    /// video the only name it has. Nil when the file carried no date.
+    public var takenAt: Date?
+    /// The frame's pixel size, when known — a portrait phone clip is laid out
+    /// as a portrait tile rather than letterboxed into a landscape one.
+    public var width: Int?
+    public var height: Int?
+    /// Trickplay sprite-sheet geometry (media-source id → width → info), when
+    /// the server has baked one. What lets a focused home-video card page
+    /// through the video's own frames without a fetch per item.
+    public var trickplay: [String: [String: JellyfinAPI.TrickplayInfo]]?
 
     public init(id: String, title: String, meta: String, image: String? = nil, artwork: Artwork,
                 rating: Double? = nil, year: String? = nil, certification: String? = nil,
-                synopsis: String? = nil, backdropImage: String? = nil, tags: [String] = []) {
+                synopsis: String? = nil, backdropImage: String? = nil, tags: [String] = [],
+                runtimeTicks: Int64? = nil, resumePositionTicks: Int64? = nil,
+                isFavorite: Bool = false, played: Bool = false, logoImage: String? = nil,
+                takenAt: Date? = nil, width: Int? = nil, height: Int? = nil,
+                trickplay: [String: [String: JellyfinAPI.TrickplayInfo]]? = nil) {
         self.id = id
         self.title = title
         self.meta = meta
@@ -382,6 +511,52 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
         self.synopsis = synopsis
         self.backdropImage = backdropImage
         self.tags = tags
+        self.runtimeTicks = runtimeTicks
+        self.resumePositionTicks = resumePositionTicks
+        self.isFavorite = isFavorite
+        self.played = played
+        self.logoImage = logoImage
+        self.takenAt = takenAt
+        self.width = width
+        self.height = height
+        self.trickplay = trickplay
+    }
+
+    /// Width over height when both are known, else nil.
+    public var aspectRatio: Double? {
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        return Double(width) / Double(height)
+    }
+
+    /// The player's shape for a card the user just tapped.
+    ///
+    /// Deliberately built from what the grid already holds rather than from a
+    /// detail fetch: this is what lets the *whole visible list* become the
+    /// queue behind that tap at no network cost. Home videos pass
+    /// `hidesTitle` for the reason the card shows no title either — the
+    /// "title" is a camera's serial gibberish.
+    public func asPlayableItem(hidesTitle: Bool = false) -> PlayableItem {
+        PlayableItem(
+            id: id,
+            title: title,
+            runtimeTicks: runtimeTicks,
+            resumePositionTicks: resumePositionTicks,
+            isFavorite: isFavorite,
+            imageURL: image,
+            tags: tags,
+            hidesTitle: hidesTitle
+        )
+    }
+
+    /// "1h 04m" / "7 min" — what a home-video card shows in place of a title.
+    public var durationLabel: String? {
+        guard let runtimeTicks, runtimeTicks > 0 else { return nil }
+        let totalSeconds = Int(Double(runtimeTicks) / 10_000_000)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        if hours > 0 { return String(format: "%dh %02dm", hours, minutes) }
+        if minutes > 0 { return "\(minutes) min" }
+        return "\(totalSeconds) sec"
     }
 
     /// Movie vs series, derived from the metadata line ("Movie · …" → movie).
@@ -412,6 +587,59 @@ public struct Library: Equatable, Sendable, Hashable, Identifiable {
     }
 }
 
+/// A chapter marker with the server's extracted thumbnail — one tile of the
+/// movie page's "Scenes" strip. `startSeconds` is what selecting it seeks to.
+public struct Chapter: Equatable, Sendable, Hashable, Identifiable {
+    public var id: Int { index }
+    public let index: Int
+    public let title: String
+    public let startSeconds: Double
+    public let imageURL: String?
+
+    public init(index: Int, title: String, startSeconds: Double, imageURL: String? = nil) {
+        self.index = index
+        self.title = title
+        self.startSeconds = startSeconds
+        self.imageURL = imageURL
+    }
+
+    /// "1:02:15" past the hour, "12:04" under it.
+    public var timestamp: String {
+        let total = Int(startSeconds.rounded())
+        let hours = total / 3600, minutes = (total % 3600) / 60, seconds = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%d:%02d", minutes, seconds)
+    }
+
+    public var startTicks: Int64 { Int64(startSeconds * 10_000_000) }
+}
+
+/// A person as Jellyfin knows them — what the cast lineup's fact card and the
+/// person sheet show. Everything optional: a server that never fetched person
+/// metadata has a name and maybe a headshot, and the UI says less, not
+/// something invented.
+public struct Person: Equatable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public var name: String
+    public var bio: String?
+    public var birthDate: Date?
+    public var deathDate: Date?
+    public var birthplace: String?
+    public var imageURL: String?
+
+    public init(id: String, name: String, bio: String? = nil, birthDate: Date? = nil,
+                deathDate: Date? = nil, birthplace: String? = nil, imageURL: String? = nil) {
+        self.id = id
+        self.name = name
+        self.bio = bio
+        self.birthDate = birthDate
+        self.deathDate = deathDate
+        self.birthplace = birthplace
+        self.imageURL = imageURL
+    }
+}
+
 /// A featured hero slide. The Home hero rotates through a list of these.
 public struct HeroFeature: Equatable, Sendable, Hashable, Identifiable {
     public let id: String
@@ -431,11 +659,19 @@ public struct HeroFeature: Equatable, Sendable, Hashable, Identifiable {
     public var itemType: String?
     /// Non-nil for episodes — the owning show's id.
     public var seriesId: String?
+    /// Non-nil for episodes — the owning show's name, so a Details press on
+    /// an episode hero opens the show under the show's title, not the
+    /// episode's.
+    public var seriesTitle: String?
+    /// Jellyfin `UserData.IsFavorite`, so the hero's heart can show the real
+    /// state and toggle it, rather than being the empty stub it used to be.
+    public var isFavorite: Bool
 
     public init(id: String, image: String, eyebrow: String, title: String,
                 certification: String, year: String, genre: String, episode: String,
                 qualityBadge: String, synopsis: String, resumeLabel: String, artwork: Artwork,
-                itemType: String? = nil, seriesId: String? = nil) {
+                itemType: String? = nil, seriesId: String? = nil,
+                seriesTitle: String? = nil, isFavorite: Bool = false) {
         self.id = id
         self.image = image
         self.eyebrow = eyebrow
@@ -450,6 +686,8 @@ public struct HeroFeature: Equatable, Sendable, Hashable, Identifiable {
         self.artwork = artwork
         self.itemType = itemType
         self.seriesId = seriesId
+        self.seriesTitle = seriesTitle
+        self.isFavorite = isFavorite
     }
 }
 
@@ -569,12 +807,19 @@ public struct Episode: Equatable, Sendable, Hashable, Identifiable {
     /// across server versions); the caller (which already knows it) threads
     /// it through at mapping time.
     public var seriesId: String?
+    /// The episode's own synopsis (Jellyfin `Overview`) — the phone Show
+    /// screen's episode headline uses this real per-episode text instead of
+    /// falling back to the series-level synopsis. `nil`/empty renders
+    /// nothing rather than substituting the show's own blurb, so a episode
+    /// with no overview doesn't read as "this is what the whole show is
+    /// about."
+    public var overview: String?
 
     public init(id: String, number: Int, title: String, runtime: String,
                 isCurrent: Bool = false, image: String? = nil, artwork: Artwork,
                 resumeProgress: Double = 0, resumeRemaining: String = "",
                 runtimeTicks: Int64? = nil, resumePositionTicks: Int64? = nil,
-                isFavorite: Bool = false, seriesId: String? = nil) {
+                isFavorite: Bool = false, seriesId: String? = nil, overview: String? = nil) {
         self.id = id
         self.number = number
         self.title = title
@@ -588,6 +833,7 @@ public struct Episode: Equatable, Sendable, Hashable, Identifiable {
         self.resumePositionTicks = resumePositionTicks
         self.isFavorite = isFavorite
         self.seriesId = seriesId
+        self.overview = overview
     }
 
     /// Zero-padded episode number, e.g. "04".
@@ -783,6 +1029,11 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
     public var logoArt: String?
     /// Jellyfin's free-form `Tags`, shown as chips in the player chrome.
     public var tags: [String]
+    /// Real Jellyfin favorite state (`UserData.IsFavorite`) — the phone Show
+    /// screen's own FAVOURITE action reads/writes this directly via
+    /// `setFavorite`/`clearFavorite`, same endpoint the player's opinion row
+    /// uses. Defaulted so every existing caller keeps compiling.
+    public var isFavorite: Bool
 
     public init(id: String, title: String, studioLine: String, rating: String,
                 certification: String, runSummary: String, createdBy: String,
@@ -795,7 +1046,7 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
                 imdbId: String? = nil, externalRatings: ExternalRatings? = nil,
                 awards: MovieAwards? = nil, seasonCount: Int? = nil,
                 premiereYear: String? = nil, network: Network? = nil,
-                logoArt: String? = nil, tags: [String] = []) {
+                logoArt: String? = nil, tags: [String] = [], isFavorite: Bool = false) {
         self.id = id
         self.title = title
         self.studioLine = studioLine
@@ -826,6 +1077,7 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
         self.network = network
         self.logoArt = logoArt
         self.tags = tags
+        self.isFavorite = isFavorite
     }
 
     /// Index of the season containing the current/resume episode (or the last).
@@ -879,6 +1131,18 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
     /// Jellyfin's free-form `Tags` — the chips the player chrome shows under
     /// the title, and what the library screens' tag search filters against.
     public var tags: [String]
+    /// Chapter markers with the server's thumbnails — the movie page's
+    /// "Scenes" strip. Empty until the detail fetch; many rips have none.
+    public var chapters: [Chapter]
+    /// Subtitle languages on the file ("English", "Spanish"), for the facts
+    /// row. `audioLine` above carries the audio side ("English 5.1").
+    public var subtitleLanguages: [String]
+    /// TMDB id from `ProviderIds`, for the opt-in TMDB extras (more backdrops,
+    /// keywords, collection).
+    public var tmdbId: String?
+    /// The director's Jellyfin person id, so the facts row can count their
+    /// other films in this library.
+    public var directorId: String?
 
     public init(id: String, title: String, studioLine: String, rating: String,
                 certification: String, runtime: String, director: String, year: String,
@@ -890,7 +1154,9 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
                 imdbId: String? = nil, externalRatings: ExternalRatings? = nil,
                 awards: MovieAwards? = nil, runtimeTicks: Int64? = nil,
                 resumePositionTicks: Int64? = nil, isFavorite: Bool = false,
-                posterArt: String? = nil, logoArt: String? = nil, tags: [String] = []) {
+                posterArt: String? = nil, logoArt: String? = nil, tags: [String] = [],
+                chapters: [Chapter] = [], subtitleLanguages: [String] = [], tmdbId: String? = nil,
+                directorId: String? = nil) {
         self.id = id
         self.title = title
         self.studioLine = studioLine
@@ -923,6 +1189,10 @@ public struct Movie: Equatable, Sendable, Hashable, Identifiable {
         self.posterArt = posterArt
         self.logoArt = logoArt
         self.tags = tags
+        self.chapters = chapters
+        self.subtitleLanguages = subtitleLanguages
+        self.tmdbId = tmdbId
+        self.directorId = directorId
     }
 
     /// Normalized shape the player queues/seeks/reports-progress against.

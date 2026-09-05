@@ -1,14 +1,15 @@
-#if os(iOS)
 import SwiftUI
 import JellyTVKit
 
-// iPad-only chrome for the Show screen's "signal drawer" layout: a full-bleed
-// unblurred backdrop, the right-hand episode drawer's rows, and the round
-// shuffle-everything control that replaced the floating resume card.
+// Shared iPad/tvOS chrome for the Show screen's "signal drawer" layout: a
+// full-bleed unblurred backdrop and the right-hand episode drawer's rows.
+// Originally iPad-only; tvOS adopted the identical composition (backdrop +
+// episode drawer) rather than its earlier blurred-wallpaper-plus-inline-
+// episode-strip layout — see `ShowView.padTVBody`.
 
-/// The Show screen's backdrop on iPad: the show's own art at **full bleed and
+/// The Show screen's backdrop: the show's own art at **full bleed and
 /// deliberately unblurred** — unlike `DetailBackground` (still used by the
-/// Movie dossier and by tvOS), which renders a blurred wallpaper.
+/// Movie dossier on both platforms), which renders a blurred wallpaper.
 ///
 /// Legibility comes entirely from scrims, not from softening the picture: a
 /// flat veil knocks the whole image back a notch, a wide left ramp holds the
@@ -28,7 +29,7 @@ struct ShowFullBackdrop: View {
                 art
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
-                Palette.page.opacity(0.22)
+                Palette.page.opacity(Self.veilOpacity)
                 leftRamp
                 topScrim
                 bottomScrim
@@ -48,19 +49,53 @@ struct ShowFullBackdrop: View {
         }
     }
 
+    // tvOS darkens far harder than iPad. Its hero puts a title, a metadata
+    // line, three lines of synopsis and a button row on the left ~45% of a
+    // 1920pt frame, then a whole episode shelf and cast row *below* the art —
+    // and on a bright key art (a daylit cartoon, a white-costume still) the
+    // iPad stops left white type sitting on yellow and cast names dissolving
+    // into a shirt. So: the text column's whole width stays under ≥0.85, and
+    // everything below ~60% of the height is effectively the page colour, so
+    // the shelf sits on a real surface rather than on the picture. iPad keeps
+    // its lighter treatment — its column is narrower and its drawer has its
+    // own translucent backing.
+    #if os(tvOS)
+    private static let veilOpacity: Double = 0.30
+    private static let leftStops: [Gradient.Stop] = [
+        .init(color: Palette.page, location: 0.0),
+        .init(color: Palette.page.opacity(0.98), location: 0.30),
+        .init(color: Palette.page.opacity(0.90), location: 0.42),
+        .init(color: Palette.page.opacity(0.70), location: 0.54),
+        .init(color: Palette.page.opacity(0.40), location: 0.66),
+        .init(color: Palette.page.opacity(0.12), location: 0.78),
+        .init(color: .clear, location: 0.90),
+    ]
+    private static let bottomStops: [Gradient.Stop] = [
+        .init(color: .clear, location: 0.36),
+        .init(color: Palette.page.opacity(0.50), location: 0.50),
+        .init(color: Palette.page.opacity(0.88), location: 0.64),
+        .init(color: Palette.page, location: 0.76),
+    ]
+    #else
+    private static let veilOpacity: Double = 0.22
+    private static let leftStops: [Gradient.Stop] = [
+        .init(color: Palette.page, location: 0.0),
+        .init(color: Palette.page.opacity(0.96), location: 0.18),
+        .init(color: Palette.page.opacity(0.88), location: 0.34),
+        .init(color: Palette.page.opacity(0.68), location: 0.48),
+        .init(color: Palette.page.opacity(0.34), location: 0.60),
+        .init(color: Palette.page.opacity(0.08), location: 0.72),
+        .init(color: .clear, location: 0.84),
+    ]
+    private static let bottomStops: [Gradient.Stop] = [
+        .init(color: .clear, location: 0.68),
+        .init(color: Palette.page.opacity(0.45), location: 0.86),
+        .init(color: Palette.page.opacity(0.92), location: 1.0),
+    ]
+    #endif
+
     private var leftRamp: some View {
-        LinearGradient(
-            stops: [
-                .init(color: Palette.page, location: 0.0),
-                .init(color: Palette.page.opacity(0.96), location: 0.18),
-                .init(color: Palette.page.opacity(0.88), location: 0.34),
-                .init(color: Palette.page.opacity(0.68), location: 0.48),
-                .init(color: Palette.page.opacity(0.34), location: 0.60),
-                .init(color: Palette.page.opacity(0.08), location: 0.72),
-                .init(color: .clear, location: 0.84),
-            ],
-            startPoint: .leading, endPoint: .trailing
-        )
+        LinearGradient(stops: Self.leftStops, startPoint: .leading, endPoint: .trailing)
     }
 
     private var topScrim: some View {
@@ -75,14 +110,7 @@ struct ShowFullBackdrop: View {
     }
 
     private var bottomScrim: some View {
-        LinearGradient(
-            stops: [
-                .init(color: .clear, location: 0.68),
-                .init(color: Palette.page.opacity(0.45), location: 0.86),
-                .init(color: Palette.page.opacity(0.92), location: 1.0),
-            ],
-            startPoint: .top, endPoint: .bottom
-        )
+        LinearGradient(stops: Self.bottomStops, startPoint: .top, endPoint: .bottom)
     }
 }
 
@@ -219,4 +247,3 @@ struct DrawerEpisodeRow: View {
             .overlay(Circle().stroke(episode.isCurrent ? .clear : Palette.text(0.16), lineWidth: 1))
     }
 }
-#endif

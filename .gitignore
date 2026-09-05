@@ -16,6 +16,10 @@ xcuserdata/
 *.xcuserstate
 *.xcscmblueprint
 
+# XcodeBuildMCP session defaults — an absolute project path + a simulator
+# UDID, neither of which means anything on another machine.
+.xcodebuildmcp/
+
 # ---- Swift Package Manager ----
 .build/
 .swiftpm/

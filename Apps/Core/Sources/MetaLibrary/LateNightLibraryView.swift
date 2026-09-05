@@ -11,25 +11,24 @@ import JellyTVKit
 ///
 /// Reskinned with a muted red/crimson identity color and a darker, grittier
 /// backdrop treatment (vignette) than the Anime screen's magenta/energetic
-/// one. A fixed "18+"/"Explicit content" badge is legitimate here (every item
+/// one. A fixed "18+" badge beside the title is legitimate here (every item
 /// in this category is NSFW by definition, so it's a category-wide fact, not
 /// invented per-item data) — but the design's MAL score, content-advisory
 /// tags, and "director's cut" callout have no real backing source and are
-/// left out, same reasoning as `AnimeLibraryView`.
+/// left out, same reasoning as `AnimeLibraryView`. The per-item "VIEWER
+/// DISCRETION" / "EXPLICIT CONTENT" chips went with the rest of the dossier
+/// chrome (see `LibraryHero`): they said the same thing as the 18+ badge,
+/// twice more, in a smaller font.
 struct LateNightLibraryView: View {
     let isLibrariesOpen: Bool
     let onSelectRail: (RailTarget) -> Void
 
-    // See `MoviesLibraryView`'s identical constants/comment.
-    #if os(iOS)
-    private static let headerSpacing: CGFloat = 12
-    private static let headerTopPadding: CGFloat = 12
-    #else
-    private static let headerSpacing: CGFloat = 22
-    private static let headerTopPadding: CGFloat = 40
-    #endif
+    // See `MoviesLibraryView`'s identical constants.
+    private static let headerSpacing: CGFloat = 16
+    private static let headerTopPadding: CGFloat = 24
 
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var theme: Theme
 
     /// The category's own identity color — matches design 4c's `accentLate`
     /// token, seeded from the same hue (20, red) as its background radial glow.
@@ -41,10 +40,25 @@ struct LateNightLibraryView: View {
     @State private var selectedGenre: String?
     @State private var searchText = ""
     @State private var searchTags: [String] = []
+    /// Random's own state — it builds a queue over a whole library, which
+    /// is a round trip long enough to need reporting.
+    @State private var randomState: RandomPlayState = .idle
     @State private var presentedShow: Show?
+    @State private var zoomOrigin: UnitPoint = .center
     @State private var selectedDetail: Show?
     @FocusState private var focusedId: String?
+    /// The last poster the remote sat on — see `MoviesLibraryView`.
+    @State private var lastFocusedId: String?
+    /// One-shot latch for `seedFocusIfNeeded`.
+    @State private var hasSeededFocus = false
     @FocusState private var searchFocused: Bool?
+    /// Which title's artwork is currently the page backdrop on iPad — see
+    /// `LibraryBackdrop`. Chosen once per visit: `RootView` gives each screen
+    /// `.id(selection)`, so navigating away and back rebuilds this view with
+    /// fresh state and the load task picks again. Re-sorting inside the
+    /// screen deliberately keeps the same image (the guard below), so tapping
+    /// a filter chip doesn't reshuffle the wallpaper under you.
+    @State private var backdropItemId: String?
 
     private var allItems: [MediaItem] { items }
 
@@ -67,8 +81,29 @@ struct LateNightLibraryView: View {
         return result
     }
 
+    /// The item whose artwork backs the page. tvOS follows the focused
+    /// poster; iPad has no selection, so it uses the per-visit random pick
+    /// and only falls back to `selectedItem` before the pick lands.
+    private var backdropItem: MediaItem? {
+        #if os(iOS)
+        allItems.first { $0.id == backdropItemId } ?? selectedItem
+        #else
+        selectedItem
+        #endif
+    }
+
+    /// Blur behind the library, per Settings → Appearance. tvOS keeps the
+    /// sharp backdrop it was designed with.
+    private var backdropBlur: Double {
+        #if os(iOS)
+        theme.libraryBackdropEffect.blurRadius
+        #else
+        0
+        #endif
+    }
+
     private var selectedItem: MediaItem? {
-        filtered.first { $0.id == focusedId }
+        filtered.first { $0.id == (focusedId ?? lastFocusedId) }
             ?? filtered.first { $0.rating != nil && $0.backdropImage != nil }
             ?? filtered.first { $0.backdropImage != nil }
             ?? filtered.first
@@ -124,53 +159,86 @@ struct LateNightLibraryView: View {
     var body: some View {
         ZStack {
             background
-            if let selectedItem {
-                SelectedBackdrop(item: selectedItem)
+            if let backdropItem {
+                SelectedBackdrop(item: backdropItem, blur: backdropBlur)
             }
             HStack(spacing: 0) {
                 NavRail(destination: .lateNight, isLibrariesOpen: isLibrariesOpen,
                         onSelect: onSelectRail, accentOverride: Self.accent)
-                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems()) {
+                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems(),
+                                        onDismiss: { onSelectRail(.libraries) }) {
                     VStack(alignment: .leading, spacing: Self.headerSpacing) {
-                        header.padding(.horizontal, 48)
-                        filterBar.padding(.horizontal, 48)
-                        if let dossierShow {
-                            LateNightBand(show: dossierShow, isLoading: isDossierLoading)
+                        controlBar.libraryContentMargin()
+                        // tvOS only — see `MoviesLibraryView`'s identical gate.
+                        #if os(tvOS)
+                        if let selectedItem, let dossierShow {
+                            LibraryHero(content: .show(dossierShow, item: selectedItem, isLoading: isDossierLoading),
+                                        accent: Self.accent, castLabel: "Voice cast")
                         }
+                        #endif
                         if !hasLoaded {
                             loadingGrid
                         } else {
                             ScrollView(.vertical, showsIndicators: false) {
                                 postersSection
-                                    .padding(.horizontal, 48)
+                                    .libraryContentMargin()
                                     .padding(.top, 6)
                                     .padding(.bottom, 60)
+                                    .phoneTabBarClearance()
+                                    #if os(iOS)
+                                    .fixesScrollTapDelay()
+                                    #endif
                             }
                         }
                     }
                     .padding(.top, Self.headerTopPadding)
                 }
             }
-            .ignoresSafeArea()
+            .railContentSafeArea()
             // See `HomeView`'s matching `.disabled` for why: `presentedShow`
             // is a same-ZStack overlay, not a modal, so without this the
             // rail stays focus-reachable underneath it.
             .disabled(presentedShow != nil)
+            .trackZoomOrigin($zoomOrigin)
+            .zoomedBehind(presentedShow != nil, origin: zoomOrigin)
 
             if let presentedShow {
                 ShowView(show: presentedShow, onDismiss: { self.presentedShow = nil })
-                    .transition(.opacity)
+                    .zoomPresented(from: zoomOrigin)
                     .zIndex(2)
             }
         }
-        .animation(.easeOut(duration: 0.25), value: presentedShow)
+        .animation(.zoomPresentation, value: presentedShow)
+        // Menu from a page puts the remote back on the poster it opened.
+        .onChange(of: presentedShow) { _, new in if new == nil { focusedId = lastFocusedId } }
+        // Crossfades the backdrop and hero on a selection change — see
+        // `MoviesLibraryView`.
+        .animation(.easeInOut(duration: 0.35), value: selectedItem?.id)
+        .onChange(of: focusedId) { _, id in
+            if let id { lastFocusedId = id }
+        }
+        // tvOS seeds focus from the first poster instead — see
+        // `MoviesLibraryView.seedFocusIfNeeded`.
+        #if os(iOS)
         .defaultFocus($searchFocused, true)
+        #endif
         .task(id: "\(sort.rawValue)-\(appState.libraries.count)") {
             let query = sort.query
             items = await appState.loadLateNightShows(sortBy: query.sortBy, sortOrder: query.sortOrder)
             hasLoaded = true
+            #if os(iOS)
+            // Only when unset: a re-sort re-runs this task, and reshuffling
+            // the backdrop on every filter-chip tap would be noise.
+            if backdropItemId == nil { backdropItemId = LibraryBackdrop.pick(from: items) }
+            #endif
         }
+        // tvOS only: this fetch exists purely to fill the selected-item
+        // dossier, and iPad no longer renders one. Leaving it on would spend
+        // a Jellyfin detail call plus OMDb/TMDB lookups per selection change
+        // with nothing on screen to receive them.
+        #if os(tvOS)
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
+        #endif
         #if os(tvOS)
         .onExitCommand(perform: exitAction)
         #endif
@@ -182,11 +250,23 @@ struct LateNightLibraryView: View {
         return baseShow(for: item)
     }
 
-    // MARK: - Header
+    // MARK: - Header / controls
 
+    private var controlBar: some View {
+        VStack(alignment: .leading, spacing: Self.headerSpacing) {
+            header
+            filterBar
+        }
+    }
+
+    /// See `AnimeLibraryView.header` for what left this row and why. The one
+    /// thing that stays on tvOS is the 18+ badge, moved up beside the title:
+    /// it is the single category-wide fact worth stating, and the eyebrow it
+    /// used to hang off is gone.
     private var header: some View {
-        HStack(spacing: 20) {
+        LibraryHeaderLayout {
             VStack(alignment: .leading, spacing: 4) {
+                #if os(iOS)
                 HStack(spacing: 10) {
                     Text("LIBRARY // LATE NIGHT")
                         .font(Mono.font(15, .bold))
@@ -194,53 +274,33 @@ struct LateNightLibraryView: View {
                         .foregroundStyle(Palette.text(0.5))
                     AdultBadge(accent: Self.accent)
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                #endif
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    #if os(tvOS)
+                    AdultBadge(accent: Self.accent)
+                    #endif
                     Text("Late Night")
                         .font(Typography.font(34, .black))
                         .foregroundStyle(Palette.textPrimary)
-                    Text("\(allItems.count) titles")
+                    Text(LibraryChrome.countLabel(shown: filtered.count, total: allItems.count, noun: "titles"))
                         .font(Typography.font(20, .semibold))
                         .foregroundStyle(Palette.text(0.4))
-                    Text("深夜アニメ")
-                        .font(Mono.font(16, .bold))
-                        .tracking(1.5)
-                        .foregroundStyle(Self.accent)
                 }
             }
-            .fixedSize()
-
+            .libraryTitleBlockSizing()
+        } search: {
             searchField
-
-            Button {} label: {
-                HStack(spacing: 11) {
-                    Image(systemName: "play.fill").font(.system(size: 18))
-                    Text("Play")
-                }
-                .font(Typography.button)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 15)
-                .background(Self.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .shadow(color: Self.accent.opacity(0.4), radius: 16, y: 4)
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 14))
-
-            Button(action: randomize) {
-                HStack(spacing: 10) {
-                    Image(systemName: "shuffle").font(.system(size: 18, weight: .semibold))
-                    Text("Random")
-                }
-                .font(Typography.button)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 15)
-                .background(Palette.text(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.2), lineWidth: 1))
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 14))
+        } actions: {
+            #if os(iOS)
+            RandomPlayButton(size: .icon(dimension: 48, cornerRadius: 14, glyphSize: 18),
+                              state: $randomState, action: randomize)
+            #else
+            RandomPlayButton(size: .header, state: $randomState, action: randomize)
+            #endif
         }
+        #if os(iOS)
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.vertical, 10)
         .background {
             ZStack {
                 RoundedRectangle(cornerRadius: 20, style: .continuous).fill(.ultraThinMaterial)
@@ -248,31 +308,70 @@ struct LateNightLibraryView: View {
             }
         }
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Palette.text(0.07), lineWidth: 1))
+        #endif
     }
 
     private var searchField: some View {
-        TagSearchField(tags: $searchTags, liveText: $searchText, placeholder: "Search seinen, psychological, uncut cuts…",
-                       accent: Self.accent, trailing: "\(filtered.count)",
+        TagSearchField(tags: $searchTags, liveText: $searchText, placeholder: Self.searchPlaceholder,
+                       accent: Self.accent,
+                       trailing: LibraryChrome.searchTrailing(count: filtered.count),
                        field: true, focus: $searchFocused)
     }
 
+    /// See `AnimeLibraryView.searchPlaceholder` — used to truncate to "Search
+    /// seinen, p…" in iPad's old inline field; both platforms now give the
+    /// field the same header row width.
+    private static let searchPlaceholder = "Search seinen, psychological, uncut cuts…"
+
+    /// **Random plays; it no longer just points at something.**
+    ///
+    /// It used to pick one card out of whatever the grid had loaded and open
+    /// its detail page (or, on tvOS, merely move the focus to it) — a shuffle
+    /// button that shuffled nothing and played nothing. Now it builds a queue
+    /// over every episode of every season of every show, randomised
+    /// server-side, and starts it: press Next and the next thing plays.
+    ///
+    /// The queue is deliberately the *whole scope*, not `filtered` — the
+    /// visible grid is one sorted page of the library, and "random" that can
+    /// only reach what happens to be on screen isn't random. A fresh queue is
+    /// built per press, so pressing it again is a different order, never a
+    /// re-entry into the last one.
     private func randomize() {
-        guard let item = filtered.randomElement() else { return }
-        focusedId = item.id
+        guard randomState != .loading else { return }
+        randomState = .loading
+        Task {
+            let request = await appState.randomQueue(for: .lateNight)
+            guard let request else { randomState = .empty; return }
+            randomState = .idle
+            appState.requestPlayback(request)
+        }
     }
 
     // MARK: - Filters
 
+    @ViewBuilder
     private var filterBar: some View {
-        // Scrolling instead of a plain (non-scrolling) HStack keeps every
-        // chip a single line on an iPad's narrower width instead of
-        // squeeze-wrapping — see `MoviesLibraryView`'s identical comment.
+        #if os(iOS)
+        if DeviceClass.current == .phone {
+            LibrarySortGenreDropdownBar(sort: $sort, genres: genres, selectedGenre: $selectedGenre,
+                                        accent: Self.accent, totalCount: allItems.count)
+        } else {
+            filterChipRail
+        }
+        #else
+        filterChipRail
+        #endif
+    }
+
+    private var filterChipRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
+                #if os(iOS)
                 Text("FILTER")
                     .font(Mono.font(13, .bold))
                     .tracking(2)
                     .foregroundStyle(Palette.text(0.4))
+                #endif
                 ForEach(LibrarySort.allCases) { option in
                     LibraryFilterChip(label: option.rawValue, isOn: sort == option, action: { sort = option }, accent: Self.accent)
                 }
@@ -290,19 +389,28 @@ struct LateNightLibraryView: View {
 
     // MARK: - Poster grid
 
+    /// iPad drops the `maximum:` so the columns share the full content width
+    /// (with `LibraryPosterCard` filling its cell) instead of capping at
+    /// 210pt and leaving the remainder as a gap on the right. tvOS keeps the
+    /// cap — its cards are a fixed 200pt and its canvas is wide enough that
+    /// uncapped columns would stretch the cells well past the artwork.
+    #if os(iOS)
+    // See `MoviesLibraryView`'s identical comment on the phone minimum.
+    private static var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: DeviceClass.current == .phone ? 100 : 180), spacing: 22)]
+    }
+    #else
+    private static let gridColumns = [GridItem(.adaptive(minimum: 150, maximum: 175), spacing: 18)]
+    #endif
+
     private var loadingGrid: some View {
-        VStack(spacing: 14) {
-            ProgressView().controlSize(.large).tint(Self.accent)
-            Text("Loading late night…")
-                .font(Mono.font(15, .medium)).tracking(1)
-                .foregroundStyle(Palette.text(0.4))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, 140)
+        LibraryLoadingState(message: "Loading late night…", accent: Self.accent)
     }
 
     private var postersSection: some View {
         VStack(alignment: .leading, spacing: 14) {
+            // iPad only — see `MoviesLibraryView.postersSection`.
+            #if os(iOS)
             HStack(alignment: .firstTextBaseline) {
                 Text(sectionCaption)
                     .font(Mono.font(15, .bold))
@@ -313,19 +421,40 @@ struct LateNightLibraryView: View {
                     .font(Typography.font(16, .medium))
                     .foregroundStyle(Palette.text(0.4))
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180, maximum: 210), spacing: 22)], spacing: 26) {
+            #endif
+            if filtered.isEmpty {
+                if allItems.isEmpty {
+                    LibraryEmptyState(message: "No late night titles here yet.",
+                                      hint: "Mark a library as both Anime and Adult in Settings → Libraries and it will show up here.")
+                } else {
+                    LibraryEmptyState(message: "Nothing matches these filters.")
+                }
+            }
+            LazyVGrid(columns: Self.gridColumns, spacing: 20) {
                 ForEach(filtered) { item in
                     LibraryPosterCard(item: item, onSelect: { openShow(item) })
                         .focused($focusedId, equals: item.id)
+                        .onAppear { seedFocusIfNeeded(item) }
                 }
             }
         }
     }
 
+    /// See `MoviesLibraryView.seedFocusIfNeeded`.
+    private func seedFocusIfNeeded(_ item: MediaItem) {
+        #if os(tvOS)
+        guard !hasSeededFocus, item.id == filtered.first?.id else { return }
+        hasSeededFocus = true
+        if focusedId == nil, searchFocused != true { focusedId = item.id }
+        #endif
+    }
+
+    #if os(iOS)
     private var sectionCaption: String {
         let genrePart = selectedGenre?.uppercased() ?? "ALL LATE NIGHT"
         return "\(genrePart) · \(sort.rawValue.uppercased())"
     }
+    #endif
 
     // MARK: - Background
 
@@ -347,154 +476,4 @@ private struct Vignette: View {
         RadialGradient(colors: [.clear, .black.opacity(0.55)], center: .center, startRadius: 420, endRadius: 1000)
             .allowsHitTesting(false)
     }
-}
-
-/// The vertical Japanese watermark between the info block and the dossier
-/// panel (design 4c's "黒い髄 · 深夜枠" signature). Same reasoning as
-/// `AnimeLibraryView`'s `KatakanaSignature`: no real per-title Japanese name
-/// exists, so this stays a fixed category label ("深夜アニメ" — "late-night
-/// anime") rather than inventing a translation of whatever's selected. Carries
-/// its own shadow + dark backing from the start (learned from the Anime
-/// screen's first pass, where a plain low-opacity glyph over arbitrary
-/// backdrop art was only legible by luck).
-private struct LateKatakanaSignature: View {
-    var body: some View {
-        VStack(spacing: 10) {
-            ForEach(Array("深夜アニメ".enumerated()), id: \.offset) { _, char in
-                Text(String(char))
-                    .font(Mono.font(20, .bold))
-            }
-        }
-        .tracking(2)
-        .foregroundStyle(LateNightLibraryView.accent.opacity(0.7))
-        .shadow(color: .black.opacity(0.8), radius: 5)
-        .padding(.vertical, 16)
-        .padding(.horizontal, 8)
-        .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .fixedSize()
-    }
-}
-
-/// The "currently selected" band (design 4c): the focused title's info on the
-/// left (with a fixed "VIEWER DISCRETION" advisory — accurate for every item
-/// in this category, not per-item data) and the Content Dossier + crew panels
-/// on the right, recolored to the late-night accent with the cast panel
-/// relabeled "SEIYUU" and the dossier status word "RESTRICTED".
-private struct LateNightBand: View {
-    let show: Show
-    var isLoading: Bool = false
-
-    // See `AnimeMovieBand`'s identical comment.
-    #if os(iOS)
-    private static let height: CGFloat = 300
-    private static let horizontalPadding: CGFloat = 56
-    private static let itemSpacing: CGFloat = 24
-    private static let bandAlignment: VerticalAlignment = .top
-    private static let frameAlignment: Alignment = .top
-    private static let infoSpacing: CGFloat = 10
-    private static let titleFontSize: CGFloat = 44
-    private static let titleLineLimit = 1
-    private static let infoMaxWidth: CGFloat = 520
-    private static let synopsisMaxWidth: CGFloat = 520
-    #else
-    private static let height: CGFloat = 536
-    private static let horizontalPadding: CGFloat = 100
-    private static let itemSpacing: CGFloat = 32
-    private static let bandAlignment: VerticalAlignment = .center
-    private static let frameAlignment: Alignment = .center
-    private static let infoSpacing: CGFloat = 16
-    private static let titleFontSize: CGFloat = 72
-    private static let titleLineLimit = 2
-    private static let infoMaxWidth: CGFloat = 720
-    private static let synopsisMaxWidth: CGFloat = 620
-    #endif
-
-    var body: some View {
-        HStack(alignment: Self.bandAlignment, spacing: Self.itemSpacing) {
-            info
-            Spacer(minLength: 8)
-            LateKatakanaSignature()
-            Spacer(minLength: 8)
-            VStack(alignment: .leading, spacing: 16) {
-                ShowStatsCastPanel(show: show, isLoading: isLoading, accent: LateNightLibraryView.accent,
-                                   castLabel: "SEIYUU", dossierLabel: "CONTENT DOSSIER", readyLabel: "RESTRICTED")
-                #if os(tvOS)
-                ShowMetaPanel(show: show, isLoading: isLoading, accent: LateNightLibraryView.accent)
-                #endif
-            }
-        }
-        .padding(.horizontal, Self.horizontalPadding)
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.height, alignment: Self.frameAlignment)
-        .id(show.id)
-        .transition(.opacity)
-    }
-
-    private var info: some View {
-        VStack(alignment: .leading, spacing: Self.infoSpacing) {
-            HStack(spacing: 12) {
-                Text("SELECTED // LATE NIGHT BLOCK")
-                    .font(Mono.font(14, .bold))
-                    .tracking(3)
-                    .foregroundStyle(LateNightLibraryView.accent)
-                HStack(spacing: 6) {
-                    Image(systemName: "eye.fill").font(.system(size: 11, weight: .bold))
-                    Text("VIEWER DISCRETION")
-                }
-                .font(Mono.font(11, .bold))
-                .tracking(0.5)
-                .foregroundStyle(Palette.text(0.65))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Palette.text(0.2), lineWidth: 1))
-            }
-
-            Text(show.title)
-                .font(Typography.font(Self.titleFontSize, .black))
-                .foregroundStyle(Palette.textPrimary)
-                .lineLimit(Self.titleLineLimit)
-                .minimumScaleFactor(0.5)
-                .lineSpacing(-6)
-
-            HStack(spacing: 12) {
-                Text("★ \(show.rating)")
-                    .fontWeight(.heavy)
-                    .foregroundStyle(LateNightLibraryView.accent)
-                Text(show.certification)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Palette.text(0.3), lineWidth: 1.5))
-                Text(show.years)
-                dot
-                Text(genreTail)
-                HStack(spacing: 5) {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12, weight: .bold))
-                    Text("EXPLICIT CONTENT")
-                }
-                .font(Typography.font(15, .bold))
-                .foregroundStyle(LateNightLibraryView.accent)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 2)
-                .background(LateNightLibraryView.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(LateNightLibraryView.accent.opacity(0.4), lineWidth: 1))
-            }
-            .font(Typography.font(19, .semibold))
-            .foregroundStyle(Palette.text(0.68))
-
-            Text(show.synopsis)
-                .font(Typography.font(20, .medium))
-                .foregroundStyle(Palette.text(0.7))
-                .lineLimit(3)
-                .lineSpacing(6)
-                .frame(maxWidth: Self.synopsisMaxWidth, alignment: .leading)
-        }
-        .frame(maxWidth: Self.infoMaxWidth, alignment: .leading)
-    }
-
-    private var genreTail: String {
-        show.genreLabel.split(separator: "/").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? show.genreLabel
-    }
-
-    private var dot: some View { Text("·").foregroundStyle(Palette.text(0.4)) }
 }

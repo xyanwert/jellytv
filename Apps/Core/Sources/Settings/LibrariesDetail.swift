@@ -131,7 +131,10 @@ private struct LibraryClassificationCard: View {
             .padding(.vertical, 20)
             .contentShape(Rectangle())
         }
-        .buttonStyle(RowFocusStyle(isActive: isExpanded, cornerRadius: 18))
+        // No focus scale: the card around this head is drawn by the parent
+        // and doesn't grow with it, so a scaled label pushed the chip and
+        // chevron out past the card's edge. Tint + bar + glow do the job.
+        .buttonStyle(RowFocusStyle(isActive: isExpanded, cornerRadius: 18, scale: 1))
     }
 
     private var summaryText: String {

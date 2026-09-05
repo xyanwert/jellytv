@@ -1,0 +1,220 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&display=swap">
+  <style>
+    body { margin: 0; background: #07080C; color: #F4F5F7;
+           font-family: 'Schibsted Grotesk', ui-rounded, system-ui, sans-serif;
+           -webkit-font-smoothing: antialiased; }
+    a { color: #F0525F; } a:hover { color: #ff7a83; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .drop { display: flex; align-items: center; gap: 9px; height: 42px; padding: 0 14px; border-radius: 12px;
+            background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13); }
+    .dropval { font-size: 15px; font-weight: 800; color: #F4F5F7; white-space: nowrap; }
+    .menurow { display: flex; align-items: center; gap: 11px; height: 44px; padding: 0 14px;
+               font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.82); }
+    .poster { position: relative; height: 244px; border-radius: 14px; overflow: hidden;
+              border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+    .pfade { position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 48%, rgba(0,0,0,0.72)); }
+    .ptitle { position: absolute; left: 11px; right: 11px; bottom: 10px; font-size: 16px; font-weight: 800;
+              line-height: 1.16; text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+    .pmeta { padding-top: 7px; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.45); }
+    .rating { position: absolute; top: 9px; left: 9px; display: flex; align-items: center; gap: 4px;
+              padding: 4px 8px; border-radius: 8px; background: rgba(0,0,0,0.6); font-size: 12px; font-weight: 800; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: #07080C">
+
+  <div style="position: absolute; top: 0; left: 0; right: 0; height: 280px; overflow: hidden">
+    <div style="position: absolute; inset: 0; background:
+        radial-gradient(110% 80% at 78% 8%, #3a2140 0%, #1d1226 46%, #0d0912 78%, #07080C 100%)"></div>
+    <div style="position: absolute; inset: 0; background:
+        linear-gradient(to bottom, rgba(7,8,12,0.5), rgba(7,8,12,0.1) 30%, rgba(7,8,12,0.78) 76%, #07080C 100%)"></div>
+  </div>
+
+  <!-- HEADER — no search field. There is one search on this phone, and it is a tab. -->
+  <div style="position: absolute; top: 62px; left: 20px; right: 20px; display: flex; flex-direction: column; gap: 4px">
+    <span class="mono" style="font-size: 11px; font-weight: 800; letter-spacing: 2.4px;
+        color: rgba(255,255,255,0.5)">LIBRARY // MOVIES</span>
+    <div style="display: flex; align-items: baseline; gap: 10px">
+      <span style="font-size: 32px; font-weight: 900; letter-spacing: -0.9px">Movies</span>
+      <span style="font-size: 17px; font-weight: 600; color: rgba(255,255,255,0.4)">428 titles</span>
+    </div>
+  </div>
+
+  <!-- SORT + GENRE as dropdowns. A phone can't scroll a chip rail and read it
+       at the same time, and the genre list is as long as the library is deep. -->
+  <div style="position: absolute; top: 136px; left: 20px; right: 20px; display: flex; align-items: center; gap: 10px">
+    <div class="drop" style="border-color: {{accentRing}}; background: {{accentSoft}}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 4 L7 20 M7 20 L3.6 16.6 M7 20 L10.4 16.6"></path>
+        <path d="M17 20 L17 4 M17 4 L13.6 7.4 M17 4 L20.4 7.4"></path></svg>
+      <span class="dropval">Newest</span>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="2.6"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M5 9 L12 16 L19 9"></path></svg>
+    </div>
+    <div class="drop">
+      <span class="dropval" style="color: rgba(255,255,255,0.72)">All genres</span>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2.6"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M5 9 L12 16 L19 9"></path></svg>
+    </div>
+    <div style="flex-grow: 1"></div>
+    <span class="mono" style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.32)">428</span>
+  </div>
+
+  <div style="position: absolute; top: 196px; left: 20px; right: 20px; display: flex; align-items: baseline">
+    <span class="mono" style="font-size: 11px; font-weight: 800; letter-spacing: 2px;
+        color: rgba(255,255,255,0.42)">ALL MOVIES · NEWEST</span>
+    <div style="flex-grow: 1"></div>
+    <span style="font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.34)">Showing 24 of 428</span>
+  </div>
+
+  <!-- GRID -->
+  <div style="position: absolute; top: 246px; left: 20px; right: 20px; display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px">
+
+    <div>
+      <div class="poster">
+        <div style="position: absolute; inset: 0; background: linear-gradient(158deg, #2c5f7a 0%, #163849 56%, #0a1c26 100%)"></div>
+        <svg viewBox="0 0 164 244" style="position: absolute; inset: 0; width: 100%; height: 100%" fill="none">
+          <g stroke="#9fd4e6" stroke-width="1" opacity="0.28">
+            <circle cx="112" cy="72" r="26"></circle><circle cx="112" cy="72" r="54"></circle></g></svg>
+        <div class="pfade"></div>
+        <div class="rating"><svg width="11" height="11" viewBox="0 0 24 24" fill="#F4F5F7">
+          <path d="M12 3 L14.6 9.1 L21 9.7 L16.2 14 L17.6 20.4 L12 17 L6.4 20.4 L7.8 14 L3 9.7 L9.4 9.1 Z"></path></svg>8.9</div>
+        <div class="ptitle">Undertow</div>
+      </div>
+      <div class="pmeta">2025 · Thriller</div>
+    </div>
+
+    <div>
+      <div class="poster">
+        <div style="position: absolute; inset: 0; background: linear-gradient(158deg, #6d4a2a 0%, #3b2715 56%, #1c1108 100%)"></div>
+        <svg viewBox="0 0 164 244" style="position: absolute; inset: 0; width: 100%; height: 100%" fill="none">
+          <path d="M0 168 L44 132 L86 164 L128 118 L164 148 L164 244 L0 244 Z" fill="#150c05" opacity="0.55"></path></svg>
+        <div class="pfade"></div>
+        <div class="rating"><svg width="11" height="11" viewBox="0 0 24 24" fill="#F4F5F7">
+          <path d="M12 3 L14.6 9.1 L21 9.7 L16.2 14 L17.6 20.4 L12 17 L6.4 20.4 L7.8 14 L3 9.7 L9.4 9.1 Z"></path></svg>7.4</div>
+        <div class="ptitle">Salt Line</div>
+      </div>
+      <div class="pmeta">2024 · Drama</div>
+    </div>
+
+    <div>
+      <div class="poster">
+        <div style="position: absolute; inset: 0; background: linear-gradient(158deg, #4c2a63 0%, #2a1739 56%, #150c1e 100%)"></div>
+        <svg viewBox="0 0 164 244" style="position: absolute; inset: 0; width: 100%; height: 100%" fill="none">
+          <g stroke="#c9a6e8" stroke-width="1" opacity="0.26">
+            <path d="M20 200 L82 60 L144 200"></path><path d="M46 148 L118 148"></path></g></svg>
+        <div class="pfade"></div>
+        <div class="ptitle">Glasshouse</div>
+      </div>
+      <div class="pmeta">2024 · Mystery</div>
+    </div>
+
+    <div>
+      <div class="poster">
+        <div style="position: absolute; inset: 0; background: linear-gradient(158deg, #1f5a52 0%, #113630 56%, #071e1a 100%)"></div>
+        <svg viewBox="0 0 164 244" style="position: absolute; inset: 0; width: 100%; height: 100%" fill="none">
+          <g stroke="#8fe0cd" stroke-width="1" opacity="0.24">
+            <path d="M0 96 H164 M0 130 H164 M0 164 H164"></path></g></svg>
+        <div class="pfade"></div>
+        <div class="ptitle">Meridian Zero</div>
+      </div>
+      <div class="pmeta">2023 · Action</div>
+    </div>
+  </div>
+
+  <!-- The sort menu, open — this is what "dropdown" means here: current value on
+       the button, the whole set one tap away, a tick on the one in force. -->
+  <div style="position: absolute; top: 186px; left: 20px; width: 216px; border-radius: 14px;
+      background: rgba(18,20,28,0.98); border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: 0 22px 48px rgba(0,0,0,0.66); overflow: hidden; padding: 6px 0">
+    <div class="menurow" style="color: #F4F5F7; font-weight: 800">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="3"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 L10 17.5 L19 6.5"></path></svg>
+      Newest
+    </div>
+    <div style="height: 1px; background: rgba(255,255,255,0.07); margin: 2px 14px"></div>
+    <div class="menurow"><div style="width: 15px"></div>A–Z</div>
+    <div style="height: 1px; background: rgba(255,255,255,0.07); margin: 2px 14px"></div>
+    <div class="menurow"><div style="width: 15px"></div>Top Rated</div>
+  </div>
+
+  <!-- TAB BAR -->
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 96px;
+      background: linear-gradient(to bottom, rgba(7,8,12,0) 0%, rgba(7,8,12,0.86) 32%, #07080C 100%)"></div>
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 74px; display: flex;
+      align-items: flex-start; padding-top: 10px">
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 10.5 L12 3 L21 10.5"></path><path d="M5 9.5 L5 21 L19 21 L19 9.5"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5)">Home</span>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+        <path d="M7.5 3 L7.5 21 M16.5 3 L16.5 21 M3 8 L7.5 8 M3 16 L7.5 16 M16.5 8 L21 8 M16.5 16 L21 16"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: {{accent}}">Movies</span>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2.5" y="6" width="19" height="12.5" rx="2.5"></rect><path d="M8 2.5 L12 6 L16 2.5"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5)">Shows</span>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5 L20 20"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5)">Search</span>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7.5" height="7.5" rx="1.6"></rect>
+        <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"></rect>
+        <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"></rect>
+        <path d="M17.25 14.25 L17.25 20.25 M14.25 17.25 L20.25 17.25"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5)">More</span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#F0525F","options":["#F0525F","#E8B44A","#4AA8E8","#3FBF8F"],"section":"Theme"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#F0525F';
+    const rgba = (hex, a) => {
+      const n = parseInt(String(hex).replace('#', ''), 16);
+      return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+    };
+    return {
+      accent: accent,
+      accentGlow: rgba(accent, 0.4),
+      accentRing: rgba(accent, 0.45),
+      accentSoft: rgba(accent, 0.12)
+    };
+  }
+}
+</script>
+</body>
+</html>

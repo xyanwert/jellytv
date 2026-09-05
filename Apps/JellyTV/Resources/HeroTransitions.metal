@@ -54,12 +54,14 @@ namespace {
         return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
     }
 
-    /// FBM noise for organic warping.
-    float fbm(float2 p) {
+    /// FBM noise for organic warping. `octaves` is uniform across the whole
+    /// draw call (never varies per-fragment), so this is a plain cheaper
+    /// loop on the `lite` path, not per-pixel branch divergence.
+    float fbm(float2 p, int octaves) {
         float v = 0.0;
         float a = 0.5;
         float2 shift = float2(100.0);
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < octaves; i++) {
             v += a * valueNoise(p);
             p = p * 2.0 + shift;
             a *= 0.5;
@@ -75,22 +77,47 @@ namespace {
 ///   size:     canvas size in pt (wave normalization)
 ///   accent:   crack-glow tint (theme accent)
 ///   time:     absolute time in seconds (for ember animation)
+///   liteFlag: >0.5 = drop the organic-warp octaves, ember particles, and
+///             stretch motion-blur resample — see `HeroDepartureModifier.lite`.
+///             A uniform across the whole draw call, so the `bool lite`
+///             branches below are taken identically by every fragment (no
+///             per-pixel divergence cost), not per-pixel conditionals.
+///   unitScale: layer points per screen point. 1 normally; 0.5 on tvOS, where
+///             the departing layer is rendered at half size and scaled back
+///             up (`HeroDepartureModifier.renderScale`) so this shader runs
+///             on a quarter of the fragments. Everything below is computed in
+///             *screen* points — cell width, flight distance, crack width all
+///             stay the size they were designed at — and only the texture
+///             taps convert, so the look is the same at any scale.
+///   flightScale: multiplier on how far tiles fly. Below 1 on tvOS: the
+///             sample margin the layer has to be rendered with grows with the
+///             flight, and that margin was costing more fragments than the
+///             backdrop itself.
 [[ stitchable ]]
-half4 hexCrumble(float2 position,
+half4 hexCrumble(float2 screenPos,
                  SwiftUI::Layer layer,
                  float progress,
                  float2 size,
                  half4 accent,
-                 float time) {
+                 float time,
+                 float liteFlag,
+                 float unitScale,
+                 float flightScale) {
     float u = 1.0 - progress;                       // 0 = intact, 1 = scattered
-    if (u <= 0.001) { return layer.sample(position); }   // clean idle, zero cost
+    if (u <= 0.001) { return layer.sample(screenPos); }   // clean idle, zero cost
+    bool lite = liteFlag > 0.5;
+    float2 position = screenPos / unitScale;        // design space, see above
 
     // ---- organic cell distortion ----
-    // Use FBM noise to warp the grid coordinates, making hex shapes irregular
+    // Use FBM noise to warp the grid coordinates, making hex shapes irregular.
+    // Full detail is 4 octaves; `lite` keeps one — the cells lose a little of
+    // their wobble and the shader loses three quarters of its noise cost,
+    // which was the single biggest term per fragment.
     float2 noiseCoord = position * 0.012;  // scale for visible warping
+    int warpOctaves = lite ? 1 : 4;
     float2 warp = float2(
-        fbm(noiseCoord + float2(0.0, 0.0)),
-        fbm(noiseCoord + float2(5.2, 1.3))
+        fbm(noiseCoord + float2(0.0, 0.0), warpOctaves),
+        fbm(noiseCoord + float2(5.2, 1.3), warpOctaves)
     ) - 0.5;  // center around 0
     warp *= 18.0;  // warp strength in pixels
 
@@ -128,7 +155,7 @@ half4 hexCrumble(float2 position,
     const float life = 0.58;
     float start = ph * (1.0 - life);
     float t = saturate((u - start) / life);         // this cell's local 0 → 1
-    if (t <= 0.0001) { return layer.sample(position); }
+    if (t <= 0.0001) { return layer.sample(screenPos); }
 
     // ---- slow-motion pause at peak shatter ----
     float tMod = t;
@@ -148,8 +175,9 @@ half4 hexCrumble(float2 position,
     if (crackPhase > 0.01 && crackPhase < 0.95) {
         float2 crackOrigin = float2(rnd2, rnd3) * cellW * 0.6 - cellW * 0.3;
         float minDist = 1e5;
-        for (int i = 0; i < 3; i++) {
-            float angle = (float(i) / 3.0 + rnd) * 6.28318 + rnd2 * 1.5;
+        int crackSegments = lite ? 2 : 3;
+        for (int i = 0; i < crackSegments; i++) {
+            float angle = (float(i) / float(crackSegments) + rnd) * 6.28318 + rnd2 * 1.5;
             float len = crackPhase * cellW * 0.55;
             float2 crackEnd = crackOrigin + float2(cos(angle), sin(angle)) * len;
             float2 branchEnd = crackOrigin + float2(cos(angle + 0.4), sin(angle + 0.4)) * len * 0.5;
@@ -192,8 +220,8 @@ half4 hexCrumble(float2 position,
     // ---- flight ----
     float su = tMod * tMod;
     float2 fdir = normalize(dir + perp * (rnd2 - 0.5) * 1.3);
-    float2 disp = fdir * su * (320.0 + 260.0 * rnd) * depthMul;
-    disp.y += (300.0 * tMod * tMod - 80.0 * tMod) * depthMul;
+    float2 disp = fdir * su * (320.0 + 260.0 * rnd) * depthMul * flightScale;
+    disp.y += (300.0 * tMod * tMod - 80.0 * tMod) * depthMul * flightScale;
 
     float rot = (rnd - 0.5) * 3.6 * su * depthMul;
     float pop = smoothstep(0.0, 0.10, tMod) * (1.0 - smoothstep(0.10, 0.30, tMod));
@@ -235,7 +263,7 @@ half4 hexCrumble(float2 position,
     float mask = 1.0 - smoothstep(0.5 - 1.8 / cellW, 0.5, hexD);
     mask = mix(1.0, mask, saturate(tMod * 10.0));
 
-    half4 color = layer.sample(src);
+    half4 color = layer.sample(src * unitScale);
 
     // Apply color shift (desat + warm)
     half lum = dot(color.rgb, half3(0.299, 0.587, 0.114));
@@ -255,9 +283,11 @@ half4 hexCrumble(float2 position,
     color.rgb *= half(1.0 + 0.22 * pop);
 
     // ---- ember particles (boosted for visibility) ----
+    // The priciest loop in this shader (6 iterations of hash/normalize/length
+    // per pixel, for every pixel of the canvas) — skipped outright on `lite`.
     float emberAlpha = 0.0;
     float3 emberColor = float3(0.0);
-    if (tMod > 0.05 && tMod < 0.75) {
+    if (!lite && tMod > 0.05 && tMod < 0.75) {
         for (int e = 0; e < 6; e++) {
             float eRand = hash21(id + float2(e) * 7.77 + 5.55);
             float eRand2 = hash21(id + float2(e) * 13.13 + 9.99);
@@ -294,11 +324,13 @@ half4 hexCrumble(float2 position,
     color.rgb += accent.rgb * half(waveRing * ringMask * 0.6) * half(1.0 - alpha);
 
     // ---- stretch trails (motion blur effect) ----
-    // During peak stretch, add a subtle directional blur along flight path
-    if (stretchAmount > 0.1) {
+    // During peak stretch, add a subtle directional blur along flight path.
+    // This is a SECOND full texture sample per pixel on top of the one
+    // above — skip it on `lite` rather than pay double sampling bandwidth.
+    if (!lite && stretchAmount > 0.1) {
         float trailAlpha = stretchAmount * 0.15;
         float2 trailOffset = -stretchDir * stretchAmount * 12.0;
-        half4 trailColor = layer.sample(src + trailOffset);
+        half4 trailColor = layer.sample((src + trailOffset) * unitScale);
         trailColor.rgb += accent.rgb * 0.3;
         color = mix(color, trailColor, half(trailAlpha));
     }

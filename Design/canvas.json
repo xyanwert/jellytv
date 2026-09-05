@@ -1,0 +1,62 @@
+{
+  "artboards": [
+    { "file": "Connect.dc.html",    "x": 0,    "y": 0,   "w": 390, "h": 844, "title": "Connect" },
+    { "file": "Connecting.dc.html", "x": 470,  "y": 0,   "w": 390, "h": 844, "title": "Connecting" },
+    { "file": "Home.dc.html",       "x": 940,  "y": 0,   "w": 390, "h": 844, "title": "Home" },
+    { "file": "Detail.dc.html",     "x": 1410, "y": 0,   "w": 390, "h": 844, "title": "Show" },
+    { "file": "Browse.dc.html",     "x": 1880, "y": 0,   "w": 390, "h": 844, "title": "Movies" },
+    { "file": "Main.dc.html",       "x": 0,    "y": 964, "w": 844, "h": 390, "title": "Player" }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -252,
+      "w": 520,
+      "text": "iPhone — portrait-first. Left to right is the order you meet the app: connect, then browse, then play.\n\nBuilt on the app's own system, not a new one: coral #F0525F in-app, the setup screen's own neon purple #B14EFF, #07080C / #0B0D13 grounds, Schibsted Grotesk with monospace readouts, 14px radii, the sonar-ring motif from DetailBackground.\n\nStatic mockups (not a clickable prototype). The accent chip above the in-app artboards swaps the four real AccentOption values; the two setup artboards deliberately don't have one — that screen keeps its purple whatever theme you pick."
+    },
+    {
+      "id": "setup",
+      "x": 0,
+      "y": -560,
+      "w": 520,
+      "text": "The connect screen was the broken one: an HStack of a 440pt brand column beside a 480pt panel — 920pt of side-by-side layout rendered into a 390pt phone, which is why it came out clipped.\n\nRebuilt as one column. The 46pt headline and the body paragraph go; the mark, the wordmark and the status dot stay. Discovery stays first — the found server IS the answer on a home network, so it gets the biggest targets and typing an address becomes a chip.\n\nThe one real cut: API KEY collapses from an always-open box to a single row. It is the minority path, and keeping it open pushed Connect off the bottom of the screen. Collapsed, the whole form ends above the fold with room to spare — no scrolling to reach the only button that matters.\n\nConnecting gets a Cancel it never had. A stalled connect with no way out is the worst version of this screen, and on a phone it is the likeliest one."
+    },
+    {
+      "id": "anatomy",
+      "x": 2350,
+      "y": 0,
+      "w": 340,
+      "text": "No hero banner on Home or Show — a phone hasn't the height to spend on one.\n\nHome: title, library pills, then a featured CARD with its neighbours peeking. The pills are this app's real libraries, so Anime or Home Videos is one tap from Home instead of two through More.\n\nShow: the art is a block that ends at 296px. Identity, specs and meta centre under it; CONTINUE is one full-width target; RESTART / SHUFFLE / FAVOURITE drop to icon-and-caption so none of them competes with it. From the episode title down it goes left-aligned — that part is reading, not choosing."
+    },
+    {
+      "id": "libraries",
+      "x": 2350,
+      "y": 470,
+      "w": 340,
+      "text": "Libraries: ONE search on this phone, and it is a tab. Every library screen drops its own field — a second search box on a screen that already has a search tab is two answers to the same question, and on 390pt it was eating the row the grid needed.\n\nSort and Genre become dropdowns carrying their current value, shown here with Sort open. A chip rail can't be read and scrolled at once on a phone, and the genre list is as long as the library is deep — 428 films' worth of chips is not a control. The two dropdowns map 1:1 onto the state that already exists: LibrarySort, and selectedGenre.\n\nPlay and Random are OUT for now, by request — nothing here replaces them yet. Between the search field and those two buttons the screen has given back about 110pt, and all of it went to the grid: the catalogue now starts a full poster higher.\n\nSame treatment for Shows, Anime, Late Night and Home Videos."
+    },
+    {
+      "id": "tabs",
+      "x": 2350,
+      "y": 900,
+      "w": 340,
+      "text": "The tab bar carries the RAIL's icons and its new order — Home, Movies, Shows, Search, More — so all three platforms name the same things in the same sequence. Settings folds into More; a sixth tab would cost thumb width.\n\n74px tall, matching phoneTabBarClearance, and every screen's last row scrolls under it."
+    },
+    {
+      "id": "player-thumbs",
+      "x": 924,
+      "y": 964,
+      "w": 350,
+      "text": "Player, landscape.\n\nA phone in landscape is held by BOTH corners: the thumbs rest bottom-left and bottom-right, and the centre of the screen is the hardest place to reach. So the corners get the small stuff (opinions left, queue right) and the centre keeps the three big circles it earns — ±30s and play, the only controls that must never be aimed at.\n\nSCENES sits nearest the right thumb, NEXT outboard: an undershoot opens the harmless grid, not the wrong episode."
+    },
+    {
+      "id": "player-cut",
+      "x": 1314,
+      "y": 964,
+      "w": 350,
+      "text": "What the phone gave up, and why.\n\nThe iPad chrome is a 186pt play circle over 96pt foot tiles — well past 390pt of landscape height before the top bar. It cannot shrink into a phone; things had to go.\n\nCut: +1min (least used, the one circle you have to pick out of a row), PREV (a mis-hit costs you the episode), and the corner wordmark (the only thing there nobody needs to act on).\n\nKept, deliberately: no progress bar. A bar invites dragging and a dragged bar loses your place — the doctrine the tvOS/iPad chrome already holds."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

@@ -18,16 +18,12 @@ struct AnimeLibraryView: View {
     let isLibrariesOpen: Bool
     let onSelectRail: (RailTarget) -> Void
 
-    // See `MoviesLibraryView`'s identical constants/comment.
-    #if os(iOS)
-    private static let headerSpacing: CGFloat = 12
-    private static let headerTopPadding: CGFloat = 12
-    #else
-    private static let headerSpacing: CGFloat = 22
-    private static let headerTopPadding: CGFloat = 40
-    #endif
+    // See `MoviesLibraryView`'s identical constants.
+    private static let headerSpacing: CGFloat = 16
+    private static let headerTopPadding: CGFloat = 24
 
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var theme: Theme
 
     /// The category's own identity color (a fixed magenta/pink, not the
     /// user's customizable `theme.accent`) — matches design 4b's `accentAnime`
@@ -42,12 +38,27 @@ struct AnimeLibraryView: View {
     @State private var selectedGenre: String?
     @State private var searchText = ""
     @State private var searchTags: [String] = []
+    /// Random's own state — it builds a queue over a whole library, which
+    /// is a round trip long enough to need reporting.
+    @State private var randomState: RandomPlayState = .idle
     @State private var presentedMovie: Movie?
+    @State private var zoomOrigin: UnitPoint = .center
     @State private var presentedShow: Show?
     @State private var selectedMovieDetail: Movie?
     @State private var selectedShowDetail: Show?
     @FocusState private var focusedId: String?
+    /// The last poster the remote sat on — see `MoviesLibraryView`.
+    @State private var lastFocusedId: String?
+    /// One-shot latch for `seedFocusIfNeeded`.
+    @State private var hasSeededFocus = false
     @FocusState private var searchFocused: Bool?
+    /// Which title's artwork is currently the page backdrop on iPad — see
+    /// `LibraryBackdrop`. Chosen once per visit: `RootView` gives each screen
+    /// `.id(selection)`, so navigating away and back rebuilds this view with
+    /// fresh state and the load task picks again. Re-sorting inside the
+    /// screen deliberately keeps the same image (the guard below), so tapping
+    /// a filter chip doesn't reshuffle the wallpaper under you.
+    @State private var backdropItemId: String?
 
     private var allItems: [MediaItem] { items }
 
@@ -70,8 +81,29 @@ struct AnimeLibraryView: View {
         return result
     }
 
+    /// The item whose artwork backs the page. tvOS follows the focused
+    /// poster; iPad has no selection, so it uses the per-visit random pick
+    /// and only falls back to `selectedItem` before the pick lands.
+    private var backdropItem: MediaItem? {
+        #if os(iOS)
+        allItems.first { $0.id == backdropItemId } ?? selectedItem
+        #else
+        selectedItem
+        #endif
+    }
+
+    /// Blur behind the library, per Settings → Appearance. tvOS keeps the
+    /// sharp backdrop it was designed with.
+    private var backdropBlur: Double {
+        #if os(iOS)
+        theme.libraryBackdropEffect.blurRadius
+        #else
+        0
+        #endif
+    }
+
     private var selectedItem: MediaItem? {
-        filtered.first { $0.id == focusedId }
+        filtered.first { $0.id == (focusedId ?? lastFocusedId) }
             ?? filtered.first { $0.rating != nil && $0.backdropImage != nil }
             ?? filtered.first { $0.backdropImage != nil }
             ?? filtered.first
@@ -167,51 +199,75 @@ struct AnimeLibraryView: View {
     var body: some View {
         ZStack {
             background
-            if let selectedItem {
-                SelectedBackdrop(item: selectedItem)
+            if let backdropItem {
+                SelectedBackdrop(item: backdropItem, blur: backdropBlur)
             }
             HStack(spacing: 0) {
                 NavRail(destination: .animeLibrary, isLibrariesOpen: isLibrariesOpen,
                         onSelect: onSelectRail, accentOverride: Self.accent)
-                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems()) {
+                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems(),
+                                        onDismiss: { onSelectRail(.libraries) }) {
                     VStack(alignment: .leading, spacing: Self.headerSpacing) {
-                        header.padding(.horizontal, 48)
-                        filterBar.padding(.horizontal, 48)
+                        controlBar.libraryContentMargin()
+                        // tvOS only — see `MoviesLibraryView`'s identical gate.
+                        #if os(tvOS)
                         selectedBand
+                        #endif
                         if !hasLoaded {
                             loadingGrid
                         } else {
                             ScrollView(.vertical, showsIndicators: false) {
                                 postersSection
-                                    .padding(.horizontal, 48)
+                                    .libraryContentMargin()
                                     .padding(.top, 6)
                                     .padding(.bottom, 60)
+                                    .phoneTabBarClearance()
+                                    #if os(iOS)
+                                    .fixesScrollTapDelay()
+                                    #endif
                             }
                         }
                     }
                     .padding(.top, Self.headerTopPadding)
                 }
             }
-            .ignoresSafeArea()
+            .railContentSafeArea()
             // See `HomeView`'s matching `.disabled` for why: `presentedMovie`/
             // `presentedShow` are same-ZStack overlays, not modals, so
             // without this the rail stays focus-reachable underneath them.
             .disabled(presentedMovie != nil || presentedShow != nil)
+            .trackZoomOrigin($zoomOrigin)
+            .zoomedBehind(presentedMovie != nil || presentedShow != nil, origin: zoomOrigin)
 
             if let presentedMovie {
-                MovieDetailView(movie: presentedMovie, onDismiss: { self.presentedMovie = nil })
-                    .transition(.opacity)
+                MovieDetailView(movie: presentedMovie, onDismiss: { self.presentedMovie = nil },
+                                onOpenItem: openItem)
+                    .id(presentedMovie.id)
+                    .zoomPresented(from: zoomOrigin)
                     .zIndex(2)
             }
             if let presentedShow {
                 ShowView(show: presentedShow, onDismiss: { self.presentedShow = nil })
-                    .transition(.opacity)
+                    .zoomPresented(from: zoomOrigin)
                     .zIndex(2)
             }
         }
-        .animation(.easeOut(duration: 0.25), value: presentedMovie)
-        .animation(.easeOut(duration: 0.25), value: presentedShow)
+        .animation(.zoomPresentation, value: presentedMovie)
+        .animation(.zoomPresentation, value: presentedShow)
+        // Menu from a page puts the remote back on the poster it opened.
+        .onChange(of: presentedMovie) { _, new in if new == nil { focusedId = lastFocusedId } }
+        .onChange(of: presentedShow) { _, new in if new == nil { focusedId = lastFocusedId } }
+        // Crossfades the backdrop and hero on a selection change — see
+        // `MoviesLibraryView`.
+        .animation(.easeInOut(duration: 0.35), value: selectedItem?.id)
+        .onChange(of: focusedId) { _, id in
+            if let id { lastFocusedId = id }
+        }
+        // tvOS seeds focus from the first poster instead — see
+        // `MoviesLibraryView.seedFocusIfNeeded`.
+        #if os(iOS)
         .defaultFocus($searchFocused, true)
+        #endif
         // `appState.libraries.count` is part of the task id so this re-fires
         // once the server connection finishes configuring — see
         // `MoviesLibraryView`'s identical reasoning.
@@ -221,86 +277,93 @@ struct AnimeLibraryView: View {
             async let shows = appState.loadAnimeShows(sortBy: query.sortBy, sortOrder: query.sortOrder)
             items = await movies + shows
             hasLoaded = true
+            #if os(iOS)
+            // Only when unset: a re-sort re-runs this task, and reshuffling
+            // the backdrop on every filter-chip tap would be noise.
+            if backdropItemId == nil { backdropItemId = LibraryBackdrop.pick(from: items) }
+            #endif
         }
+        // tvOS only: this fetch exists purely to fill the selected-item
+        // dossier, and iPad no longer renders one. Leaving it on would spend
+        // a Jellyfin detail call plus OMDb/TMDB lookups per selection change
+        // with nothing on screen to receive them.
+        #if os(tvOS)
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
+        #endif
         #if os(tvOS)
         .onExitCommand(perform: exitAction)
         #endif
     }
 
+    #if os(tvOS)
+    /// One hero for both kinds — the same `LibraryHero` Movies and Shows use,
+    /// in this screen's accent, with the cast labelled for what it is here.
     @ViewBuilder private var selectedBand: some View {
         if let item = selectedItem {
             switch item.kind {
             case .movie:
                 let movie = (selectedMovieDetail?.id == item.id) ? selectedMovieDetail! : baseMovie(for: item)
-                AnimeMovieBand(movie: movie, isLoading: isDossierLoading)
+                LibraryHero(content: .movie(movie, item: item, isLoading: isDossierLoading),
+                            accent: Self.accent, castLabel: "Voice cast")
             case .series:
                 let show = (selectedShowDetail?.id == item.id) ? selectedShowDetail! : baseShow(for: item)
-                AnimeShowBand(show: show, isLoading: isDossierLoading)
+                LibraryHero(content: .show(show, item: item, isLoading: isDossierLoading),
+                            accent: Self.accent, castLabel: "Voice cast")
             }
         }
     }
+    #endif
 
-    // MARK: - Header
+    // MARK: - Header / controls
 
-    /// The busy backdrop art behind this row (`SelectedBackdrop`'s top-darken
-    /// scrim alone isn't enough contrast for the search field's subtle fill)
-    /// gets its own translucent-blur backing here, same idiom as the rail's
-    /// `LibrariesSubmenu` panel — material + a dark tint, not material alone.
+    private var controlBar: some View {
+        VStack(alignment: .leading, spacing: Self.headerSpacing) {
+            header
+            filterBar
+        }
+    }
+
+    /// See `MoviesLibraryView.header` — no eyebrow on tvOS, no Play anywhere.
+    /// The "アニメ" ornament went with them: decoration in the title row of a
+    /// screen whose own identity is already the accent colour.
+    ///
+    /// iPad keeps the translucent backing behind this row (`SelectedBackdrop`'s
+    /// top-darken scrim alone wasn't enough contrast for the search field's
+    /// subtle fill there); on tvOS the field is compact and sits over the
+    /// scrim's darkest band, and a boxed header over the art read as one more
+    /// panel on a screen that had too many.
     private var header: some View {
-        HStack(spacing: 20) {
+        LibraryHeaderLayout {
             VStack(alignment: .leading, spacing: 4) {
+                #if os(iOS)
                 Text("LIBRARY // ANIME")
                     .font(Mono.font(15, .bold))
                     .tracking(2.6)
                     .foregroundStyle(Palette.text(0.5))
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                #endif
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text("Anime")
                         .font(Typography.font(34, .black))
                         .foregroundStyle(Palette.textPrimary)
-                    Text("\(allItems.count) titles")
+                    Text(LibraryChrome.countLabel(shown: filtered.count, total: allItems.count, noun: "titles"))
                         .font(Typography.font(20, .semibold))
                         .foregroundStyle(Palette.text(0.4))
-                    Text("アニメ")
-                        .font(Mono.font(16, .bold))
-                        .tracking(1.5)
-                        .foregroundStyle(Self.accent)
                 }
             }
-            .fixedSize()
-
+            .libraryTitleBlockSizing()
+        } search: {
             searchField
-
-            Button {} label: {
-                HStack(spacing: 11) {
-                    Image(systemName: "play.fill").font(.system(size: 18))
-                    Text("Play")
-                }
-                .font(Typography.button)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 15)
-                .background(Self.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .shadow(color: Self.accent.opacity(0.4), radius: 16, y: 4)
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 14))
-
-            Button(action: randomize) {
-                HStack(spacing: 10) {
-                    Image(systemName: "shuffle").font(.system(size: 18, weight: .semibold))
-                    Text("Random")
-                }
-                .font(Typography.button)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 15)
-                .background(Palette.text(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.2), lineWidth: 1))
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 14))
+        } actions: {
+            #if os(iOS)
+            RandomPlayButton(size: .icon(dimension: 48, cornerRadius: 14, glyphSize: 18),
+                              state: $randomState, action: randomize)
+            #else
+            RandomPlayButton(size: .header, state: $randomState, action: randomize)
+            #endif
         }
+        #if os(iOS)
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.vertical, 10)
         .background {
             ZStack {
                 RoundedRectangle(cornerRadius: 20, style: .continuous).fill(.ultraThinMaterial)
@@ -308,31 +371,71 @@ struct AnimeLibraryView: View {
             }
         }
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Palette.text(0.08), lineWidth: 1))
+        #endif
     }
 
     private var searchField: some View {
-        TagSearchField(tags: $searchTags, liveText: $searchText, placeholder: "Search anime, studios, seiyuu…",
-                       accent: Self.accent, trailing: "\(filtered.count)",
+        TagSearchField(tags: $searchTags, liveText: $searchText, placeholder: Self.searchPlaceholder,
+                       accent: Self.accent,
+                       trailing: LibraryChrome.searchTrailing(count: filtered.count),
                        field: true, focus: $searchFocused)
     }
 
+    /// The evocative long form used to only fit the tvOS field — iPad's sat
+    /// inline with the filter chips at a fixed 300pt, where it truncated to
+    /// "Search anime, stud…". Now both platforms give the field the same
+    /// header row width, so both get the full placeholder.
+    private static let searchPlaceholder = "Search anime, studios, seiyuu…"
+
+    /// **Random plays; it no longer just points at something.**
+    ///
+    /// It used to pick one card out of whatever the grid had loaded and open
+    /// its detail page (or, on tvOS, merely move the focus to it) — a shuffle
+    /// button that shuffled nothing and played nothing. Now it builds a queue
+    /// over the every anime episode and film in the library, randomised server-side, and starts
+    /// it: press Next and the next thing plays.
+    ///
+    /// The queue is deliberately the *whole scope*, not `filtered` — the
+    /// visible grid is one sorted page of the library, and "random" that can
+    /// only reach what happens to be on screen isn't random. A fresh queue is
+    /// built per press, so pressing it again is a different order, never a
+    /// re-entry into the last one.
     private func randomize() {
-        guard let item = filtered.randomElement() else { return }
-        focusedId = item.id
+        guard randomState != .loading else { return }
+        randomState = .loading
+        Task {
+            let request = await appState.randomQueue(for: .anime)
+            guard let request else { randomState = .empty; return }
+            randomState = .idle
+            appState.requestPlayback(request)
+        }
     }
 
     // MARK: - Filters
 
+    @ViewBuilder
     private var filterBar: some View {
-        // Scrolling instead of a plain (non-scrolling) HStack keeps every
-        // chip a single line on an iPad's narrower width instead of
-        // squeeze-wrapping — see `MoviesLibraryView`'s identical comment.
+        #if os(iOS)
+        if DeviceClass.current == .phone {
+            LibrarySortGenreDropdownBar(sort: $sort, genres: genres, selectedGenre: $selectedGenre,
+                                        accent: Self.accent, totalCount: allItems.count)
+        } else {
+            filterChipRail
+        }
+        #else
+        filterChipRail
+        #endif
+    }
+
+    private var filterChipRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
+                #if os(iOS)
                 Text("FILTER")
                     .font(Mono.font(13, .bold))
                     .tracking(2)
                     .foregroundStyle(Palette.text(0.4))
+                #endif
                 ForEach(LibrarySort.allCases) { option in
                     LibraryFilterChip(label: option.rawValue, isOn: sort == option, action: { sort = option }, accent: Self.accent)
                 }
@@ -350,19 +453,28 @@ struct AnimeLibraryView: View {
 
     // MARK: - Poster grid
 
+    /// iPad drops the `maximum:` so the columns share the full content width
+    /// (with `LibraryPosterCard` filling its cell) instead of capping at
+    /// 210pt and leaving the remainder as a gap on the right. tvOS keeps the
+    /// cap — its cards are a fixed 200pt and its canvas is wide enough that
+    /// uncapped columns would stretch the cells well past the artwork.
+    #if os(iOS)
+    // See `MoviesLibraryView`'s identical comment on the phone minimum.
+    private static var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: DeviceClass.current == .phone ? 100 : 180), spacing: 22)]
+    }
+    #else
+    private static let gridColumns = [GridItem(.adaptive(minimum: 150, maximum: 175), spacing: 18)]
+    #endif
+
     private var loadingGrid: some View {
-        VStack(spacing: 14) {
-            ProgressView().controlSize(.large).tint(Self.accent)
-            Text("Loading anime…")
-                .font(Mono.font(15, .medium)).tracking(1)
-                .foregroundStyle(Palette.text(0.4))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, 140)
+        LibraryLoadingState(message: "Loading anime…", accent: Self.accent)
     }
 
     private var postersSection: some View {
         VStack(alignment: .leading, spacing: 14) {
+            // iPad only — see `MoviesLibraryView.postersSection`.
+            #if os(iOS)
             HStack(alignment: .firstTextBaseline) {
                 Text(sectionCaption)
                     .font(Mono.font(15, .bold))
@@ -373,19 +485,40 @@ struct AnimeLibraryView: View {
                     .font(Typography.font(16, .medium))
                     .foregroundStyle(Palette.text(0.4))
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180, maximum: 210), spacing: 22)], spacing: 26) {
+            #endif
+            if filtered.isEmpty {
+                if allItems.isEmpty {
+                    LibraryEmptyState(message: "No anime here yet.",
+                                      hint: "Mark a library as Anime in Settings → Libraries and it will show up here.")
+                } else {
+                    LibraryEmptyState(message: "Nothing matches these filters.")
+                }
+            }
+            LazyVGrid(columns: Self.gridColumns, spacing: 20) {
                 ForEach(filtered) { item in
                     LibraryPosterCard(item: item, onSelect: { openItem(item) })
                         .focused($focusedId, equals: item.id)
+                        .onAppear { seedFocusIfNeeded(item) }
                 }
             }
         }
     }
 
+    /// See `MoviesLibraryView.seedFocusIfNeeded`.
+    private func seedFocusIfNeeded(_ item: MediaItem) {
+        #if os(tvOS)
+        guard !hasSeededFocus, item.id == filtered.first?.id else { return }
+        hasSeededFocus = true
+        if focusedId == nil, searchFocused != true { focusedId = item.id }
+        #endif
+    }
+
+    #if os(iOS)
     private var sectionCaption: String {
         let genrePart = selectedGenre?.uppercased() ?? "ALL ANIME"
         return "\(genrePart) · \(sort.rawValue.uppercased())"
     }
+    #endif
 
     // MARK: - Background
 
@@ -427,240 +560,4 @@ private struct SpeedLines: View {
         .allowsHitTesting(false)
         .clipped()
     }
-}
-
-/// The vertical Japanese watermark between the info block and the dossier
-/// panel (design 4b's "サクラ鎮魂歌 · 劇場版" signature). The design's version
-/// is a per-film Japanese title — no real source for that exists (Jellyfin
-/// doesn't carry a per-title Japanese name here), so this stays the fixed
-/// category label ("アニメ") already used elsewhere on this screen, stacked
-/// character-by-character to read top-to-bottom like the design's vertical
-/// type, rather than inventing a translation of whatever's selected.
-private struct KatakanaSignature: View {
-    var body: some View {
-        VStack(spacing: 10) {
-            ForEach(Array("アニメ".enumerated()), id: \.offset) { _, char in
-                Text(String(char))
-                    .font(Mono.font(22, .bold))
-            }
-        }
-        .tracking(2)
-        .foregroundStyle(AnimeLibraryView.accent.opacity(0.7))
-        // A plain low-opacity glyph over arbitrary backdrop art is only
-        // legible by luck (it read fine over a dark region, vanished over a
-        // light one) — the same lesson as the header row: give it its own
-        // fixed contrast (shadow + a soft dark backing) instead of
-        // depending on whatever happens to be behind it.
-        .shadow(color: .black.opacity(0.8), radius: 5)
-        .padding(.vertical, 16)
-        .padding(.horizontal, 8)
-        .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .fixedSize()
-    }
-}
-
-/// The "currently selected" band for an anime film (design 4b): the same
-/// composition as `MoviesLibraryView`'s `SelectedMovieBand`, recolored to the
-/// anime accent with the cast panel relabeled "SEIYUU" (the same real
-/// Jellyfin cast data — an accurate label for voice-acted content, not a
-/// different data source).
-private struct AnimeMovieBand: View {
-    let movie: Movie
-    var isLoading: Bool = false
-
-    // See `MoviesLibraryView.SelectedMovieBand`'s identical comment. Slightly
-    // tighter numbers than that band's (narrower padding, smaller inter-item
-    // spacing, narrower info column) since this band also carries the
-    // `KatakanaSignature` between info and the dossier panel.
-    #if os(iOS)
-    private static let height: CGFloat = 300
-    private static let horizontalPadding: CGFloat = 56
-    private static let itemSpacing: CGFloat = 24
-    private static let bandAlignment: VerticalAlignment = .top
-    private static let frameAlignment: Alignment = .top
-    private static let infoSpacing: CGFloat = 10
-    private static let titleFontSize: CGFloat = 44
-    private static let titleLineLimit = 1
-    private static let infoMaxWidth: CGFloat = 520
-    private static let synopsisMaxWidth: CGFloat = 520
-    #else
-    private static let height: CGFloat = 536
-    private static let horizontalPadding: CGFloat = 100
-    private static let itemSpacing: CGFloat = 32
-    private static let bandAlignment: VerticalAlignment = .center
-    private static let frameAlignment: Alignment = .center
-    private static let infoSpacing: CGFloat = 16
-    private static let titleFontSize: CGFloat = 72
-    private static let titleLineLimit = 2
-    private static let infoMaxWidth: CGFloat = 720
-    private static let synopsisMaxWidth: CGFloat = 620
-    #endif
-
-    var body: some View {
-        HStack(alignment: Self.bandAlignment, spacing: Self.itemSpacing) {
-            info
-            Spacer(minLength: 8)
-            KatakanaSignature()
-            Spacer(minLength: 8)
-            VStack(alignment: .leading, spacing: 16) {
-                StatsCastPanel(movie: movie, isLoading: isLoading, accent: AnimeLibraryView.accent,
-                               dossierLabel: "STUDIO DOSSIER", castLabel: "SEIYUU")
-                #if os(tvOS)
-                MetaPanel(movie: movie, isLoading: isLoading, accent: AnimeLibraryView.accent)
-                #endif
-            }
-        }
-        .padding(.horizontal, Self.horizontalPadding)
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.height, alignment: Self.frameAlignment)
-        .id(movie.id)
-        .transition(.opacity)
-    }
-
-    private var info: some View {
-        VStack(alignment: .leading, spacing: Self.infoSpacing) {
-            Text("SELECTED // NOW IN YOUR LIBRARY")
-                .font(Mono.font(14, .bold))
-                .tracking(3)
-                .foregroundStyle(AnimeLibraryView.accent)
-
-            Text(movie.title)
-                .font(Typography.font(Self.titleFontSize, .black))
-                .foregroundStyle(Palette.textPrimary)
-                .lineLimit(Self.titleLineLimit)
-                .minimumScaleFactor(0.5)
-                .lineSpacing(-6)
-
-            HStack(spacing: 12) {
-                Text("★ \(movie.rating)")
-                    .fontWeight(.heavy)
-                    .foregroundStyle(AnimeLibraryView.accent)
-                Text(movie.certification)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Palette.text(0.3), lineWidth: 1.5))
-                Text(movie.year)
-                dot
-                Text(genreTail)
-                if !movie.runtime.isEmpty {
-                    dot
-                    Text(movie.runtime)
-                }
-            }
-            .font(Typography.font(19, .semibold))
-            .foregroundStyle(Palette.text(0.68))
-
-            Text(movie.synopsis)
-                .font(Typography.font(20, .medium))
-                .foregroundStyle(Palette.text(0.7))
-                .lineLimit(3)
-                .lineSpacing(6)
-                .frame(maxWidth: Self.synopsisMaxWidth, alignment: .leading)
-        }
-        .frame(maxWidth: Self.infoMaxWidth, alignment: .leading)
-    }
-
-    private var genreTail: String {
-        movie.genreLabel.split(separator: "/").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? movie.genreLabel
-    }
-
-    private var dot: some View { Text("·").foregroundStyle(Palette.text(0.4)) }
-}
-
-/// The "currently selected" band for an anime series (design 4b): the same
-/// composition as `ShowsLibraryView`'s `SelectedShowBand`, recolored to the
-/// anime accent with the cast panel relabeled "SEIYUU".
-private struct AnimeShowBand: View {
-    let show: Show
-    var isLoading: Bool = false
-
-    // See `AnimeMovieBand`'s identical comment.
-    #if os(iOS)
-    private static let height: CGFloat = 300
-    private static let horizontalPadding: CGFloat = 56
-    private static let itemSpacing: CGFloat = 24
-    private static let bandAlignment: VerticalAlignment = .top
-    private static let frameAlignment: Alignment = .top
-    private static let infoSpacing: CGFloat = 10
-    private static let titleFontSize: CGFloat = 44
-    private static let titleLineLimit = 1
-    private static let infoMaxWidth: CGFloat = 520
-    private static let synopsisMaxWidth: CGFloat = 520
-    #else
-    private static let height: CGFloat = 536
-    private static let horizontalPadding: CGFloat = 100
-    private static let itemSpacing: CGFloat = 32
-    private static let bandAlignment: VerticalAlignment = .center
-    private static let frameAlignment: Alignment = .center
-    private static let infoSpacing: CGFloat = 16
-    private static let titleFontSize: CGFloat = 72
-    private static let titleLineLimit = 2
-    private static let infoMaxWidth: CGFloat = 720
-    private static let synopsisMaxWidth: CGFloat = 620
-    #endif
-
-    var body: some View {
-        HStack(alignment: Self.bandAlignment, spacing: Self.itemSpacing) {
-            info
-            Spacer(minLength: 8)
-            KatakanaSignature()
-            Spacer(minLength: 8)
-            VStack(alignment: .leading, spacing: 16) {
-                ShowStatsCastPanel(show: show, isLoading: isLoading, accent: AnimeLibraryView.accent, castLabel: "SEIYUU")
-                #if os(tvOS)
-                ShowMetaPanel(show: show, isLoading: isLoading, accent: AnimeLibraryView.accent)
-                #endif
-            }
-        }
-        .padding(.horizontal, Self.horizontalPadding)
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.height, alignment: Self.frameAlignment)
-        .id(show.id)
-        .transition(.opacity)
-    }
-
-    private var info: some View {
-        VStack(alignment: .leading, spacing: Self.infoSpacing) {
-            Text("SELECTED // NOW IN YOUR LIBRARY")
-                .font(Mono.font(14, .bold))
-                .tracking(3)
-                .foregroundStyle(AnimeLibraryView.accent)
-
-            Text(show.title)
-                .font(Typography.font(Self.titleFontSize, .black))
-                .foregroundStyle(Palette.textPrimary)
-                .lineLimit(Self.titleLineLimit)
-                .minimumScaleFactor(0.5)
-                .lineSpacing(-6)
-
-            HStack(spacing: 12) {
-                Text("★ \(show.rating)")
-                    .fontWeight(.heavy)
-                    .foregroundStyle(AnimeLibraryView.accent)
-                Text(show.certification)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Palette.text(0.3), lineWidth: 1.5))
-                Text(show.years)
-                dot
-                Text(genreTail)
-            }
-            .font(Typography.font(19, .semibold))
-            .foregroundStyle(Palette.text(0.68))
-
-            Text(show.synopsis)
-                .font(Typography.font(20, .medium))
-                .foregroundStyle(Palette.text(0.7))
-                .lineLimit(3)
-                .lineSpacing(6)
-                .frame(maxWidth: Self.synopsisMaxWidth, alignment: .leading)
-        }
-        .frame(maxWidth: Self.infoMaxWidth, alignment: .leading)
-    }
-
-    private var genreTail: String {
-        show.genreLabel.split(separator: "/").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? show.genreLabel
-    }
-
-    private var dot: some View { Text("·").foregroundStyle(Palette.text(0.4)) }
 }

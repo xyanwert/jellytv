@@ -29,6 +29,12 @@ final class PlayerController {
 
     private var favoriteChangeInFlight = false
 
+    /// Tags the user has changed during this playback session, keyed by item
+    /// id. The queue's `PlayableItem`s were built before the player opened
+    /// and never change, so without this a tag applied mid-film would keep
+    /// showing the old chips until the next launch.
+    private var editedTags: [String: [String]] = [:]
+
     /// Where a burst of jump taps is heading. Non-nil only while a burst is
     /// settling; see `jump(by:)`.
     private(set) var pendingSeekTarget: Double?
@@ -66,6 +72,39 @@ final class PlayerController {
     /// Exposed only so `PlayerLayerView` can attach — chrome should not
     /// reach in here for playback actions, use the methods below.
     var avPlayer: AVPlayer { engine.avPlayer }
+
+    /// **Which item's tags the chrome is showing — and therefore editing.**
+    ///
+    /// For an episode that is the *series*, not the episode: Jellyfin puts
+    /// tags on the show and virtually never on an episode, so every episode
+    /// `PlayableItem` in this app is built carrying its series' tags (see
+    /// `AppState.seriesIdentity`). Editing anywhere else would mean the chips
+    /// you can see and the chips you can change are two different lists —
+    /// tag an episode and the row wouldn't move, while the show's tags would
+    /// silently get copied onto it. A film or a home video owns its own.
+    var tagTargetId: String? {
+        guard let item = currentItem else { return nil }
+        return item.seriesId ?? item.id
+    }
+
+    /// True when the above resolved to the series rather than the item, so
+    /// the panel can say "this show" instead of "this video".
+    var tagsBelongToSeries: Bool { currentItem?.seriesId != nil }
+
+    /// The tags the chrome should draw: whatever the user has just set, else
+    /// whatever the item was queued with.
+    var currentTags: [String] {
+        guard let id = tagTargetId else { return [] }
+        return editedTags[id] ?? currentItem?.tags ?? []
+    }
+
+    /// Record a tag edit for display. **Does not write to Jellyfin** — the
+    /// server round-trip is `AppState.setTags(_:forItem:)`, which owns the
+    /// client; this is the optimistic half, and its caller is expected to
+    /// call again with the old value if the write fails.
+    func setTagsLocally(_ tags: [String], for itemId: String) {
+        editedTags[itemId] = tags
+    }
 
     /// Local-only "not interested" flag — Jellyfin has no dislike endpoint,
     /// so this never leaves the device.
@@ -126,9 +165,13 @@ final class PlayerController {
         scheduleSeekCommit()
     }
 
-    /// Jump to an absolute position — "start over from the beginning". Cancels
-    /// any accumulated nudge rather than fighting it, then coalesces on the
-    /// same timer so a mashed restart is also one seek.
+    /// Jump to an absolute position from a *mashable* control — the coalesced
+    /// counterpart to `seek(to:)`. Cancels any accumulated nudge rather than
+    /// fighting it, then commits on the same timer, so a burst is one seek.
+    ///
+    /// No control calls this today: its one caller was the chrome's
+    /// start-over circle, which was cut for being a whole-film mistake one
+    /// press away from the seek buttons.
     func jump(to seconds: Double) {
         pendingSeekTarget = clampToItem(seconds)
         scheduleSeekCommit()

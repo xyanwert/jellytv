@@ -5,6 +5,10 @@ import JellyTVKit
 enum HomeFocus: Hashable {
     case heroResume
     case continueFirst
+    case recommendedFirst
+    /// The "Couldn't load your library" empty/error state's Retry button —
+    /// only ever mounted when `HomeView.homeLoadFailed` is true.
+    case retry
 }
 
 /// A detail screen presented full-screen over Home from a Recommended poster.
@@ -14,8 +18,11 @@ private enum PresentedDetail: Equatable {
 }
 
 /// The Home screen: left rail, a hero backdrop behind the text, and
-/// Continue Watching / Recommended rows. Data comes from `AppState` with a
-/// sample-catalog fallback while the server is still loading.
+/// Continue Watching / Recommended rows. Data comes from `AppState`; while
+/// the first `refresh()` is still in flight (`!appState.hasLoadedHome`) each
+/// section shows a loading placeholder rather than sample-catalog data —
+/// sample items look real but don't resolve against the actual server, so a
+/// tap on one used to silently do nothing.
 struct HomeView: View {
     let isLibrariesOpen: Bool
     let onSelectRail: (RailTarget) -> Void
@@ -27,11 +34,13 @@ struct HomeView: View {
 
     // Hero carousel state.
     // `displayHeroes` is what's actually on screen — it only ever changes
-    // inside `revealNextSlide`, alongside the outgoing cover. `liveHeroes`
-    // (below) is the live truth from AppState; reading it directly for
-    // display would let the hero hard-cut the instant real data replaces the
-    // sample catalog, bypassing the crumble entirely (that was the flash).
-    @State private var displayHeroes: [HeroFeature] = SampleCatalog.heroes
+    // inside `revealNextSlide`, alongside the outgoing cover, or (once, on
+    // first load) directly in the `.onChange` below. Starts empty rather than
+    // seeded with `SampleCatalog.heroes`: showing sample data here used to
+    // render a fully-tappable-looking Resume button that silently did
+    // nothing (sample ids don't resolve against a real server) for as long
+    // as `AppState.refresh()` took — see `AppState.hasLoadedHome`.
+    @State private var displayHeroes: [HeroFeature] = []
     @State private var heroIndex = 0
     @State private var slideStartTime = Date()
     @State private var rotateTask: Task<Void, Never>?
@@ -39,7 +48,21 @@ struct HomeView: View {
     @State private var outgoingVisible = false
     @State private var departProgress: Double = 1
     @State private var presentedDetail: PresentedDetail?
+    @State private var zoomOrigin: UnitPoint = .center
+    @State private var focusBeforePresent: HomeFocus?
     @State private var transitionStartTime: Date?
+
+    /// One-shot guard for the "stuck on the rail because there was nothing
+    /// focusable yet" bug. `.defaultFocus` only resolves once per scope and
+    /// does NOT re-fire when a `HomeFocus`-tagged view mounts moments later
+    /// — without this, focus can sit on the rail forever even after real
+    /// content arrives. Flips true the moment we intervene, or the moment
+    /// `focus` becomes non-nil on its own (meaning the engine or the user
+    /// already put it somewhere real) — after that, this view never assigns
+    /// `focus` again, so a later background refresh or deliberate rail
+    /// navigation can't get yanked back into content.
+    @State private var hasEstablishedFocus = false
+    @State private var isRetrying = false
 
     // tvOS has a 1080pt-tall canvas to spend on the hero before Continue
     // Watching/Recommended even enter the picture. An iPad landscape window
@@ -53,18 +76,56 @@ struct HomeView: View {
     private static let backdropHeight: CGFloat = 880
     #endif
 
-    private var liveHeroes: [HeroFeature] {
-        let h = appState.heroes.isEmpty ? SampleCatalog.heroes : appState.heroes
-        return h.isEmpty ? SampleCatalog.heroes : h
+    private var currentHero: HeroFeature? {
+        guard !displayHeroes.isEmpty else { return nil }
+        return displayHeroes[heroIndex % displayHeroes.count]
     }
-    private var currentHero: HeroFeature { displayHeroes[heroIndex % displayHeroes.count] }
     private var libraryItems: [Library] {
         let libs = appState.libraryUIItems()
         return libs.isEmpty ? SampleCatalog.libraries : libs
     }
 
+    /// True once `AppState.refresh()` has finished (successfully or not)
+    /// but every section still came back empty — indistinguishable from
+    /// "this account genuinely has nothing yet," but Retry is the right
+    /// call either way (harmless if there's really nothing to retry).
+    private var homeLoadFailed: Bool {
+        appState.hasLoadedHome
+            && appState.heroes.isEmpty
+            && appState.continueWatching.isEmpty
+            && appState.recommended.isEmpty
+    }
+
+    /// Home's focus priority, recomputed from live data so it stays correct
+    /// as content loads incrementally — never a single hardcoded case. The
+    /// marquee action first, then "pick up where you left off," then
+    /// discovery, then (only if nothing else exists) the failure
+    /// affordance. `nil` only during the brief window before
+    /// `hasLoadedHome` — nothing to resolve to yet.
+    ///
+    /// Reads `appState.heroes` directly rather than `currentHero`
+    /// (`displayHeroes`'s crumble-presentation proxy): `AppState.refresh()`
+    /// sets `continueWatching` well before `heroes` (there's a real network
+    /// `await` — `fetchItemPool` — in between), so on every real cold
+    /// launch Continue Watching's data lands, renders, and is briefly the
+    /// only entry available before the hero ever exists. Resolving off
+    /// `displayHeroes` here would let that intermediate frame win the
+    /// one-shot assignment below and permanently outrank the hero once it
+    /// *does* arrive. `appState.heroes` is the immediate source of truth —
+    /// no such lag — and `displayHeroes` reliably catches up to it in the
+    /// same update pass (see the `.onChange(of: appState.heroes.isEmpty)`
+    /// handler above) before the next frame paints.
+    private var resolvedFocusTarget: HomeFocus? {
+        if !appState.heroes.isEmpty { return .heroResume }
+        if !appState.continueWatching.isEmpty { return .continueFirst }
+        if !appState.recommended.isEmpty { return .recommendedFirst }
+        if homeLoadFailed { return .retry }
+        return nil
+    }
+
     private var initialFocus: HomeFocus {
-        ProcessInfo.processInfo.environment["JT_FOCUS"] == "continue" ? .continueFirst : .heroResume
+        if ProcessInfo.processInfo.environment["JT_FOCUS"] == "continue" { return .continueFirst }
+        return resolvedFocusTarget ?? .heroResume
     }
 
     /// Debug hook: `JT_SHOW_DEMO=movie|show|real-movie|real-show` opens a
@@ -116,19 +177,27 @@ struct HomeView: View {
     var body: some View {
         ZStack {
             homeBackground
-            HomeSonar()
-            heroBackdropLayer
+            // Neither the ring motif nor the full-bleed backdrop belongs on
+            // phone: `HomeSonar` positions itself at x=1760 (nonsensical
+            // outside a wide landscape canvas) and the backdrop is exactly
+            // the full-bleed hero `Home.dc.html` replaces with a contained
+            // featured-card carousel — see `content`'s phone branch.
+            if DeviceClass.current != .phone {
+                HomeSonar()
+                heroBackdropLayer
+            }
             HStack(spacing: 0) {
                 NavRail(
                     destination: .home,
                     isLibrariesOpen: isLibrariesOpen,
                     onSelect: onSelectRail
                 )
-                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: libraryItems) {
+                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: libraryItems,
+                                        onDismiss: { onSelectRail(.libraries) }) {
                     content
                 }
             }
-            .ignoresSafeArea()
+            .railContentSafeArea()
             // `presentedDetail` (ShowView/MovieDetailView) is a same-ZStack
             // overlay, not a modal presentation — without this, the rail's
             // buttons stay in the tvOS focus engine's candidate pool even
@@ -138,14 +207,24 @@ struct HomeView: View {
             // from the Show view's cast row eventually focused-and-selected
             // the Settings rail icon underneath).
             .disabled(presentedDetail != nil)
+            // The page zooms out of whatever was selected — a Recommended
+            // poster or the hero's Details button — see `ZoomTransition`.
+            .trackZoomOrigin($zoomOrigin)
+            .zoomedBehind(presentedDetail != nil, origin: zoomOrigin)
 
             if let presentedDetail {
                 detailView(presentedDetail)
-                    .transition(.opacity)
+                    .zoomPresented(from: zoomOrigin)
                     .zIndex(2)
             }
         }
-        .animation(.easeOut(duration: 0.25), value: presentedDetail)
+        .animation(.zoomPresentation, value: presentedDetail)
+        // Menu from a page puts the remote back on what opened it — the
+        // poster or the hero's Details — instead of the first thing on screen.
+        .onChange(of: presentedDetail) { old, new in
+            if old == nil, new != nil { focusBeforePresent = focus }
+            if new == nil, let saved = focusBeforePresent { focus = saved }
+        }
         .onAppear {
             // Once per launch, not once per appearance: `.onAppear` fires
             // again every time Home comes back (dismissing a detail view,
@@ -159,19 +238,85 @@ struct HomeView: View {
             if !appState.heroes.isEmpty {
                 displayHeroes = appState.heroes
             }
+
+            // Warm return to Home (data already loaded elsewhere) —
+            // `.defaultFocus` only gets one shot at resolution and that shot
+            // may already have come and gone before this runs. Assert once,
+            // directly; the guard makes this a no-op if `.defaultFocus`
+            // already won on its own.
+            if !hasEstablishedFocus, let target = resolvedFocusTarget {
+                hasEstablishedFocus = true
+                focus = target
+            }
         }
-        .task(id: theme.rotationInterval) { startHeroRotation() }
+        .onChange(of: focus) { _, newValue in
+            if newValue != nil { hasEstablishedFocus = true }
+        }
+        .onChange(of: appState.hasLoadedHome) { _, loaded in
+            // Cold start — `refresh()` has now fully settled (heroes,
+            // Continue Watching, and Recommended are all in their final
+            // state), a moment after first frame, after `.defaultFocus`
+            // already had (and lost) its one shot at resolving to nothing.
+            //
+            // Deliberately keyed off `hasLoadedHome` rather than
+            // `resolvedFocusTarget` itself: `refresh()` sets
+            // `continueWatching` well before `heroes` (a real network
+            // `await` sits between them), so watching `resolvedFocusTarget`
+            // directly fires once Continue Watching alone lands, locks
+            // `hasEstablishedFocus` in right there, and then permanently
+            // outranks the hero once it arrives a moment later — sending
+            // initial focus to a Continue Watching card even when a hero
+            // exists. Waiting for the fully-settled signal means this fires
+            // exactly once, using final data, so the priority order below
+            // actually holds.
+            //
+            // Same one-shot guard as above — never fires again after the
+            // first real hand-off, so a later background refresh can't
+            // steal focus from wherever the user has since gone.
+            guard loaded, !hasEstablishedFocus, let target = resolvedFocusTarget else { return }
+            hasEstablishedFocus = true
+            focus = target
+        }
+        // The whole rotation/crumble machinery below exists to animate the
+        // full-bleed backdrop `heroBackdropLayer` draws — phone doesn't draw
+        // that layer at all (see `body` above), so there's nothing for a
+        // reveal to cover and no reason to run a background timer that would
+        // just tick uselessly. `PhoneFeaturedCarousel` reads `appState.heroes`
+        // directly instead.
+        .task(id: theme.rotationInterval) {
+            guard DeviceClass.current != .phone else { return }
+            startHeroRotation()
+        }
         .onChange(of: appState.heroes.isEmpty) { wasEmpty, isEmptyNow in
-            // Real Jellyfin data just replaced the sample-catalog fallback —
-            // reveal it through the same crumble/fade cover the rotation
-            // timer uses instead of hard-cutting the backdrop.
+            guard DeviceClass.current != .phone else { return }
             guard wasEmpty, !isEmptyNow else { return }
-            Task { await revealNextSlide(newList: appState.heroes) }
+            if displayHeroes.isEmpty {
+                // First real data ever — there's no sample-catalog slide on
+                // screen to crumble away (the loading placeholder isn't part
+                // of this backdrop), so just adopt it directly and kick off
+                // rotation now that there's more than a placeholder to rotate.
+                displayHeroes = appState.heroes
+                heroIndex = 0
+                slideStartTime = Date()
+                startHeroRotation()
+            } else {
+                // Real Jellyfin data just replaced an already-displayed
+                // slide (e.g. a background re-refresh) — reveal it through
+                // the same crumble/fade cover the rotation timer uses
+                // instead of hard-cutting the backdrop.
+                Task { await revealNextSlide(newList: appState.heroes) }
+            }
         }
         .onDisappear { rotateTask?.cancel() }
-        #if os(tvOS)
-        .onExitCommand(perform: isLibrariesOpen ? { onSelectRail(.libraries) } : nil)
-        #endif
+        .tvBackCommand(
+            closeOverlay: isLibrariesOpen,
+            onCloseOverlay: { onSelectRail(.libraries) },
+            isDetailPresented: presentedDetail != nil
+            // goBack: nil (default) — Home is the true root; Menu here
+            // correctly falls through to tvOS's own system default. Next
+            // round: Search/Home Videos pass `goBack: { onSelectRail(.home) }`
+            // here instead of hand-rolling their own `onExitCommand`.
+        )
     }
 
     /// Presents a movie or show detail for the selected Recommended poster.
@@ -179,6 +324,29 @@ struct HomeView: View {
         presentedDetail = item.kind == .movie
             ? .movie(SampleCatalog.movie(for: item))
             : .show(SampleCatalog.show(for: item))
+    }
+
+    /// The hero's Details button — the same detail screens a Recommended
+    /// poster opens, built from what the hero already knows. An episode hero
+    /// opens its *show* (there is no episode page; the show page is where the
+    /// episode lives), under the show's name rather than the episode's. The
+    /// detail screens fetch their own live data on appear, so the bare item
+    /// here only has to carry an id and something to draw first.
+    private func presentDetails(for hero: HeroFeature) {
+        let isMovie = hero.itemType == "Movie"
+        let isEpisode = hero.itemType == "Episode"
+        let remoteImage = hero.image.hasPrefix("http") ? hero.image : nil
+        let item = MediaItem(
+            id: isEpisode ? (hero.seriesId ?? hero.id) : hero.id,
+            title: isEpisode ? (hero.seriesTitle ?? hero.title) : hero.title,
+            meta: isMovie ? "Movie" : "Series",
+            image: remoteImage,
+            artwork: hero.artwork,
+            synopsis: isEpisode ? nil : hero.synopsis,
+            backdropImage: remoteImage,
+            isFavorite: hero.isFavorite
+        )
+        presentedDetail = isMovie ? .movie(SampleCatalog.movie(for: item)) : .show(SampleCatalog.show(for: item))
     }
 
     /// Resumes a Continue Watching card directly into the player — no
@@ -191,13 +359,31 @@ struct HomeView: View {
         }
     }
 
+    /// **What tapping a `PhoneFeaturedCard` does.** iPad/tvOS's hero row has
+    /// three actions (Resume/Details/♥); phone drops all three for a single
+    /// tap on the card itself (`Home.dc.html`), and play is the one action a
+    /// single tap on a featured card can mean, same as `HeroView.resume()`.
+    #if os(iOS)
+    private func resume(_ hero: HeroFeature) {
+        Task {
+            guard let request = await appState.resumeRequest(for: hero) else { return }
+            appState.requestPlayback(request)
+        }
+    }
+    #endif
+
     @ViewBuilder
     private func detailView(_ detail: PresentedDetail) -> some View {
         switch detail {
         case .show(let show):
             ShowView(show: show, onDismiss: { presentedDetail = nil })
         case .movie(let movie):
-            MovieDetailView(movie: movie, onDismiss: { presentedDetail = nil })
+            MovieDetailView(movie: movie, onDismiss: { presentedDetail = nil }, onOpenItem: present)
+                // A new identity per film: "More like this" and a person's
+                // credits swap `presentedDetail` to another movie while this
+                // view is up, and without this SwiftUI would keep the old
+                // page's fetched detail as if it were the new film's.
+                .id(movie.id)
         }
     }
 
@@ -209,33 +395,188 @@ struct HomeView: View {
     private static let contentSpacing: CGFloat = 26
     #endif
 
+    @ViewBuilder
     private var content: some View {
+        #if os(iOS)
+        if DeviceClass.current == .phone {
+            phoneContent
+        } else {
+            padTVContent
+        }
+        #else
+        padTVContent
+        #endif
+    }
+
+    private var padTVContent: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: Self.contentSpacing) {
-                TopBar(profile: SampleCatalog.profile, onOpenSettings: onOpenSettings,
-                       heroCount: displayHeroes.count, heroIndex: heroIndex,
+                // Unconditional — this is Home's only always-present
+                // interactive control (the remote-control switch on tvOS)
+                // besides the rail itself. It used to be gated behind
+                // `currentHero != nil`, which meant a failed/slow
+                // `refresh()` left it unreachable along with everything
+                // else in this column. `heroCount: 0` already renders
+                // correctly with no rotation dots (`HeroDotsRow` no-ops for
+                // `count <= 1`).
+                TopBar(heroCount: displayHeroes.count, heroIndex: heroIndex,
                        slideStartTime: slideStartTime, rotationSeconds: theme.rotationInterval.seconds)
 
-                HeroView(hero: currentHero, resumeFocus: $focus)
-                    .padding(.horizontal, 56)
-                    .padding(.top, 4)
-
-                let cwItems = appState.continueWatching.isEmpty
-                    ? SampleCatalog.continueWatching : appState.continueWatching
-                if !cwItems.isEmpty {
-                    ContinueWatchingRow(items: cwItems,
-                                        firstCardFocus: $focus, firstCardTag: .continueFirst,
-                                        onSelect: resume)
+                if let hero = currentHero {
+                    HeroView(hero: hero, resumeFocus: $focus, onDetails: { presentDetails(for: hero) })
+                        .padding(.horizontal, 56)
+                        .padding(.top, 4)
+                } else if homeLoadFailed {
+                    homeLoadErrorState
+                } else {
+                    heroLoadingPlaceholder
                 }
 
-                let recItems = appState.recommended.isEmpty
-                    ? SampleCatalog.recommended : appState.recommended
-                RecommendedRow(items: recItems, onSelect: present)
-                    .padding(.bottom, 60)
+                if !appState.continueWatching.isEmpty {
+                    ContinueWatchingRow(items: appState.continueWatching,
+                                        firstCardFocus: $focus, firstCardTag: .continueFirst,
+                                        onSelect: resume)
+                } else if !appState.hasLoadedHome {
+                    rowLoadingPlaceholder(title: "Continue Watching")
+                }
+
+                if !appState.recommended.isEmpty {
+                    RecommendedRow(items: appState.recommended,
+                                   firstCardFocus: $focus, firstCardTag: .recommendedFirst,
+                                   onSelect: present)
+                        .padding(.bottom, 60)
+                        .phoneTabBarClearance()
+                } else if !appState.hasLoadedHome {
+                    rowLoadingPlaceholder(title: "Recommended for You")
+                        .padding(.bottom, 60)
+                        .phoneTabBarClearance()
+                }
             }
             .padding(.top, 8)
         }
         .defaultFocus($focus, initialFocus)
+    }
+
+    /// **No full-bleed hero — a title, not a banner.** Replaces
+    /// `TopBar`/`HeroView`/`heroBackdropLayer` with a compact header, a row
+    /// of library pills (every library one tap away, not buried in "More"),
+    /// and a contained featured-card carousel — see `Home.dc.html` and
+    /// `PhoneHomeComponents.swift`. Continue Watching/Recommended carry over
+    /// unchanged in spirit, just re-margined for a phone column.
+    #if os(iOS)
+    private var phoneContent: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 20) {
+                PhoneHomeHeader(initial: SampleCatalog.profile.initial, onOpenSettings: onOpenSettings)
+                PhoneLibraryPillsRow(libraries: libraryItems, onSelectRail: onSelectRail)
+
+                if !appState.heroes.isEmpty {
+                    PhoneFeaturedCarousel(heroes: appState.heroes, onSelect: resume)
+                } else if !appState.hasLoadedHome {
+                    phoneCarouselLoadingPlaceholder
+                }
+
+                if !appState.continueWatching.isEmpty {
+                    ContinueWatchingRow(items: appState.continueWatching, onSelect: resume)
+                } else if !appState.hasLoadedHome {
+                    rowLoadingPlaceholder(title: "Continue Watching")
+                }
+
+                if !appState.recommended.isEmpty {
+                    RecommendedRow(items: appState.recommended, onSelect: present)
+                        .padding(.bottom, 60)
+                        .phoneTabBarClearance()
+                } else if !appState.hasLoadedHome {
+                    rowLoadingPlaceholder(title: "Recommended for You")
+                        .padding(.bottom, 60)
+                        .phoneTabBarClearance()
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+    #endif
+
+    // MARK: - Loading placeholders
+    //
+    // Shown only until `AppState.hasLoadedHome` flips true — never sample
+    // data. A row that looks fully real and tappable but is secretly wired
+    // to nothing (a sample-catalog id that can't resolve against the actual
+    // server) is worse than an honest "still loading" state — see
+    // CLAUDE.md's "Never show fake data as a placeholder".
+
+    private var heroLoadingPlaceholder: some View {
+        ProgressView()
+            .controlSize(.large)
+            .tint(.white)
+            .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
+            .padding(.horizontal, 56)
+    }
+
+    /// Home's own honest failure state. Replaces what used to be a bare,
+    /// permanent `ProgressView()` once `hasLoadedHome` is true but every
+    /// section came back empty — a real, focusable `Button`, not silence.
+    /// Sized to roughly `heroLoadingPlaceholder`'s footprint so nothing
+    /// jumps depending on which of the two renders.
+    private var homeLoadErrorState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 40, weight: .medium))
+                .foregroundStyle(Palette.text(0.4))
+            Text("Couldn't load your library")
+                .font(Typography.font(24, .heavy))
+                .foregroundStyle(Palette.textPrimary)
+            Text("Check that this device can still reach your Jellyfin server.")
+                .font(Typography.font(16, .medium))
+                .foregroundStyle(Palette.text(0.55))
+            Button(action: retryLoad) {
+                HStack(spacing: 10) {
+                    if isRetrying {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .semibold))
+                    }
+                    Text(isRetrying ? "Retrying…" : "Retry")
+                }
+                .font(Typography.button)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 14)
+                .background(theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
+            .focused($focus, equals: .retry)
+            .disabled(isRetrying)
+            .padding(.top, 6)
+        }
+        .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
+        .padding(.horizontal, 56)
+    }
+
+    private func retryLoad() {
+        guard !isRetrying else { return }
+        isRetrying = true
+        Task {
+            await appState.refresh()
+            isRetrying = false
+        }
+    }
+
+    #if os(iOS)
+    private var phoneCarouselLoadingPlaceholder: some View {
+        ProgressView()
+            .tint(.white)
+            .frame(maxWidth: .infinity, minHeight: PhoneFeaturedCarousel.cardSize.height, alignment: .center)
+    }
+    #endif
+
+    private func rowLoadingPlaceholder(title: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeader(title: title)
+            ProgressView()
+                .tint(.white)
+                .frame(maxWidth: .infinity, minHeight: 140, alignment: .center)
+        }
     }
 
     // MARK: - Hero backdrop
@@ -244,14 +585,19 @@ struct HomeView: View {
     /// and a bottom fade to blend into the page background.
     private var heroBackdropLayer: some View {
         GeometryReader { geo in
-            let size = CGSize(width: geo.size.width, height: Self.backdropHeight)
-            ZStack {
-                imageStack(size: size)
-                    .opacity(0.9)
-                heroScrims
+            // No slide yet (still loading) — nothing to draw behind the
+            // placeholder; the ambient `homeBackground` gradient carries the
+            // page on its own until real data arrives.
+            if let hero = currentHero {
+                let size = CGSize(width: geo.size.width, height: Self.backdropHeight)
+                ZStack {
+                    imageStack(hero: hero, size: size)
+                        .opacity(0.9)
+                    heroScrims
+                }
+                .frame(width: geo.size.width, height: Self.backdropHeight, alignment: .top)
+                .mask(heroBottomFade)
             }
-            .frame(width: geo.size.width, height: Self.backdropHeight, alignment: .top)
-            .mask(heroBottomFade)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea()
@@ -264,7 +610,7 @@ struct HomeView: View {
     /// change, plus every frame `departProgress` animates (via the
     /// Animatable fast path, which does NOT re-run this function's body —
     /// see the note on `isTransitioning` in STEP 5).
-    private func imageStack(size: CGSize) -> some View {
+    private func imageStack(hero: HeroFeature, size: CGSize) -> some View {
         let now = Date().timeIntervalSinceReferenceDate
         let elapsed = transitionStartTime.map { now - $0.timeIntervalSinceReferenceDate } ?? 0
 
@@ -280,8 +626,7 @@ struct HomeView: View {
             // BASE layer — always the current/new slide (STEP 6). Sits at the
             // default zIndex (0), so whatever's drawn in the OUTGOING branch
             // below it is what actually determines whether this is visible.
-            heroImage(currentHero, size: size)
-                .modifier(HeroHeatHazeModifier(progress: departProgress, canvasSize: size, time: elapsed))
+            baseHeroLayer(hero, size: size, elapsed: elapsed)
             // OUTGOING layer — STEP 4's snapshot, drawn ON TOP (zIndex 1).
             // `HeroDepartureModifier` is what actually shatters/fades this
             // away as `departProgress` animates 1 → 0 (STEP 7). While
@@ -292,18 +637,73 @@ struct HomeView: View {
             // with progress ≈ 1, the base underneath is invisible no matter
             // what it already changed to in STEP 6.
             if let outgoing = outgoingHero {
-                heroImage(outgoing, size: size)
-                    .modifier(HeroDepartureModifier(
-                        style: theme.transitionStyle,
-                        progress: departProgress,
-                        canvasSize: size,
-                        accent: theme.accent,
-                        time: elapsed
-                    ))
+                departingLayer(outgoing, size: size, elapsed: elapsed)
                     .opacity(isTransitioning ? 1 : 0)
                     .zIndex(1)
             }
         }
+    }
+
+    /// **tvOS renders the crumble at half size and scales it back up.**
+    ///
+    /// An Apple TV 4K draws this app at 3840×2160, and `layerEffect` runs the
+    /// shader once per pixel of the departing layer — the 880pt backdrop
+    /// *plus* the 600×560pt sample margin the flying tiles need, which more
+    /// than doubles the layer's area. That is on the order of 25 million
+    /// hex/noise/crack evaluations per frame, sixty times a second, on an
+    /// A15 that is also compositing the rest of the screen; `lite` trimmed
+    /// the instructions but never the pixels, and the real box still
+    /// stuttered. Laying the layer out at half size cuts the fragments by
+    /// four; flying the tiles 60% as far shrinks the margin with them, for
+    /// another ~1.5×; one warp octave instead of two takes the largest term
+    /// out of what's left. Roughly an order of magnitude less GPU work for a
+    /// 1080p-equivalent render of a picture that is shattering — nothing a
+    /// sofa can see. The shader works in screen points throughout
+    /// (`unitScale`), so cells, cracks and glow are the size they were
+    /// designed at. iPad keeps the full-resolution, full-flight effect.
+    #if os(tvOS)
+    private static let departureRenderScale: CGFloat = 0.5
+    private static let departureFlightScale: Double = 0.6
+    #else
+    private static let departureRenderScale: CGFloat = 1
+    private static let departureFlightScale: Double = 1
+    #endif
+
+    private func departingLayer(_ hero: HeroFeature, size: CGSize, elapsed: Double) -> some View {
+        let scale = Self.departureRenderScale
+        let layerSize = CGSize(width: size.width * scale, height: size.height * scale)
+        return heroImage(hero, size: layerSize)
+            .modifier(HeroDepartureModifier(
+                style: theme.transitionStyle,
+                progress: departProgress,
+                canvasSize: size,
+                accent: theme.accent,
+                time: elapsed,
+                // Drops the ember particles and the stretch motion-blur
+                // resample (a second texture tap per pixel) as well — the
+                // shatter/fly/crack skeleton survives, without the priciest
+                // per-pixel extras.
+                lite: DeviceClass.current == .tv,
+                renderScale: scale,
+                flightScale: Self.departureFlightScale
+            ))
+            .scaleEffect(1 / scale, anchor: .topLeading)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    /// The BASE hero layer (STEP 6's target). Heat haze is a subtle up-close
+    /// wobble — worth it on an iPad held at arm's length, not worth its own
+    /// full-canvas shader pass at a TV's 10-foot viewing distance, especially
+    /// stacked on top of the (already-heavier, see `lite` above) crumble pass
+    /// running at the same time.
+    @ViewBuilder
+    private func baseHeroLayer(_ hero: HeroFeature, size: CGSize, elapsed: Double) -> some View {
+        let image = heroImage(hero, size: size)
+        #if os(tvOS)
+        image
+        #else
+        image.modifier(HeroHeatHazeModifier(progress: departProgress, canvasSize: size, time: elapsed))
+        #endif
     }
 
     /// A hero backdrop image — remote (Jellyfin URL), bundled asset, or gradient.

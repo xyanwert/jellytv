@@ -63,6 +63,61 @@ public enum JellyfinAPI {
         }
     }
 
+    /// `GET /Users/Me` — who the token belongs to, and what they may do.
+    ///
+    /// Only `IsAdministrator` is decoded, because only one question is being
+    /// asked: **may this account edit item metadata?** Jellyfin gates
+    /// `POST /Items/{id}` on `RequiresElevation`, so a non-admin user gets a
+    /// 403 no matter how the request is shaped. Asking up front is what lets
+    /// the UI say so instead of failing at the tap.
+    public struct CurrentUser: Decodable, Equatable, Sendable {
+        public let id: String
+        public let name: String
+        public let isAdministrator: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case id = "Id", name = "Name", policy = "Policy"
+        }
+
+        private struct Policy: Decodable {
+            let isAdministrator: Bool?
+            enum CodingKeys: String, CodingKey { case isAdministrator = "IsAdministrator" }
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+            isAdministrator = (try c.decodeIfPresent(Policy.self, forKey: .policy))?.isAdministrator ?? false
+        }
+
+        public init(id: String, name: String, isAdministrator: Bool) {
+            self.id = id
+            self.name = name
+            self.isAdministrator = isAdministrator
+        }
+    }
+
+    /// `GET /Items/Filters` — the tag vocabulary actually in use under a
+    /// parent. Shared shape with `/Items/Filters2`, which on 10.11.11 answers
+    /// with an empty `Tags` array; see `JellyfinClient.fetchTagVocabulary`.
+    ///
+    /// There is no `/Tags` endpoint, whatever it looks like there should be:
+    /// v1 assumed `/Tags?searchTerm=` existed and shipped a 404 (its commit
+    /// `c838c0f`).
+    public struct QueryFilters: Decodable, Equatable, Sendable {
+        public let tags: [String]
+
+        enum CodingKeys: String, CodingKey { case tags = "Tags" }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        }
+
+        public init(tags: [String]) { self.tags = tags }
+    }
+
     /// Builds the `MediaBrowser` authorization header value sent on every request.
     /// `token` is empty for the initial `AuthenticateByName` call and set to the
     /// access token (or API key) afterwards.
@@ -129,7 +184,7 @@ public enum JellyfinAPI {
     /// thumbnail out of it locally — no per-frame network call and no
     /// AVPlayer seek, which is the difference between ~80ms and ~1.1s for a
     /// page of six previews.
-    public struct TrickplayInfo: Decodable, Equatable, Sendable {
+    public struct TrickplayInfo: Decodable, Hashable, Sendable {
         /// One frame's pixel size inside the sheet.
         public let width: Int
         public let height: Int
@@ -165,6 +220,65 @@ public enum JellyfinAPI {
         enum CodingKeys: String, CodingKey { case trickplay = "Trickplay" }
     }
 
+    /// One chapter marker on an item (`Chapters` field). `imageTag` is set when
+    /// the server has extracted a thumbnail for it — served from
+    /// `/Items/{id}/Images/Chapter/{index}`.
+    public struct JellyfinChapter: Decodable, Equatable, Sendable {
+        public let name: String?
+        public let startPositionTicks: Int64?
+        public let imageTag: String?
+
+        enum CodingKeys: String, CodingKey {
+            case name = "Name"
+            case startPositionTicks = "StartPositionTicks"
+            case imageTag = "ImageTag"
+        }
+
+        public init(name: String? = nil, startPositionTicks: Int64? = nil, imageTag: String? = nil) {
+            self.name = name
+            self.startPositionTicks = startPositionTicks
+            self.imageTag = imageTag
+        }
+    }
+
+    /// One stream of an item's primary media source (`MediaStreams` field);
+    /// `type` is "Video", "Audio" or "Subtitle". What the movie page's facts
+    /// row reads its "English 5.1 · Subs: EN, ES" from.
+    public struct JellyfinMediaStream: Decodable, Equatable, Sendable {
+        public let type: String?
+        public let language: String?
+        public let displayLanguage: String?
+        public let displayTitle: String?
+        public let channels: Int?
+        public let channelLayout: String?
+        public let isDefault: Bool?
+        public let codec: String?
+
+        enum CodingKeys: String, CodingKey {
+            case type = "Type"
+            case language = "Language"
+            case displayLanguage = "DisplayLanguage"
+            case displayTitle = "DisplayTitle"
+            case channels = "Channels"
+            case channelLayout = "ChannelLayout"
+            case isDefault = "IsDefault"
+            case codec = "Codec"
+        }
+
+        public init(type: String? = nil, language: String? = nil, displayLanguage: String? = nil,
+                    displayTitle: String? = nil, channels: Int? = nil, channelLayout: String? = nil,
+                    isDefault: Bool? = nil, codec: String? = nil) {
+            self.type = type
+            self.language = language
+            self.displayLanguage = displayLanguage
+            self.displayTitle = displayTitle
+            self.channels = channels
+            self.channelLayout = channelLayout
+            self.isDefault = isDefault
+            self.codec = codec
+        }
+    }
+
         public struct JellyfinItem: Decodable, Equatable, Sendable, Identifiable {
         public let id: String
         public let name: String?
@@ -175,7 +289,12 @@ public enum JellyfinAPI {
         // is explicitly requested via `fields`. A library like an anime/adult
         // collection typically carries many of these per item, which is what
         // the library screens' tag-chip search filters against.
-        public let tags: [String]?
+        //
+        // `var` alone among the fields: tags are the one thing this app
+        // writes back (`JellyfinClient.setItemTags`), and a caller that has
+        // just written them needs to bring its cached copies into step
+        // without rebuilding a thirty-parameter init.
+        public var tags: [String]?
         public let productionYear: Int?
         public let premiereDate: String?
         public let officialRating: String?
@@ -209,6 +328,21 @@ public enum JellyfinAPI {
         // used to format a show's year range ("2023 – 2026" vs "2023 – Still On").
         public let status: String?
         public let endDate: String?
+        // Detail-only (`fields=Chapters,MediaStreams,LocalTrailerCount`): the
+        // movie page's scenes strip, its audio/subtitle facts, and whether a
+        // trailer file exists that this app could actually play.
+        public let chapters: [JellyfinChapter]?
+        public let mediaStreams: [JellyfinMediaStream]?
+        public let localTrailerCount: Int?
+        // Home-video shelf data: the sprite-sheet geometry (`fields=Trickplay`,
+        // nested media-source → width) so a card can page through frames
+        // without a per-item fetch; the frame's pixel size, which tells a
+        // portrait phone clip from a landscape one; and when the file was
+        // added, distinct from `PremiereDate` (when it was shot).
+        public let trickplay: [String: [String: TrickplayInfo]]?
+        public let width: Int?
+        public let height: Int?
+        public let dateCreated: String?
 
         enum CodingKeys: String, CodingKey {
             case id = "Id"
@@ -244,6 +378,13 @@ public enum JellyfinAPI {
             case status = "Status"
             case endDate = "EndDate"
             case productionLocations = "ProductionLocations"
+            case chapters = "Chapters"
+            case mediaStreams = "MediaStreams"
+            case localTrailerCount = "LocalTrailerCount"
+            case trickplay = "Trickplay"
+            case width = "Width"
+            case height = "Height"
+            case dateCreated = "DateCreated"
         }
 
         public init(id: String, name: String? = nil, type: String? = nil,
@@ -263,7 +404,11 @@ public enum JellyfinAPI {
                     people: [JellyfinPerson]? = nil, criticRating: Double? = nil,
                     providerIds: [String: String]? = nil, taglines: [String]? = nil,
                     studios: [JellyfinNamedItem]? = nil, productionLocations: [String]? = nil,
-                    status: String? = nil, endDate: String? = nil) {
+                    status: String? = nil, endDate: String? = nil,
+                    chapters: [JellyfinChapter]? = nil, mediaStreams: [JellyfinMediaStream]? = nil,
+                    localTrailerCount: Int? = nil,
+                    trickplay: [String: [String: TrickplayInfo]]? = nil,
+                    width: Int? = nil, height: Int? = nil, dateCreated: String? = nil) {
             self.id = id
             self.name = name
             self.type = type
@@ -297,6 +442,13 @@ public enum JellyfinAPI {
             self.productionLocations = productionLocations
             self.status = status
             self.endDate = endDate
+            self.chapters = chapters
+            self.mediaStreams = mediaStreams
+            self.localTrailerCount = localTrailerCount
+            self.trickplay = trickplay
+            self.width = width
+            self.height = height
+            self.dateCreated = dateCreated
         }
 
         public var displayName: String { name ?? "Unknown" }

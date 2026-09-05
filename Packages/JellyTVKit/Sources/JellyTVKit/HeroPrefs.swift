@@ -38,3 +38,34 @@ public enum HeroRotation: Double, CaseIterable, Sendable, Identifiable {
 
     public static let `default`: HeroRotation = .s15
 }
+
+/// What happens to the artwork behind a library screen (Movies, TV Shows,
+/// Anime, Late Night). Selectable in Settings → Appearance.
+///
+/// The case is named `off` rather than `none` so it never collides with
+/// `Optional.none` when the type is inferred.
+public enum LibraryBackdropEffect: String, CaseIterable, Sendable, Identifiable {
+    case blur
+    case off = "none"
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .blur: return "Blur"
+        case .off: return "None"
+        }
+    }
+
+    /// Gaussian radius applied to the backdrop. Heavy enough that the artwork
+    /// reads as colour and shape behind the posters rather than as a competing
+    /// picture — the point is atmosphere, not a second thing to look at.
+    public var blurRadius: Double {
+        switch self {
+        case .blur: return 40
+        case .off: return 0
+        }
+    }
+
+    public static let `default`: LibraryBackdropEffect = .blur
+}

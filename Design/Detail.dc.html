@@ -1,0 +1,224 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800;900&display=swap">
+  <style>
+    body { margin: 0; background: #07080C; color: #F4F5F7;
+           font-family: 'Schibsted Grotesk', ui-rounded, system-ui, sans-serif;
+           -webkit-font-smoothing: antialiased; }
+    a { color: #F0525F; } a:hover { color: #ff7a83; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .spec { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 700;
+            letter-spacing: 0.6px; color: rgba(255,255,255,0.78); background: rgba(255,255,255,0.09);
+            border: 1px solid rgba(255,255,255,0.13); border-radius: 5px; padding: 4px 7px; }
+    .act { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+    .actcap { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 700;
+              letter-spacing: 1.2px; color: rgba(255,255,255,0.6); }
+    .epthumb { position: relative; flex-shrink: 0; width: 108px; height: 61px; border-radius: 9px; overflow: hidden; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 390px; height: 844px; overflow: hidden; background: #07080C">
+
+  <!-- KEY ART — a contained block that ends, not a banner the page lives inside. -->
+  <div style="position: absolute; top: 0; left: 0; right: 0; height: 296px; overflow: hidden">
+    <div style="position: absolute; inset: 0; background:
+        radial-gradient(115% 88% at 66% 26%, #1d5570 0%, #123246 44%, #08131f 78%, #05090F 100%)"></div>
+    <svg viewBox="0 0 390 296" style="position: absolute; inset: 0; width: 390px; height: 296px" fill="none">
+      <g stroke="#78B4DC" stroke-width="1">
+        <circle cx="258" cy="106" r="36" opacity="0.26"></circle>
+        <circle cx="258" cy="106" r="82" opacity="0.16"></circle>
+        <circle cx="258" cy="106" r="138" opacity="0.09"></circle>
+      </g>
+      <path d="M258 106 L258 62 M258 106 L302 106" stroke="#F0525F" stroke-width="1.4" opacity="0.5"></path>
+      <path d="M0 196 C 80 172, 150 212, 226 190 S 340 158, 390 174 L390 296 L0 296 Z"
+            fill="#040a12" opacity="0.66"></path>
+    </svg>
+    <div style="position: absolute; inset: 0; background:
+        linear-gradient(to bottom, rgba(7,8,12,0.34) 0%, rgba(7,8,12,0) 26%, rgba(7,8,12,0.72) 74%, #07080C 100%)"></div>
+  </div>
+
+  <!-- CLOSE — one target, top-right, clear of the thumb's reading path. -->
+  <div style="position: absolute; top: 56px; right: 20px; display: grid; place-items: center;
+      width: 36px; height: 36px; border-radius: 999px; background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.16); backdrop-filter: blur(10px)">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4"
+         stroke-linecap="round"><path d="M5.5 5.5 L18.5 18.5 M18.5 5.5 L5.5 18.5"></path></svg>
+  </div>
+
+  <!-- IDENTITY — centred over the art's fade, the way a title card reads. -->
+  <div style="position: absolute; top: 312px; left: 20px; right: 20px; display: flex; flex-direction: column;
+      align-items: center; gap: 11px">
+    <span style="font-size: 32px; font-weight: 900; letter-spacing: -1px; text-align: center; line-height: 1.02;
+        text-shadow: 0 3px 20px rgba(0,0,0,0.55)">The Deep Signal</span>
+    <div style="display: flex; align-items: center; gap: 7px">
+      <span class="spec">TV-MA</span><span class="spec">4K</span>
+      <span class="spec">HDR</span><span class="spec">ATMOS</span>
+      <span class="spec" style="display: flex; align-items: center; gap: 4px; color: {{accent}};
+          border-color: rgba(255,255,255,0.13)">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="{{accent}}">
+          <path d="M12 3 L14.6 9.1 L21 9.7 L16.2 14 L17.6 20.4 L12 17 L6.4 20.4 L7.8 14 L3 9.7 L9.4 9.1 Z"></path></svg>8.9</span>
+    </div>
+    <span style="font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.55)">
+      2023 – 2026 · 3 Seasons · Sci-Fi Drama</span>
+  </div>
+
+  <!-- WHERE YOU LEFT OFF -->
+  <div style="position: absolute; top: 430px; left: 20px; right: 20px; display: flex; align-items: center; gap: 12px">
+    <div style="flex-grow: 1; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.16)">
+      <div style="width: 62%; height: 4px; border-radius: 999px; background: {{accent}}"></div>
+    </div>
+    <span class="mono" style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.55)">31:04 LEFT</span>
+  </div>
+
+  <!-- ONE PRIMARY ACTION, full width, impossible to miss. -->
+  <div style="position: absolute; top: 462px; left: 20px; right: 20px; display: flex; align-items: center;
+      justify-content: center; gap: 10px; height: 54px; border-radius: 999px; background: {{accent}};
+      box-shadow: 0 10px 28px {{accentGlow}}, inset 0 1px 0 rgba(255,255,255,0.34)">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M6 4.2 L19 12 L6 19.8 Z"></path></svg>
+    <span style="font-size: 16px; font-weight: 800; letter-spacing: 0.4px; color: #fff">CONTINUE S3 · E4</span>
+  </div>
+
+  <!-- The rest as icon + caption, so none of them competes with CONTINUE. -->
+  <div style="position: absolute; top: 534px; left: 20px; right: 20px; display: flex; justify-content: center; gap: 54px">
+    <div class="act">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="#fff">
+        <path d="M19 5.2 L9 12 L19 18.8 Z"></path><rect x="4.8" y="5" width="2.6" height="14" rx="1.1"></rect></svg>
+      <span class="actcap">RESTART</span>
+    </div>
+    <div class="act">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 6.5 H 7 L 17 17.5 H 21"></path><path d="M3 17.5 H 7 L 17 6.5 H 21"></path>
+        <path d="M18.4 4 L21 6.5 L18.4 9"></path><path d="M18.4 15 L21 17.5 L18.4 20"></path></svg>
+      <span class="actcap">SHUFFLE</span>
+    </div>
+    <div class="act">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20.4 C 6.4 16.6, 3 13.7, 3 9.9 A 4.6 4.6 0 0 1 12 7.4 A 4.6 4.6 0 0 1 21 9.9
+                 C 21 13.7, 17.6 16.6, 12 20.4 Z"></path></svg>
+      <span class="actcap">FAVOURITE</span>
+    </div>
+  </div>
+
+  <!-- Left-aligned from here down: this is reading, not choosing. -->
+  <div style="position: absolute; top: 596px; left: 20px; right: 20px; display: flex; flex-direction: column; gap: 5px">
+    <span style="font-size: 16px; font-weight: 800">S3 · E4 — Trench</span>
+    <span style="font-size: 14px; font-weight: 500; line-height: 1.4; color: rgba(255,255,255,0.6)">
+      The crew follows the signal past the shelf, into water no one has mapped.</span>
+  </div>
+
+  <div style="position: absolute; top: 676px; left: 20px; right: 20px; display: flex; align-items: center; gap: 26px;
+      border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 11px">
+    <span class="mono" style="font-size: 12px; font-weight: 800; letter-spacing: 1.6px; color: #F4F5F7">EPISODES</span>
+    <span class="mono" style="font-size: 12px; font-weight: 700; letter-spacing: 1.6px;
+        color: rgba(255,255,255,0.42)">DETAILS</span>
+    <span class="mono" style="font-size: 12px; font-weight: 700; letter-spacing: 1.6px;
+        color: rgba(255,255,255,0.42)">CAST</span>
+  </div>
+  <div style="position: absolute; top: 706px; left: 20px; width: 82px; height: 2px; border-radius: 999px;
+      background: {{accent}}"></div>
+
+  <div style="position: absolute; top: 724px; left: 20px; right: 20px; display: flex; flex-direction: column; gap: 13px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <div class="epthumb">
+        <div style="position: absolute; inset: 0; background: linear-gradient(150deg, #1d5570 0%, #0d2a3d 100%)"></div>
+        <div style="position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.3)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="#fff"><path d="M6 4.2 L19 12 L6 19.8 Z"></path></svg></div>
+        <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,0.2)">
+          <div style="width: 62%; height: 3px; background: {{accent}}"></div></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0">
+        <div style="display: flex; align-items: baseline; gap: 7px">
+          <span class="mono" style="font-size: 12px; font-weight: 800; color: {{accent}}">E4</span>
+          <span style="font-size: 15px; font-weight: 800">Trench</span>
+        </div>
+        <span class="mono" style="font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.42)">49m · 31:04 left</span>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 12px">
+      <div class="epthumb">
+        <div style="position: absolute; inset: 0; background: linear-gradient(150deg, #2a4a68 0%, #14283a 100%)"></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0">
+        <div style="display: flex; align-items: baseline; gap: 7px">
+          <span class="mono" style="font-size: 12px; font-weight: 800; color: rgba(255,255,255,0.4)">E5</span>
+          <span style="font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.9)">The Answer</span>
+        </div>
+        <span class="mono" style="font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.42)">51m</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB BAR -->
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 96px;
+      background: linear-gradient(to bottom, rgba(7,8,12,0) 0%, rgba(7,8,12,0.86) 32%, #07080C 100%)"></div>
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 74px; display: flex;
+      align-items: flex-start; padding-top: 10px">
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 10.5 L12 3 L21 10.5"></path><path d="M5 9.5 L5 21 L19 21 L19 9.5"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5)">Home</span>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+        <path d="M7.5 3 L7.5 21 M16.5 3 L16.5 21 M3 8 L7.5 8 M3 16 L7.5 16 M16.5 8 L21 8 M16.5 16 L21 16"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5)">Movies</span>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2.5" y="6" width="19" height="12.5" rx="2.5"></rect><path d="M8 2.5 L12 6 L16 2.5"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: {{accent}}">Shows</span>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5 L20 20"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5)">Search</span>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 5px">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7.5" height="7.5" rx="1.6"></rect>
+        <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"></rect>
+        <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"></rect>
+        <path d="M17.25 14.25 L17.25 20.25 M14.25 17.25 L20.25 17.25"></path></svg>
+      <span style="font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5)">More</span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#F0525F","options":["#F0525F","#E8B44A","#4AA8E8","#3FBF8F"],"section":"Theme"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#F0525F';
+    const rgba = (hex, a) => {
+      const n = parseInt(String(hex).replace('#', ''), 16);
+      return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+    };
+    return { accent: accent, accentGlow: rgba(accent, 0.4) };
+  }
+}
+</script>
+</body>
+</html>

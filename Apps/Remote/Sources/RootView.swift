@@ -24,6 +24,12 @@ struct RootView: View {
         if env["RT_SHOW_TV"] == "1" { return .tv }
         if env["RT_SHOW_ANIME"] == "1" { return .animeLibrary }
         if env["RT_SHOW_LATE_NIGHT"] == "1" { return .lateNight }
+        if env["RT_SHOW_SEARCH"] == "1" { return .search }
+        // `1` for Home Videos, `nsfw` for After Hours — the two libraries a
+        // `homevideos` collection resolves to.
+        if let videos = env["RT_SHOW_VIDEOS"] {
+            return .videosLibrary(videos == "nsfw" ? .porn : .videos)
+        }
         return .home
     }()
 
@@ -34,6 +40,17 @@ struct RootView: View {
     /// One-shot: the screenshot fixture is raised once, on first appear, and
     /// never re-raised after it is dismissed.
     @State private var didSeedFixture = false
+    /// The rail's Libraries flyout. Same model as tvOS: not a destination, a
+    /// panel that opens over whatever screen is already showing. iPad/tvOS
+    /// only — see `isMorePresented` for the phone equivalent.
+    @State private var isLibrariesOpen = false
+    /// The phone `PhoneTabBar`'s "More" sheet (Libraries + Settings). A
+    /// separate flag from `isLibrariesOpen` rather than the same one wearing
+    /// two presentations: `isLibrariesOpen` drives a same-screen slide-out
+    /// drawer next to a rail that no longer exists on phone, while this
+    /// drives a native `.sheet` — see `PhoneTabBar.swift` for why a phone
+    /// gets a sheet instead of the drawer.
+    @State private var isMorePresented = false
 
     private enum PlayerPresentation: Identifiable, Equatable {
         case fixture
@@ -109,6 +126,30 @@ struct RootView: View {
             PlayerDiagnostics.log("root: playerPresentation -> \(presentation?.id ?? "nil")")
             if presentation == nil { appState.activePlaybackRequest = nil }
         }
+        .onChange(of: appState.pendingLibraryNavigation) { _, category in
+            // Fire-once: always reset after handling (or ignoring) so a repeat
+            // tap on the same category still triggers this again.
+            defer { appState.pendingLibraryNavigation = nil }
+            guard let category else { return }
+            // Closes whichever "browse the rest of the libraries" surface is
+            // currently open — the pad/tv slide-out drawer, or the phone
+            // `PhoneMoreSheet` — since a row tap inside either means to
+            // navigate, not to keep browsing the list it came from.
+            isLibrariesOpen = false
+            isMorePresented = false
+            switch category {
+            case .animefilm, .anime:
+                selection = .animeLibrary
+            case .hentai:
+                selection = .lateNight
+            case .videos, .porn:
+                selection = .videosLibrary(category)
+            case .movies, .moviesxxx:
+                selection = .movies
+            case .shows:
+                selection = .tv
+            }
+        }
         .onChange(of: server.isConnected) { _, connected in
             if connected, let info = server.serverInfo {
                 appState.configure(
@@ -148,6 +189,28 @@ struct RootView: View {
             .id(selection)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .tint(theme.accent)
+            // A plain `.overlay`, not a `.safeAreaInset` — every screen's own
+            // content already calls `.ignoresSafeArea()` for its full-bleed
+            // backdrop, which would swallow a safe-area inset added here the
+            // same way (see `View.phoneTabBarClearance()`). Each screen's
+            // scrollable content carries its own bottom clearance instead.
+            .overlay(alignment: .bottom) {
+                if DeviceClass.current == .phone {
+                    PhoneTabBar(
+                        destination: selection ?? .home,
+                        onSelect: handleRailSelection,
+                        onMore: { isMorePresented = true }
+                    )
+                }
+            }
+            .sheet(isPresented: $isMorePresented) {
+                PhoneMoreSheet(
+                    libraries: appState.libraryUIItems(),
+                    onSelectSettings: { selection = .settings }
+                )
+                .environmentObject(theme)
+                .environmentObject(appState)
+            }
     }
 
     /// Debug hook: `RT_AUTOPLAY=<title substring>` resumes the first matching
@@ -165,18 +228,20 @@ struct RootView: View {
         appState.requestPlayback(request)
     }
 
-    /// Maps a rail tap back onto `selection`. `.search` and `.libraries`
-    /// remain tvOS-only concepts (no submenu, no dedicated search screen on
-    /// iOS) — no-ops here.
+    /// Maps a rail tap back onto `selection`. `.search` stays a tvOS-only
+    /// concept — no dedicated search screen on iOS.
     private func handleRailSelection(_ target: RailTarget) {
         switch target {
-        case .home: selection = .home
-        case .movies: selection = .movies
-        case .tv: selection = .tv
-        case .animeLibrary: selection = .animeLibrary
-        case .lateNight: selection = .lateNight
-        case .settings: selection = .settings
-        case .search, .libraries: break
+        case .home: selection = .home; isLibrariesOpen = false
+        case .movies: selection = .movies; isLibrariesOpen = false
+        case .tv: selection = .tv; isLibrariesOpen = false
+        case .animeLibrary: selection = .animeLibrary; isLibrariesOpen = false
+        case .lateNight: selection = .lateNight; isLibrariesOpen = false
+        case .libraries:
+            // Opens over whatever is showing — never navigates first.
+            isLibrariesOpen.toggle()
+        case .settings: selection = .settings; isLibrariesOpen = false
+        case .search: selection = .search; isLibrariesOpen = false
         }
     }
 
@@ -184,19 +249,23 @@ struct RootView: View {
     private var detailPane: some View {
         switch selection ?? .home {
         case .home:
-            HomeView(isLibrariesOpen: false, onSelectRail: handleRailSelection, onOpenSettings: {})
+            HomeView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection,
+                     onOpenSettings: { selection = .settings })
         case .movies:
-            MoviesLibraryView(isLibrariesOpen: false, onSelectRail: handleRailSelection)
+            MoviesLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .tv:
-            ShowsLibraryView(isLibrariesOpen: false, onSelectRail: handleRailSelection)
+            ShowsLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .animeLibrary:
-            AnimeLibraryView(isLibrariesOpen: false, onSelectRail: handleRailSelection)
+            AnimeLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .lateNight:
-            LateNightLibraryView(isLibrariesOpen: false, onSelectRail: handleRailSelection)
+            LateNightLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
+        case .videosLibrary(let category):
+            VideosLibraryView(category: category, isLibrariesOpen: isLibrariesOpen,
+                              onSelectRail: handleRailSelection)
         case .settings:
-            SettingsView(isLibrariesOpen: false, onSelectRail: handleRailSelection)
+            SettingsView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .search:
-            HomeView(isLibrariesOpen: false, onSelectRail: handleRailSelection, onOpenSettings: {})
+            SearchLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         }
     }
 }

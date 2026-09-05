@@ -13,7 +13,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "3"
+    CURRENT_PROJECT_VERSION: "15"
     DEVELOPMENT_TEAM: "44RDME8NMM"
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
@@ -84,7 +84,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.graficx.jellytv
         PRODUCT_NAME: JellyTV
-        TARGETED_DEVICE_FAMILY: "2"
+        # "1,2" = iPhone + iPad — was iPad-only ("2") until the iphone-expert
+        # workflow (CLAUDE.md) needed a real iPhone destination to build for.
+        TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
     info:
@@ -115,10 +117,28 @@ targets:
         NSLocalNetworkUsageDescription: "Why.So.Jelly? can pick up your Apple TV app's server connection over your local network so you don't have to enter it twice."
         NSBonjourServices:
           - _jellytv._tcp
-        UISupportedInterfaceOrientations:
+        # iPad stays landscape-only (the rail-based layout assumes the wide
+        # canvas); iPhone is portrait normally and flips to landscape only
+        # during playback (`OrientationLock`/`PlayerView`) — see CLAUDE.md's
+        # cross-platform workflow section for why the two idioms diverge here.
+        #
+        # **iPhone's list has to hold both, not portrait alone.** This static
+        # list is a ceiling: `RemoteAppDelegate.supportedInterfaceOrientationsFor`
+        # answers dynamically based on `OrientationLock.inPlayer`, but the
+        # system always intersects that answer against *this* array, and an
+        # intersection can only narrow, never widen, what's declared here. With
+        # Portrait alone, `PlayerView`'s landscape flip failed every time —
+        # silently until `OrientationLock` grew an error handler — with
+        # `UISceneErrorDomain` 101, "Requested: landscapeLeft, landscapeRight;
+        # Supported: portrait", no matter when in the `.fullScreenCover`
+        # presentation the request went out. `inPlayer` is what actually
+        # narrows the phone to one or the other at any given moment; this list
+        # just has to permit both up front.
+        UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        UISupportedInterfaceOrientations~ipad:
+        UISupportedInterfaceOrientations~iphone:
+          - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
 

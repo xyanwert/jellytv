@@ -118,9 +118,17 @@ struct FocusScaleStyle: ButtonStyle {
 struct RowFocusStyle: ButtonStyle {
     var isActive: Bool = false
     var cornerRadius: CGFloat = 14
+    /// tvOS focus scale, anchored leading so a row grows to the right. Pass
+    /// `1` for a row that sits inside a card its *parent* draws: the tint
+    /// below and the parent's background/stroke don't scale with the label,
+    /// so at 1.03 a 1200pt row's trailing chip and chevron land ~36pt outside
+    /// the card (Settings → Libraries). The tint, bar and glow carry focus on
+    /// their own there — the scale only ever showed up as the misalignment.
+    var scale: CGFloat = 1.03
 
     func makeBody(configuration: Configuration) -> some View {
-        Content(configuration: configuration, isActive: isActive, cornerRadius: cornerRadius)
+        Content(configuration: configuration, isActive: isActive,
+                cornerRadius: cornerRadius, scale: scale)
     }
 
     private struct Content: View {
@@ -131,11 +139,12 @@ struct RowFocusStyle: ButtonStyle {
         let configuration: ButtonStyle.Configuration
         let isActive: Bool
         let cornerRadius: CGFloat
+        let scale: CGFloat
 
         var body: some View {
             #if os(tvOS)
             configuration.label
-                .scaleEffect(focused ? 1.03 : 1, anchor: .leading)
+                .scaleEffect(focused ? scale : 1, anchor: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .fill(focused ? theme.accent.opacity(0.22) : (isActive ? Palette.text(0.06) : .clear))
@@ -226,9 +235,9 @@ struct SectionHeader: View {
     let title: String
     var body: some View {
         Text(title)
-            .font(Typography.section)
+            .font(DeviceClass.current == .phone ? Typography.font(19, .heavy) : Typography.section)
             .foregroundStyle(Palette.textPrimary)
-            .padding(.horizontal, 56)
+            .padding(.horizontal, DeviceClass.current == .phone ? 20 : 56)
     }
 }
 

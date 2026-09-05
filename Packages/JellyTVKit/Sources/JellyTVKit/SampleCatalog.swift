@@ -195,32 +195,44 @@ public enum SampleCatalog {
         .init(id: "cast-6", name: "Callum Reid", role: "The Signal"),
     ]
 
-    /// A `Show` for any media item — the demo template carrying that item's
-    /// title and key art, so any Recommended poster opens as a show.
+    /// A *bare* `Show` for a real media item — only what the list row itself
+    /// knows (id, title, genre, rating, certification, year, synopsis, art),
+    /// so a Recommended poster or a library card can open the show page
+    /// before its detail fetch lands.
+    ///
+    /// **Nothing here comes from the demo template.** It used to: rating,
+    /// certification, synopsis, studio line, "created by", the 4K·HDR tech
+    /// line and even the key art were copied off `SampleCatalog.show`
+    /// whenever the item lacked them, so a show with no community rating wore
+    /// the demo's ★ 8.9 and an item with no art opened onto the demo's
+    /// backdrop — for the ~300ms the fetch took on the detail page, and for
+    /// as long as anyone looked on the library screens. Empty renders as a
+    /// dash or as nothing; a demo value renders as a lie.
     public static func show(for item: MediaItem) -> Show {
-        let s = show
+        let genre = genrePart(item.meta, fallback: "")
         return Show(
             // Keep the real item id so the Show view can fetch live detail.
             id: item.id,
             title: item.title,
-            studioLine: s.studioLine,
-            rating: s.rating,
-            certification: s.certification,
+            studioLine: "Series",
+            rating: item.rating.map { String(format: "%.1f", $0) } ?? "",
+            certification: item.certification ?? "",
             runSummary: "",   // unknown until detail loads
-            createdBy: s.createdBy,
-            years: "",        // unknown until detail loads
-            genreLabel: "TV Shows / \(genrePart(item.meta, fallback: "Sci-Fi Drama"))",
-            techLine: s.techLine,
-            synopsis: s.synopsis,
-            keyArt: item.image ?? s.keyArt,
+            createdBy: "",    // unknown until detail loads
+            years: item.year ?? "",
+            genreLabel: genre.isEmpty ? "TV Shows" : "TV Shows / \(genre)",
+            techLine: "",
+            synopsis: item.synopsis ?? "",
+            keyArt: item.backdropImage ?? item.image,
             artwork: item.artwork,
             resumeEpisodeLabel: "",
             resumeProgress: 0,
             resumeRemaining: "",
-            seasons: []
-            // Intentionally NOT carrying cast/tagline/ratings/awards/seasons: for
-            // a real item these come from the live detail fetch. Leaving them empty
-            // here means the UI shows a loading state, never fake demo data.
+            seasons: [],
+            communityRating: item.rating,
+            logoArt: item.logoImage,
+            tags: item.tags,
+            isFavorite: item.isFavorite
         )
     }
 
@@ -255,33 +267,39 @@ public enum SampleCatalog {
                             summary: "Won 2 Oscars. 15 wins & 30 nominations total")
     )
 
-    /// A `Movie` for any media item — the demo template carrying that item's
-    /// title and key art, so a Recommended movie poster opens as a movie.
+    /// A *bare* `Movie` for a real media item — see `show(for:)` for the rule
+    /// and the history. Director, runtime, studio, tagline, resume progress
+    /// and the "more like this" row are the detail fetch's to fill; until it
+    /// does they are empty, never the demo's "Mara Ellingsen · 2h 14m" and a
+    /// row of demo posters on a real film's page.
     public static func movie(for item: MediaItem) -> Movie {
-        let m = movie
+        let genre = genrePart(item.meta, fallback: "")
         return Movie(
             // Keep the real item id so the Movie view can fetch live detail.
             id: item.id,
             title: item.title,
-            studioLine: m.studioLine,
-            rating: m.rating,
-            certification: m.certification,
-            runtime: m.runtime,
-            director: m.director,
-            year: m.year,
-            genreLabel: "Movies / \(genrePart(item.meta, fallback: "Thriller"))",
-            synopsis: m.synopsis,
-            keyArt: item.image ?? m.keyArt,
+            studioLine: "Feature Film",
+            rating: item.rating.map { String(format: "%.1f", $0) } ?? "",
+            certification: item.certification ?? "",
+            runtime: "",
+            director: "",
+            year: item.year ?? "",
+            genreLabel: genre.isEmpty ? "Movies" : "Movies / \(genre)",
+            synopsis: item.synopsis ?? "",
+            keyArt: item.backdropImage ?? item.image,
             artwork: item.artwork,
             resumeLabel: item.title,
-            resumeProgress: m.resumeProgress,
-            resumeRemaining: m.resumeRemaining,
-            starring: m.starring,
-            audioLine: m.audioLine,
-            moreLikeThis: m.moreLikeThis
-            // Intentionally NOT carrying cast/tagline/ratings/awards: for a real
-            // item these come from the live detail fetch. Leaving them empty
-            // here means the UI shows a loading state, never fake demo data.
+            resumeProgress: 0,
+            resumeRemaining: "",
+            starring: "",
+            audioLine: "",
+            moreLikeThis: [],
+            communityRating: item.rating,
+            resumePositionTicks: item.resumePositionTicks,
+            isFavorite: item.isFavorite,
+            posterArt: item.image,
+            logoArt: item.logoImage,
+            tags: item.tags
         )
     }
 }

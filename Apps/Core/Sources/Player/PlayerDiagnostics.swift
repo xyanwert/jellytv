@@ -17,7 +17,15 @@ import os
 /// … log stream`) and stdout, so a simulator run's captured runtime log
 /// shows them without extra tooling.
 enum PlayerDiagnostics {
-    static let isEnabled = ProcessInfo.processInfo.environment["JT_PLAYER_LOG"] == "1"
+    static let isEnabled: Bool = {
+        guard ProcessInfo.processInfo.environment["JT_PLAYER_LOG"] == "1" else { return false }
+        // stdout is fully buffered once it is a file rather than a terminal
+        // (`simctl launch --stdout=…`), and a simulator app that gets
+        // terminated never flushes — so a captured log came back empty even
+        // with tracing on. Line-buffer it so every line lands as it's printed.
+        setvbuf(stdout, nil, _IOLBF, 0)
+        return true
+    }()
 
     private static let logger = Logger(subsystem: "net.graficx.jellytv", category: "player")
 

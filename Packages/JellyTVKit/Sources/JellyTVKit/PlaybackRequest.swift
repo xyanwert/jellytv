@@ -24,11 +24,20 @@ public struct PlayableItem: Identifiable, Hashable, Sendable {
     /// populated when the fetch that built this item asked for the `Tags`
     /// field; an empty array simply renders no row.
     public let tags: [String]
+    /// Suppresses the title in the player chrome.
+    ///
+    /// For home videos the "title" is whatever the file was called — a camera's
+    /// serial gibberish, or a release-group string as long as the screen. That
+    /// is noise dressed as information, exactly as it is on the library card,
+    /// which shows no title for the same reason. The title stays on the item
+    /// for accessibility and for anything that needs to name it; it just isn't
+    /// painted over the picture.
+    public let hidesTitle: Bool
 
     public init(id: String, seriesId: String? = nil, title: String, subtitle: String? = nil,
                 runtimeTicks: Int64? = nil, resumePositionTicks: Int64? = nil,
                 isFavorite: Bool = false, imageURL: String? = nil,
-                logoURL: String? = nil, tags: [String] = []) {
+                logoURL: String? = nil, tags: [String] = [], hidesTitle: Bool = false) {
         self.id = id
         self.seriesId = seriesId
         self.title = title
@@ -39,6 +48,7 @@ public struct PlayableItem: Identifiable, Hashable, Sendable {
         self.imageURL = imageURL
         self.logoURL = logoURL
         self.tags = tags
+        self.hidesTitle = hidesTitle
     }
 }
 
@@ -58,8 +68,19 @@ public struct PlaybackRequest: Identifiable, Hashable, Sendable {
     /// Content-derived — deliberately NOT `UUID()` — so an unrelated
     /// `AppState` change doesn't retrigger `.fullScreenCover(item:)` and
     /// tear down an in-flight player mid-play.
+    ///
+    /// **Hashed rather than joined.** SwiftUI reads this on every render pass
+    /// that touches the cover, and a shuffled library queue is 500 items —
+    /// concatenating their ids would rebuild a 16 KB string each time to
+    /// answer a question that only ever gets compared for equality. The hash
+    /// seed is per-process, which is all this needs: the comparison never
+    /// leaves the running app.
     public var id: String {
-        "\(items.map(\.id).joined(separator: ","))#\(startIndex)#\(shuffled)"
+        var hasher = Hasher()
+        for item in items { hasher.combine(item.id) }
+        hasher.combine(startIndex)
+        hasher.combine(shuffled)
+        return "\(items.count)#\(hasher.finalize())"
     }
 
     public static func single(_ item: PlayableItem) -> PlaybackRequest {

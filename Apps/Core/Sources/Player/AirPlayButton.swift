@@ -17,7 +17,8 @@ import AVKit
 /// because a fully transparent `UIView` stops hit-testing.
 ///
 /// tvOS has no `AVRoutePickerView` — the TV owns routing at the system level
-/// — so there it stays an inert readout of where the audio is going.
+/// — so `PlayerTopBar` doesn't show this there at all. It used to, as an
+/// inert readout, and read as a dead button dressed like a live one.
 struct AirPlayButton: View {
     let accent: Color
 

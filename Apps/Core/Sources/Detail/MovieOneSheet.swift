@@ -1,10 +1,35 @@
-#if os(iOS)
 import SwiftUI
 import JellyTVKit
 
-// iPad-only chrome for the Movie detail's "one sheet" layout (design
-// 1b-onesheet): the poster is both the subject of the screen and the source
-// of every colour on it.
+// Chrome for the Movie detail's "one sheet" layout (design 1b-onesheet), on
+// iPad and — a size up — on tvOS: the poster is both the subject of the screen
+// and the source of every colour on it.
+
+/// The one-sheet's measurements that differ by viewing distance. A single
+/// place, so the rail, the cast band and the info column stay in step.
+enum OneSheetMetrics {
+    #if os(tvOS)
+    static let railLabelSize: CGFloat = 13
+    static let railCellVerticalPadding: CGFloat = 16
+    static let railCellGap: CGFloat = 28
+    static let railDividerHeight: CGFloat = 58
+    static let castHeaderSize: CGFloat = 13
+    static let castPortrait: CGFloat = 84
+    static let castLabelWidth: CGFloat = 156
+    static let castSpacing: CGFloat = 28
+    static let castStripHeight: CGFloat = 170
+    #else
+    static let railLabelSize: CGFloat = 12
+    static let railCellVerticalPadding: CGFloat = 13
+    static let railCellGap: CGFloat = 24
+    static let railDividerHeight: CGFloat = 48
+    static let castHeaderSize: CGFloat = 11
+    static let castPortrait: CGFloat = 64
+    static let castLabelWidth: CGFloat = 128
+    static let castSpacing: CGFloat = 22
+    static let castStripHeight: CGFloat = 122
+    #endif
+}
 
 /// The screen's colour field, thrown off the poster itself: the same image,
 /// heavily defocused and desaturated back down by the scrims, plus two washes
@@ -118,13 +143,13 @@ struct RailCell<Value: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label.uppercased())
-                .font(Typography.font(12, .semibold)).tracking(2)
+                .font(Typography.font(OneSheetMetrics.railLabelSize, .semibold)).tracking(2)
                 .foregroundStyle(Palette.text(0.42))
             value()
         }
-        .padding(.vertical, 13)
-        .padding(.leading, first ? 0 : 24)
-        .padding(.trailing, 24)
+        .padding(.vertical, OneSheetMetrics.railCellVerticalPadding)
+        .padding(.leading, first ? 0 : OneSheetMetrics.railCellGap)
+        .padding(.trailing, OneSheetMetrics.railCellGap)
     }
 }
 
@@ -147,13 +172,15 @@ struct HairlineRail<A: View, B: View, C: View, D: View>: View {
     }
 
     private var divider: some View {
-        Rectangle().fill(Palette.text(0.09)).frame(width: 1, height: 48)
+        Rectangle().fill(Palette.text(0.09)).frame(width: 1, height: OneSheetMetrics.railDividerHeight)
     }
 }
 
 /// The cast band across the foot of the one-sheet: full screen width, so names
 /// and character names both fit without clipping. Scrolls on a narrower iPad
-/// (or a long cast) rather than dropping anyone.
+/// (or a long cast) rather than dropping anyone. Not focusable on tvOS — there
+/// is no person page to go to, and a row of twelve focus stops between Play
+/// and nothing would be twelve presses to get past.
 struct CastBand: View {
     let cast: [CastMember]
 
@@ -161,28 +188,28 @@ struct CastBand: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 Text("CAST")
-                    .font(Mono.font(11, .bold)).tracking(2)
+                    .font(Mono.font(OneSheetMetrics.castHeaderSize, .bold)).tracking(2)
                     .foregroundStyle(Palette.text(0.45))
                 Spacer(minLength: 12)
                 Text("\(cast.count) CREDITED")
-                    .font(Mono.font(11, .bold)).tracking(1.5)
+                    .font(Mono.font(OneSheetMetrics.castHeaderSize, .bold)).tracking(1.5)
                     .foregroundStyle(Palette.text(0.38))
             }
             .padding(.top, 22)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 22) {
+                HStack(alignment: .top, spacing: OneSheetMetrics.castSpacing) {
                     ForEach(cast) { member in
-                        CastAvatar(member: member, size: 64, labelWidth: 128)
+                        CastAvatar(member: member, size: OneSheetMetrics.castPortrait,
+                                   labelWidth: OneSheetMetrics.castLabelWidth)
                     }
                 }
                 .padding(.vertical, 4)
             }
-            .frame(height: 122)
+            .frame(height: OneSheetMetrics.castStripHeight)
             .padding(.top, 14)
             .horizontalEdgeFade()
         }
         .overlay(alignment: .top) { Rectangle().fill(Palette.text(0.12)).frame(height: 1) }
     }
 }
-#endif

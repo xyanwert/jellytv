@@ -51,6 +51,19 @@ extension Color {
         return self
         #endif
     }
+
+    /// Relative luminance (0 black … 1 white), for deciding what can sit on
+    /// top of this colour — ink or white text, a lift for a fill too dark to
+    /// read as a lit surface.
+    var luminance: Double {
+        #if canImport(UIKit)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a) else { return 0.5 }
+        return 0.2126 * Double(r) + 0.7152 * Double(g) + 0.0722 * Double(b)
+        #else
+        return 0.5
+        #endif
+    }
 }
 
 extension Artwork {

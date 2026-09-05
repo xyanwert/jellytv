@@ -24,6 +24,10 @@ struct SetupView: View {
     @StateObject private var scanner = LanScanner()
     @State private var hostMode: HostMode = .none
     @State private var didAutoSelectServer = false
+    /// Phone only: whether the API KEY box is expanded below its disclosure
+    /// row. See `phoneApiKeyDisclosure` — declared here (not `#if os(iOS)`)
+    /// just to keep every `@State` declaration in one place.
+    @State private var apiKeyExpanded = false
 
     /// The connect/login screen uses its own neon-purple accent, independent
     /// of the in-app theme color picked in Settings — that color still governs
@@ -32,18 +36,17 @@ struct SetupView: View {
     fileprivate static let setupAccent = Color(hex: "#B14EFF")
 
     var body: some View {
-        ZStack {
-            SetupBackground()
-            SonarMotif()
-
-            HStack(spacing: 0) {
-                brandColumn
-                panelColumn
+        Group {
+            #if os(iOS)
+            if DeviceClass.current == .phone {
+                phoneBody
+            } else {
+                padTVBody
             }
+            #else
+            padTVBody
+            #endif
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.background.ignoresSafeArea())
-        .ignoresSafeArea()
         .preferredColorScheme(.dark)
         .defaultFocus($focusedField, .host)
         // Clear a stale error as soon as the user edits anything.
@@ -54,6 +57,12 @@ struct SetupView: View {
         .onAppear {
             // Auto-scan the LAN as soon as the connect screen shows.
             if case .disconnected = server.status { scanner.start() }
+            #if os(iOS)
+            // A pre-existing key (a demo hook, or a value left over from a
+            // previous session) should show its box open, not hide it behind
+            // the disclosure row on top of it.
+            if hasKey { apiKeyExpanded = true }
+            #endif
         }
         .onDisappear { scanner.stop() }
         // When the first servers appear, auto-SELECT the top result (not just
@@ -69,6 +78,23 @@ struct SetupView: View {
             server.port = String(first.port)
             focusedField = .server(first.id)
         }
+    }
+
+    /// iPad/tvOS: the existing split layout — a brand column beside a glass
+    /// panel, both sized for a wide landscape canvas.
+    private var padTVBody: some View {
+        ZStack {
+            SetupBackground()
+            SonarMotif()
+
+            HStack(spacing: 0) {
+                brandColumn
+                panelColumn
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Palette.background.ignoresSafeArea())
+        .ignoresSafeArea()
     }
 
     private var fieldsSignature: String {
@@ -103,7 +129,7 @@ struct SetupView: View {
                     .shadow(color: .black.opacity(0.6), radius: 20, y: 14)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    wordmark
+                    wordmark()
                     Text("JELLYFIN CLIENT")
                         .font(Mono.font(15))
                         .tracking(3.6)
@@ -131,7 +157,7 @@ struct SetupView: View {
         .frame(maxHeight: .infinity, alignment: .center)
     }
 
-    private var wordmark: some View {
+    private func wordmark(fontSize: CGFloat = 40) -> some View {
         (
             Text("Why").foregroundColor(Palette.textPrimary)
             + Text(".").foregroundColor(accent)
@@ -139,7 +165,7 @@ struct SetupView: View {
             + Text(".").foregroundColor(accent)
             + Text("Jelly?").foregroundColor(Palette.textPrimary)
         )
-        .font(Typography.font(40, .black))
+        .font(Typography.font(fontSize, .black))
         .tracking(-1)
     }
 
@@ -457,7 +483,7 @@ struct SetupView: View {
 
     private var connectButton: some View {
         Button {
-            Task { await server.connect() }
+            server.beginConnect()
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: "arrow.right")
@@ -570,7 +596,7 @@ struct SetupView: View {
         case .username: focusedField = .password
         case .password: focusedField = .apiKey
         case .apiKey, .connect:
-            if canConnect { Task { await server.connect() } }
+            if canConnect { server.beginConnect() }
         case .server:
             break
         }
@@ -605,6 +631,205 @@ struct SetupView: View {
         }
         return "Enter a username & password, or an API key."
     }
+
+    // MARK: - Phone layout (`Connect.dc.html` / `Connecting.dc.html`)
+    //
+    // The iPad/tvOS layout is a ~920pt-wide `HStack` (a 440pt brand column
+    // beside a 480pt panel) — on a 402pt-wide phone that rendered as the
+    // brand column alone, with the whole form clipped off the trailing edge
+    // entirely. This is a real second layout, not a resize: one scrolling
+    // column, a compact brand row instead of the brand column's big vertical
+    // block, discovery-first HOST section, SIGN IN open by default, and API
+    // KEY collapsed behind a disclosure row (see `phoneApiKeyDisclosure`) so
+    // the Connect button isn't pushed below the fold by a second open box
+    // most people never need. Reuses every existing piece that isn't
+    // iPad/tvOS-width-specific — `serverSection`, `AuthBox`, `field`,
+    // `connectButton`, `errorBanner`, `StepRow`, `successBanner` — rather
+    // than forking parallel copies of them.
+    #if os(iOS)
+
+    @ViewBuilder
+    private var phoneBody: some View {
+        ZStack {
+            PhoneSetupBackdrop()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    phoneBrandRow
+                    if case .connecting = server.status {
+                        phoneConnectingPanel
+                    } else {
+                        phoneFormPanel
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 58)
+                .padding(.bottom, 48)
+            }
+        }
+        .background(Palette.background.ignoresSafeArea())
+        .ignoresSafeArea()
+    }
+
+    private var phoneBrandRow: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(spacing: 14) {
+                Image("AppMark")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.55), radius: 12, y: 8)
+                VStack(alignment: .leading, spacing: 4) {
+                    wordmark(fontSize: 24)
+                    Text("JELLYFIN CLIENT")
+                        .font(Mono.font(10))
+                        .tracking(3)
+                        .foregroundStyle(Palette.text(0.42))
+                }
+            }
+            if case .connecting = server.status {
+                EmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Connect your server")
+                        .font(Typography.font(26, .black))
+                        .tracking(-0.9)
+                        .foregroundStyle(Palette.textPrimary)
+                    statusLine
+                }
+            }
+        }
+    }
+
+    private var phoneFormPanel: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            serverSection
+
+            AuthBox(
+                title: "SIGN IN",
+                tag: credTag, tagColor: credTagColor,
+                active: hasCred, dim: credDim, accent: accent
+            ) {
+                field(placeholder: "Username", text: $server.username, field: .username)
+                field(placeholder: "Password", text: $server.password, field: .password, secure: false)
+            }
+
+            phoneApiKeyDisclosure
+
+            if let error = server.errorMessage {
+                errorBanner(error)
+            }
+
+            VStack(spacing: 14) {
+                connectButton
+                Text(hintText)
+                    .font(Typography.font(15, .medium))
+                    .foregroundStyle(Palette.text(0.35))
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    /// **New behaviour, not just layout.** The API KEY box is the minority
+    /// path (most people sign in with a username/password), and on iPad/tvOS
+    /// it can afford to sit open beside SIGN IN because there's a whole
+    /// second column of width to spend on it. Stacked into one phone column
+    /// that box pushes the Connect button below the fold — so here it starts
+    /// collapsed behind this disclosure row and only becomes the full
+    /// `AuthBox` (with the same `keyDim`/`credDim` exclusivity dimming) once
+    /// tapped open. `apiKeyExpanded` is sticky once set — collapsing it again
+    /// after typing a key doesn't clear the field, only hides the box.
+    private var phoneApiKeyDisclosure: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                apiKeyExpanded.toggle()
+                if apiKeyExpanded { focusedField = .apiKey }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "key.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Palette.text(0.5))
+                    Text("Use an API key instead")
+                        .font(Typography.font(15, .bold))
+                        .foregroundStyle(Palette.text(0.68))
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Palette.text(0.35))
+                        .rotationEffect(.degrees(apiKeyExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 48)
+                .background(Palette.text(0.04), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Palette.text(0.1), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            if apiKeyExpanded {
+                AuthBox(
+                    title: "API KEY",
+                    tag: keyTag, tagColor: keyTagColor,
+                    active: hasKey, dim: keyDim, accent: accent
+                ) {
+                    field(placeholder: "Paste API key", text: $server.apiKey, field: .apiKey, mono: true)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: apiKeyExpanded)
+    }
+
+    private var phoneConnectingPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            eyebrow("SETUP // CONNECTING")
+                .padding(.bottom, 8)
+            Text(server.connectStep >= ServerConnection.stepLabels.count ? "All set" : "Connecting…")
+                .font(Typography.font(32, .black))
+                .foregroundStyle(Palette.textPrimary)
+            Text(server.hostReadout)
+                .font(Mono.font(13))
+                .foregroundStyle(Palette.text(0.45))
+                .padding(.top, 6)
+
+            VStack(alignment: .leading, spacing: 22) {
+                ForEach(Array(ServerConnection.stepLabels.enumerated()), id: \.offset) { index, label in
+                    StepRow(label: label, index: index, current: server.connectStep, accent: accent)
+                }
+            }
+            .padding(.top, 34)
+
+            if server.connectStep >= ServerConnection.stepLabels.count {
+                successBanner
+                    .padding(.top, 28)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                // The escape hatch the iPad/tvOS panel doesn't have — see
+                // `ServerConnection.cancelConnect()`. Hidden once the success
+                // banner shows: by then the connection has already succeeded
+                // and credentials are saved, so there's nothing left to cancel.
+                phoneCancelButton
+                    .padding(.top, 36)
+            }
+        }
+        .animation(.easeOut(duration: 0.35), value: server.connectStep)
+    }
+
+    private var phoneCancelButton: some View {
+        Button {
+            server.cancelConnect()
+        } label: {
+            Text("Cancel")
+                .font(Typography.font(16, .heavy))
+                .foregroundStyle(Palette.text(0.6))
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(Palette.text(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.12), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+    #endif
 }
 
 // MARK: - Sub-components
@@ -724,3 +949,54 @@ private struct SonarMotif: View {
         }
     }
 }
+
+#if os(iOS)
+/// The phone connect screen's backdrop — the same violet radial glow and
+/// concentric sonar rings as `SetupBackground`/`SonarMotif`, repositioned for
+/// a phone's actual top-right corner instead of those two components' fixed
+/// pixel offsets (tuned for the iPad/tvOS landscape canvas — `SonarMotif`
+/// alone sits at x=1740, which is off the right edge of a ~400pt-wide phone
+/// entirely). Matches `Connect.dc.html`'s own radial-gradient + ring corner
+/// treatment rather than `SetupBackground`'s blue-toned glow — the design
+/// ties this screen's background tint to its own neon-purple accent.
+private struct PhoneSetupBackdrop: View {
+    @State private var pulse = false
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                Color(hex: "#07080C")
+                RadialGradient(
+                    stops: [
+                        .init(color: Color(hex: "#241338"), location: 0),
+                        .init(color: Color(hex: "#150b22"), location: 0.38),
+                        .init(color: Color(hex: "#0a0710"), location: 0.72),
+                        .init(color: Color(hex: "#07080C"), location: 1),
+                    ],
+                    center: UnitPoint(x: 0.82, y: 0.04),
+                    startRadius: 0, endRadius: geo.size.height * 0.62
+                )
+                ringMotif
+                    .position(x: geo.size.width * 0.85, y: 66)
+            }
+        }
+        .ignoresSafeArea()
+        .onAppear {
+            withAnimation(.easeOut(duration: 4).repeatForever(autoreverses: false)) { pulse = true }
+        }
+    }
+
+    private var ringMotif: some View {
+        ZStack {
+            Circle().stroke(SetupView.setupAccent.opacity(0.06), lineWidth: 1).frame(width: 412, height: 412)
+            Circle().stroke(SetupView.setupAccent.opacity(0.12), lineWidth: 1).frame(width: 252, height: 252)
+            Circle().stroke(SetupView.setupAccent.opacity(0.2), lineWidth: 1).frame(width: 116, height: 116)
+            Circle().stroke(SetupView.setupAccent, lineWidth: 1.5)
+                .frame(width: 116, height: 116)
+                .scaleEffect(pulse ? 1.9 : 0.7)
+                .opacity(pulse ? 0 : 0.7)
+        }
+        .allowsHitTesting(false)
+    }
+}
+#endif

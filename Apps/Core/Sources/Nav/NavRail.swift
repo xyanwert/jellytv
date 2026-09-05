@@ -32,12 +32,10 @@ struct NavRail: View {
     private var effectiveAccent: Color { accentOverride ?? theme.accent }
 
     #if os(iOS)
-    private var hasAnime: Bool {
-        appState.libraryUIItems().contains { $0.category == .anime || $0.category == .animefilm }
-    }
-    private var hasLateNight: Bool {
-        appState.libraryUIItems().contains { $0.category == .hentai }
-    }
+    /// The Libraries icon only appears when there is something to list —
+    /// `libraryUIItems()` already drops the plain Movies/TV Shows libraries
+    /// that the rail covers with their own icons.
+    private var hasLibraries: Bool { !appState.libraryUIItems().isEmpty }
     #endif
 
     private var activeTarget: RailTarget {
@@ -51,32 +49,71 @@ struct NavRail: View {
         // Reached via a Libraries submenu row, not its own rail icon — the
         // Libraries icon itself lights up instead (design 4b: "RAIL (libraries
         // active — Anime is a library)").
-        case .animeLibrary, .lateNight: return .libraries
+        case .animeLibrary, .lateNight, .videosLibrary: return .libraries
         }
     }
 
     var body: some View {
         #if os(iOS)
-        // A narrower, touch-adapted sibling of the tvOS rail below — same
-        // idea (icon-only, translucent so the screen's own full-bleed
-        // backdrop shows through behind it, active icon accent-highlighted),
-        // reusing this same slot inside each screen's `HStack(rail; content)`
-        // so the backdrop-behind-the-rail effect just works the way it does
-        // on tvOS, with no separate padding math needed. No submenu on iOS —
-        // Anime/Late Night are direct icons, shown only when that kind of
-        // library exists (mirrors tvOS's Libraries-submenu row visibility).
+        if DeviceClass.current == .phone {
+            // **No persistent rail on a phone.** A 104pt-wide leading column
+            // is an iPad affordance — it assumes a wide landscape canvas and
+            // a hand that isn't also holding the device. In a portrait
+            // one-handed grip that column is just width taken from the
+            // content before anything else fits, which is exactly what made
+            // every screen read as "the iPad layout, clipped" on first boot.
+            // `RootView` puts the same five destinations in a bottom
+            // `PhoneTabBar` instead — see that file — so this returns
+            // nothing and the `HStack(rail; content)` every screen already
+            // builds collapses to just its content, full width, for free.
+            EmptyView()
+        } else {
+            iPadRailBody
+        }
+        #else
+        tvRailBody
+        #endif
+    }
+
+    #if os(iOS)
+    /// A narrower, touch-adapted sibling of the tvOS rail below — same
+    /// idea (icon-only, translucent so the screen's own full-bleed
+    /// backdrop shows through behind it, active icon accent-highlighted),
+    /// reusing this same slot inside each screen's `HStack(rail; content)`
+    /// so the backdrop-behind-the-rail effect just works the way it does
+    /// on tvOS, with no separate padding math needed.
+    ///
+    /// **Libraries is a submenu here too, as on tvOS.** iPad used to put
+    /// Anime and Late Night in the rail as direct icons, which meant the
+    /// rail listed whichever few categories happened to have a dedicated
+    /// screen and offered no route to any other library at all. One
+    /// Libraries icon after TV Shows opens the same `LibrariesSubmenu`
+    /// panel the Apple TV uses, listing every library the server has.
+    private var iPadRailBody: some View {
         VStack(spacing: 14) {
             Spacer(minLength: 36)
-            iosRailButton(.home) { Image(systemName: "house.fill").font(.system(size: 22, weight: .semibold)).foregroundStyle($0) }
-            iosRailButton(.movies) { Image(systemName: "film").font(.system(size: 22, weight: .semibold)).foregroundStyle($0) }
-            iosRailButton(.tv) { Image(systemName: "tv").font(.system(size: 22, weight: .semibold)).foregroundStyle($0) }
-            if hasAnime {
-                iosRailButton(.animeLibrary) { Image(systemName: "sparkles").font(.system(size: 22, weight: .semibold)).foregroundStyle($0) }
-            }
-            if hasLateNight {
-                iosRailButton(.lateNight) { Image(systemName: "moon.stars.fill").font(.system(size: 22, weight: .semibold)).foregroundStyle($0) }
+            // Same hand-drawn `NavIcons` set as the tvOS rail below, not a
+            // separate iOS-only glyph language — the two rails are the same
+            // control at two sizes, and reusing the shared, already-shared
+            // code (`NavIcons` was never `#if os(tvOS)`-gated to begin with)
+            // is what keeps that true rather than something to remember to
+            // keep in sync by hand.
+            iosRailButton(.home) { NavIcons.home(color: $0) }
+            iosRailButton(.movies) { NavIcons.movies(color: $0) }
+            iosRailButton(.tv) { NavIcons.tv(color: $0) }
+            iosRailButton(.search) { NavIcons.search(color: $0) }
+            if hasLibraries {
+                iosRailButton(.libraries) { NavIcons.libraries(color: $0) }
             }
             Spacer(minLength: 36)
+            // Pinned to the bottom, same placement as the tvOS rail's cog.
+            // iPad had no route into Settings at all until now, which left
+            // every per-device preference (accent, library classification,
+            // the library backdrop effect) unreachable on this platform —
+            // they're stored in local `UserDefaults`, so setting them on the
+            // Apple TV doesn't carry over either.
+            iosRailButton(.settings) { NavIcons.cog(color: $0) }
+                .padding(.bottom, 20)
         }
         .padding(.vertical, 34)
         .frame(width: 104)
@@ -85,14 +122,18 @@ struct NavRail: View {
         .overlay(alignment: .trailing) {
             Rectangle().fill(Palette.text(0.1)).frame(width: 1)
         }
-        #else
+    }
+    #endif
+
+    #if os(tvOS)
+    private var tvRailBody: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 36)
             VStack(spacing: 14) {
                 railButton(.home) { NavIcons.home(color: $0) }
-                railButton(.search) { NavIcons.search(color: $0) }
                 railButton(.movies) { NavIcons.movies(color: $0) }
                 railButton(.tv) { NavIcons.tv(color: $0) }
+                railButton(.search) { NavIcons.search(color: $0) }
                 railButton(.libraries) { NavIcons.libraries(color: $0) }
             }
             Spacer(minLength: 36)
@@ -112,25 +153,27 @@ struct NavRail: View {
         // pane's own `.focusSection()`. Scoping the rail as its own section
         // lets the engine treat it as one entry point instead.
         .focusSection()
-        #endif
     }
+    #endif
 
     private var railBackground: Color {
         Color(hex: "#06080E").opacity(isLibrariesOpen ? 0.85 : 0.2)
     }
 
     #if os(iOS)
-    /// No submenu indirection on iOS — `destination` maps onto a rail icon
-    /// directly, one-to-one, unlike tvOS's `activeTarget` above (which
-    /// funnels `.animeLibrary`/`.lateNight` into lighting up `.libraries`).
+    /// Same indirection as tvOS's `activeTarget`: a screen reached *through*
+    /// the Libraries submenu lights up the Libraries icon, because that is
+    /// the icon the user pressed to get there — there is no rail icon of its
+    /// own to light.
     private var iosActiveTarget: RailTarget? {
+        if isLibrariesOpen { return .libraries }
         switch destination {
         case .home: return .home
         case .movies: return .movies
         case .tv: return .tv
-        case .animeLibrary: return .animeLibrary
-        case .lateNight: return .lateNight
-        case .search, .settings: return nil
+        case .animeLibrary, .lateNight, .videosLibrary: return .libraries
+        case .settings: return .settings
+        case .search: return .search
         }
     }
 

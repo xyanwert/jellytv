@@ -1,26 +1,25 @@
 import SwiftUI
 import JellyTVKit
 
-/// The Movies library screen (design 4a): rail + search/Play/Random header,
-/// sort/genre filter chips, a "currently selected" band that tracks grid
-/// focus, and a poster grid for the whole library. Shows a loading state
-/// while the server's movies load — never sample data standing in for the
-/// real grid.
+/// The Movies library screen (design 4a): rail, controls, a "currently
+/// selected" band that tracks grid focus, and a poster grid for the whole
+/// library. Shows a loading state while the server's movies load — never
+/// sample data standing in for the real grid.
+///
+/// The full header (eyebrow, big title, count, Play, Random) over its own
+/// filter row — one shared layout for both platforms. iPad used to collapse
+/// this into a single compact `LibraryControlBar` line to save vertical
+/// space; on a real device that line had a search field plus three sort
+/// chips plus a genre row plus a Random button fighting for one 48pt-tall
+/// strip, and everything past the first couple of chips just truncated
+/// ("Lates…", "Ran…"). tvOS's roomier two-row layout was never actually
+/// short on space on an iPad in landscape — it just hadn't been tried there.
 struct MoviesLibraryView: View {
     let isLibrariesOpen: Bool
     let onSelectRail: (RailTarget) -> Void
 
-    // tvOS has a 1080pt-tall canvas to spare above the poster grid. An iPad
-    // landscape window doesn't, so the header/filters/selected-band block is
-    // compacted for iOS rather than eating most of the screen before any
-    // posters appear — matching the same treatment Home's hero zone got.
-    #if os(iOS)
-    private static let headerSpacing: CGFloat = 12
-    private static let headerTopPadding: CGFloat = 12
-    #else
-    private static let headerSpacing: CGFloat = 22
-    private static let headerTopPadding: CGFloat = 40
-    #endif
+    private static let headerSpacing: CGFloat = 16
+    private static let headerTopPadding: CGFloat = 24
 
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var theme: Theme
@@ -37,12 +36,34 @@ struct MoviesLibraryView: View {
     @State private var selectedGenre: String?
     @State private var searchText = ""
     @State private var searchTags: [String] = []
+    /// Random's own state — it builds a queue over a whole library, which
+    /// is a round trip long enough to need reporting.
+    @State private var randomState: RandomPlayState = .idle
     @State private var presentedMovie: Movie?
+    /// Where a presented page zooms from: the focused poster.
+    @State private var zoomOrigin: UnitPoint = .center
+    /// A show reached *from* a movie page — one of an actor's other credits
+    /// in the person sheet. This screen never lists shows itself.
+    @State private var presentedShow: Show?
     /// Real detail (cast, ratings, tagline, awards) fetched for the selected
     /// item; shown in place of the sample fallback once it arrives.
     @State private var selectedDetail: Movie?
     @FocusState private var focusedId: String?
+    /// The last poster the remote sat on. The hero keeps showing it while
+    /// focus is up on the chips or the search field — moving to a filter
+    /// used to snap the hero back to the first title, as if the selection
+    /// had been lost.
+    @State private var lastFocusedId: String?
+    /// One-shot latch for `seedFocusIfNeeded`.
+    @State private var hasSeededFocus = false
     @FocusState private var searchFocused: Bool?
+    /// Which title's artwork is currently the page backdrop on iPad — see
+    /// `LibraryBackdrop`. Chosen once per visit: `RootView` gives each screen
+    /// `.id(selection)`, so navigating away and back rebuilds this view with
+    /// fresh state and the load task picks again. Re-sorting inside the
+    /// screen deliberately keeps the same image (the guard below), so tapping
+    /// a filter chip doesn't reshuffle the wallpaper under you.
+    @State private var backdropItemId: String?
 
     private var allMovies: [MediaItem] { movies }
 
@@ -66,12 +87,33 @@ struct MoviesLibraryView: View {
         return items
     }
 
+    /// The item whose artwork backs the page. tvOS follows the focused
+    /// poster; iPad has no selection, so it uses the per-visit random pick
+    /// and only falls back to `selectedItem` before the pick lands.
+    private var backdropItem: MediaItem? {
+        #if os(iOS)
+        allMovies.first { $0.id == backdropItemId } ?? selectedItem
+        #else
+        selectedItem
+        #endif
+    }
+
+    /// Blur behind the library, per Settings → Appearance. tvOS keeps the
+    /// sharp backdrop it was designed with.
+    private var backdropBlur: Double {
+        #if os(iOS)
+        theme.libraryBackdropEffect.blurRadius
+        #else
+        0
+        #endif
+    }
+
     private var selectedItem: MediaItem? {
         // A focused poster wins. Otherwise (initial state, nothing focused)
         // feature the first item that actually has backdrop art rather than
         // `filtered.first` — the newest item is often an unidentified file
         // with no artwork, which would leave the big backdrop blank.
-        filtered.first { $0.id == focusedId }
+        filtered.first { $0.id == (focusedId ?? lastFocusedId) }
             ?? filtered.first { $0.rating != nil && $0.backdropImage != nil }
             ?? filtered.first { $0.backdropImage != nil }
             ?? filtered.first
@@ -131,11 +173,20 @@ struct MoviesLibraryView: View {
         presentedMovie = baseMovie(for: item)
     }
 
+    /// From inside a movie page: another film from "More like this", or any
+    /// item from a person's credits (which can be a show).
+    private func openItem(_ item: MediaItem) {
+        switch item.kind {
+        case .movie: presentedMovie = baseMovie(for: item)
+        case .series: presentedShow = SampleCatalog.show(for: item)
+        }
+    }
+
     /// Closes the Libraries submenu first (if open), then the detail cover,
     /// then falls back to leaving the screen entirely.
     private var exitAction: (() -> Void)? {
         if isLibrariesOpen { return { onSelectRail(.libraries) } }
-        if presentedMovie != nil { return nil }
+        if presentedMovie != nil || presentedShow != nil { return nil }
         return { onSelectRail(.home) }
     }
 
@@ -146,53 +197,88 @@ struct MoviesLibraryView: View {
             // top, behind the rail and the scrolling content, the same way
             // HomeView's hero backdrop covers the top of the screen and
             // dissolves into the page over the rows below.
-            if let selectedItem {
-                SelectedBackdrop(item: selectedItem)
+            if let backdropItem {
+                SelectedBackdrop(item: backdropItem, blur: backdropBlur)
             }
             HStack(spacing: 0) {
                 NavRail(destination: .movies, isLibrariesOpen: isLibrariesOpen, onSelect: onSelectRail)
-                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems()) {
+                LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems(),
+                                        onDismiss: { onSelectRail(.libraries) }) {
                     // Header, filters and the selected-movie band stay pinned; only
                     // the poster catalog scrolls beneath them.
                     VStack(alignment: .leading, spacing: Self.headerSpacing) {
-                        header.padding(.horizontal, 48)
-                        filterBar.padding(.horizontal, 48)
-                        if let dossierMovie {
-                            SelectedMovieBand(movie: dossierMovie, isLoading: isDossierLoading)
+                        controlBar.libraryContentMargin()
+                        // tvOS only. On iPad the band (plus its dossier
+                        // panel) ran ~300pt between the controls and the
+                        // first poster row — the single biggest thing
+                        // standing between the user and the catalog. The
+                        // grid takes that space back; the backdrop still
+                        // carries the screen's atmosphere behind it.
+                        #if os(tvOS)
+                        if let selectedItem, let dossierMovie {
+                            LibraryHero(content: .movie(dossierMovie, item: selectedItem, isLoading: isDossierLoading),
+                                        accent: theme.accent)
                         }
+                        #endif
                         if !hasLoadedMovies {
                             loadingGrid
                         } else {
                             ScrollView(.vertical, showsIndicators: false) {
                                 postersSection
-                                    .padding(.horizontal, 48)
+                                    .libraryContentMargin()
                                     .padding(.top, 6)   // room for the top row's focus glow
                                     .padding(.bottom, 60)
+                                    .phoneTabBarClearance()
+                                    #if os(iOS)
+                                    .fixesScrollTapDelay()
+                                    #endif
                             }
                         }
                     }
                     .padding(.top, Self.headerTopPadding)
                 }
             }
-            .ignoresSafeArea()
+            .railContentSafeArea()
             // See `HomeView`'s matching `.disabled` for why: `presentedMovie`
             // is a same-ZStack overlay, not a modal, so without this the
             // rail stays focus-reachable underneath it.
-            .disabled(presentedMovie != nil)
+            .disabled(presentedMovie != nil || presentedShow != nil)
+            // The page zooms out of the focused poster and the shelf pushes
+            // in behind it — see `ZoomTransition`.
+            .trackZoomOrigin($zoomOrigin)
+            .zoomedBehind(presentedMovie != nil || presentedShow != nil, origin: zoomOrigin)
 
             if let presentedMovie {
-                MovieDetailView(movie: presentedMovie, onDismiss: { self.presentedMovie = nil })
-                    .transition(.opacity)
+                MovieDetailView(movie: presentedMovie, onDismiss: { self.presentedMovie = nil },
+                                onOpenItem: openItem)
+                    .id(presentedMovie.id)
+                    .zoomPresented(from: zoomOrigin)
                     .zIndex(2)
             }
+            if let presentedShow {
+                ShowView(show: presentedShow, onDismiss: { self.presentedShow = nil })
+                    .zoomPresented(from: zoomOrigin)
+                    .zIndex(3)
+            }
         }
-        .animation(.easeOut(duration: 0.25), value: presentedMovie)
-        // Focus the search field on appear (a top control) rather than the
-        // first poster — focusing a poster makes tvOS auto-scroll it into
-        // place, which pushes the header/search off the top of the screen.
-        // The band still shows the first movie (selectedItem falls back to
-        // `filtered.first` when no poster is focused).
+        .animation(.zoomPresentation, value: presentedMovie)
+        .animation(.zoomPresentation, value: presentedShow)
+        // Menu from a page puts the remote back on the poster it opened —
+        // left alone, focus came back on the first filter chip.
+        .onChange(of: presentedMovie) { _, new in if new == nil { focusedId = lastFocusedId } }
+        .onChange(of: presentedShow) { _, new in if new == nil { focusedId = lastFocusedId } }
+        // The backdrop and hero carry `.id(item)` + `.transition(.opacity)`;
+        // this is what turns a selection change into a crossfade instead of
+        // a cut.
+        .animation(.easeInOut(duration: 0.35), value: selectedItem?.id)
+        .onChange(of: focusedId) { _, id in
+            if let id { lastFocusedId = id }
+        }
+        // tvOS seeds focus from the first poster instead — see
+        // `seedFocusIfNeeded`.
+        #if os(iOS)
         .defaultFocus($searchFocused, true)
+        #endif
         // `appState.libraries.count` is part of the task id (not just `sort`)
         // so this re-fires once the server connection finishes configuring —
         // otherwise a view that appears before `AppState.refresh()` completes
@@ -202,90 +288,125 @@ struct MoviesLibraryView: View {
             let query = sort.query
             movies = await appState.loadMovies(sortBy: query.sortBy, sortOrder: query.sortOrder)
             hasLoadedMovies = true
+            #if os(iOS)
+            // Only when unset: a re-sort re-runs this task, and reshuffling
+            // the backdrop on every filter-chip tap would be noise.
+            if backdropItemId == nil { backdropItemId = LibraryBackdrop.pick(from: movies) }
+            #endif
         }
         // Fetch rich detail (cast/ratings/tagline/awards) for the selected item.
+        // tvOS only: this fetch exists purely to fill the selected-item
+        // dossier, and iPad no longer renders one. Leaving it on would spend
+        // a Jellyfin detail call plus OMDb/TMDB lookups per selection change
+        // with nothing on screen to receive them.
+        #if os(tvOS)
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
+        #endif
         #if os(tvOS)
         .onExitCommand(perform: exitAction)
         #endif
     }
 
-    // MARK: - Header
+    // MARK: - Header / controls
 
+    private var controlBar: some View {
+        VStack(alignment: .leading, spacing: Self.headerSpacing) {
+            header
+            filterBar
+        }
+    }
+
+    /// Title and count, then search and Random. No eyebrow on tvOS (the rail
+    /// already says where you are), and **no Play button anywhere** — it was
+    /// an empty `Button {}` in the accent colour, the most prominent control
+    /// on the screen and the only one that did nothing.
     private var header: some View {
-        HStack(spacing: 20) {
+        LibraryHeaderLayout {
             VStack(alignment: .leading, spacing: 4) {
+                #if os(iOS)
                 Text("LIBRARY // MOVIES")
                     .font(Mono.font(15, .bold))
                     .tracking(2.6)
                     .foregroundStyle(Palette.text(0.5))
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                #endif
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text("Movies")
                         .font(Typography.font(34, .black))
                         .foregroundStyle(Palette.textPrimary)
-                    Text("\(allMovies.count) titles")
+                    Text(LibraryChrome.countLabel(shown: filtered.count, total: allMovies.count, noun: "titles"))
                         .font(Typography.font(20, .semibold))
                         .foregroundStyle(Palette.text(0.4))
                 }
             }
-            .fixedSize()
-
+            .libraryTitleBlockSizing()
+        } search: {
             searchField
-
-            Button {} label: {
-                HStack(spacing: 11) {
-                    Image(systemName: "play.fill").font(.system(size: 18))
-                    Text("Play")
-                }
-                .font(Typography.button)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 15)
-                .background(theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .shadow(color: theme.accent.opacity(0.4), radius: 16, y: 4)
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 14))
-
-            Button(action: randomize) {
-                HStack(spacing: 10) {
-                    Image(systemName: "shuffle").font(.system(size: 18, weight: .semibold))
-                    Text("Random")
-                }
-                .font(Typography.button)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 15)
-                .background(Palette.text(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.2), lineWidth: 1))
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 14))
+        } actions: {
+            #if os(iOS)
+            RandomPlayButton(size: .icon(dimension: 48, cornerRadius: 14, glyphSize: 18),
+                              state: $randomState, action: randomize)
+            #else
+            RandomPlayButton(size: .header, state: $randomState, action: randomize)
+            #endif
         }
     }
 
     private var searchField: some View {
         TagSearchField(tags: $searchTags, liveText: $searchText, placeholder: "Search movies…",
-                       accent: theme.secondaryAccent, trailing: "\(filtered.count)",
+                       accent: theme.secondaryAccent,
+                       trailing: LibraryChrome.searchTrailing(count: filtered.count),
                        field: true, focus: $searchFocused)
     }
 
+    /// **Random plays; it no longer just points at something.**
+    ///
+    /// It used to pick one card out of whatever the grid had loaded and open
+    /// its detail page (or, on tvOS, merely move the focus to it) — a shuffle
+    /// button that shuffled nothing and played nothing. Now it builds a queue
+    /// over the whole movie library, randomised server-side, and starts
+    /// it: press Next and the next thing plays.
+    ///
+    /// The queue is deliberately the *whole scope*, not `filtered` — the
+    /// visible grid is one sorted page of the library, and "random" that can
+    /// only reach what happens to be on screen isn't random. A fresh queue is
+    /// built per press, so pressing it again is a different order, never a
+    /// re-entry into the last one.
     private func randomize() {
-        guard let item = filtered.randomElement() else { return }
-        focusedId = item.id
+        guard randomState != .loading else { return }
+        randomState = .loading
+        Task {
+            let request = await appState.randomQueue(for: .movies)
+            guard let request else { randomState = .empty; return }
+            randomState = .idle
+            appState.requestPlayback(request)
+        }
     }
 
     // MARK: - Filters
 
+    @ViewBuilder
     private var filterBar: some View {
-        // A plain (non-scrolling) HStack here works fine on tvOS's 1920pt-wide
-        // canvas but squeeze-wraps every chip's label to two lines on an
-        // iPad's narrower width — scrolling instead of squeezing keeps every
-        // chip a single line regardless of how many sort/genre options exist.
+        #if os(iOS)
+        if DeviceClass.current == .phone {
+            LibrarySortGenreDropdownBar(sort: $sort, genres: genres, selectedGenre: $selectedGenre,
+                                        totalCount: allMovies.count)
+        } else {
+            filterChipRail
+        }
+        #else
+        filterChipRail
+        #endif
+    }
+
+    private var filterChipRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
+                #if os(iOS)
                 Text("FILTER")
                     .font(Mono.font(13, .bold))
                     .tracking(2)
                     .foregroundStyle(Palette.text(0.4))
+                #endif
                 ForEach(LibrarySort.allCases) { option in
                     LibraryFilterChip(label: option.rawValue, isOn: sort == option) { sort = option }
                 }
@@ -301,21 +422,37 @@ struct MoviesLibraryView: View {
 
     // MARK: - Poster grid
 
+    /// iPad drops the `maximum:` so the columns share the full content width
+    /// (with `LibraryPosterCard` filling its cell) instead of capping at
+    /// 210pt and leaving the remainder as a gap on the right. tvOS keeps the
+    /// cap — its cards are a fixed 200pt and its canvas is wide enough that
+    /// uncapped columns would stretch the cells well past the artwork.
+    #if os(iOS)
+    // A 180pt minimum (right for iPad's wide landscape column) leaves a
+    // phone portrait column room for only two, oversized columns — a
+    // 100pt minimum instead fills the same 362pt content width with three
+    // smaller posters per row, which reads more like the genre's own
+    // library grids (Netflix/Disney+ both run 3 across in portrait).
+    private static var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: DeviceClass.current == .phone ? 100 : 180), spacing: 22)]
+    }
+    #else
+    private static let gridColumns = [GridItem(.adaptive(minimum: 150, maximum: 175), spacing: 18)]
+    #endif
+
     /// Shown in place of the grid until the first real fetch resolves —
     /// never the sample catalog standing in for real movies.
     private var loadingGrid: some View {
-        VStack(spacing: 14) {
-            ProgressView().controlSize(.large).tint(theme.accent)
-            Text("Loading movies…")
-                .font(Mono.font(15, .medium)).tracking(1)
-                .foregroundStyle(Palette.text(0.4))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, 140)
+        LibraryLoadingState(message: "Loading movies…", accent: theme.accent)
     }
 
     private var postersSection: some View {
         VStack(alignment: .leading, spacing: 14) {
+            // iPad only. On tvOS the header's count already says how many
+            // are showing, the chips already say which sort and genre, and
+            // this row was one more line of mono-tracked labels between the
+            // hero and the posters.
+            #if os(iOS)
             HStack(alignment: .firstTextBaseline) {
                 Text(sectionCaption)
                     .font(Mono.font(15, .bold))
@@ -326,19 +463,50 @@ struct MoviesLibraryView: View {
                     .font(Typography.font(16, .medium))
                     .foregroundStyle(Palette.text(0.4))
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180, maximum: 210), spacing: 22)], spacing: 26) {
+            #endif
+            // The grid draws nothing at all when empty; without this the
+            // screen would be blank below the control bar — on tvOS the hero
+            // has nothing to show either, so it is blank there too.
+            if filtered.isEmpty {
+                if allMovies.isEmpty {
+                    LibraryEmptyState(message: "No movies in this library.")
+                } else {
+                    LibraryEmptyState(message: "Nothing matches these filters.")
+                }
+            }
+            LazyVGrid(columns: Self.gridColumns, spacing: 20) {
                 ForEach(filtered) { item in
                     LibraryPosterCard(item: item, onSelect: { openMovie(item) })
                         .focused($focusedId, equals: item.id)
+                        .onAppear { seedFocusIfNeeded(item) }
                 }
             }
         }
     }
 
+    /// Focus lands on the first poster the moment it exists — content first,
+    /// the way every commercial TV app opens a library. The grid scrolls
+    /// inside its own `ScrollView` below the pinned header and hero, so
+    /// focusing a poster no longer drags the header off the top (which is why
+    /// the search field used to take default focus). Seeded from the first
+    /// card's own `onAppear`, once: `.defaultFocus` can't target a poster that
+    /// hasn't been fetched yet, and an `onChange` on the loaded flag runs a
+    /// pass *before* the lazy grid has mounted the card — that assignment
+    /// landed on nothing and focus stayed on the first filter chip.
+    private func seedFocusIfNeeded(_ item: MediaItem) {
+        #if os(tvOS)
+        guard !hasSeededFocus, item.id == filtered.first?.id else { return }
+        hasSeededFocus = true
+        if focusedId == nil, searchFocused != true { focusedId = item.id }
+        #endif
+    }
+
+    #if os(iOS)
     private var sectionCaption: String {
         let genrePart = selectedGenre?.uppercased() ?? "ALL MOVIES"
         return "\(genrePart) · \(sort.rawValue.uppercased())"
     }
+    #endif
 
     // MARK: - Background
 
@@ -350,111 +518,4 @@ struct MoviesLibraryView: View {
         }
         .ignoresSafeArea()
     }
-}
-
-/// The "currently selected" text band: the focused movie's title / meta /
-/// synopsis on the left and a "Signal Dossier" info panel on the right
-/// (design 4a), laid over the top of `SelectedBackdrop`. Rich fields (rating,
-/// director, cast) come from `SampleCatalog.movie(for:)` — the same
-/// demo-template seam Home's Recommended row uses to open a detail screen.
-private struct SelectedMovieBand: View {
-    let movie: Movie
-    var isLoading: Bool = false
-
-    @EnvironmentObject private var theme: Theme
-
-    // Shorter, narrower-padded, and top-aligned on iOS: a single-line title
-    // and a wider-but-shorter dossier panel (`StatsCastPanel`'s iOS size)
-    // need much less vertical room than tvOS's centered, two-line-title
-    // layout — pulling everything to the top of a shorter band (rather than
-    // centering it in a still-tall one) removes the dead space that used to
-    // sit between the synopsis and the poster grid below.
-    #if os(iOS)
-    private static let height: CGFloat = 300
-    private static let horizontalPadding: CGFloat = 64
-    private static let bandAlignment: VerticalAlignment = .top
-    private static let frameAlignment: Alignment = .top
-    private static let infoSpacing: CGFloat = 10
-    private static let titleFontSize: CGFloat = 44
-    private static let titleLineLimit = 1
-    private static let infoMaxWidth: CGFloat = 560
-    private static let synopsisMaxWidth: CGFloat = 560
-    #else
-    private static let height: CGFloat = 536
-    private static let horizontalPadding: CGFloat = 100
-    private static let bandAlignment: VerticalAlignment = .center
-    private static let frameAlignment: Alignment = .center
-    private static let infoSpacing: CGFloat = 16
-    private static let titleFontSize: CGFloat = 72
-    private static let titleLineLimit = 2
-    private static let infoMaxWidth: CGFloat = 720
-    private static let synopsisMaxWidth: CGFloat = 620
-    #endif
-
-    var body: some View {
-        HStack(alignment: Self.bandAlignment, spacing: 40) {
-            info
-            Spacer(minLength: 20)
-            VStack(alignment: .leading, spacing: 16) {
-                StatsCastPanel(movie: movie, isLoading: isLoading, accent: theme.accent)
-                #if os(tvOS)
-                MetaPanel(movie: movie, isLoading: isLoading, accent: theme.accent)
-                #endif
-            }
-        }
-        .padding(.horizontal, Self.horizontalPadding)
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.height, alignment: Self.frameAlignment)
-        .id(movie.id)
-        .transition(.opacity)
-    }
-
-    private var info: some View {
-        VStack(alignment: .leading, spacing: Self.infoSpacing) {
-            Text("SELECTED // NOW IN YOUR LIBRARY")
-                .font(Mono.font(14, .bold))
-                .tracking(3)
-                .foregroundStyle(theme.accent)
-
-            Text(movie.title)
-                .font(Typography.font(Self.titleFontSize, .black))
-                .foregroundStyle(Palette.textPrimary)
-                .lineLimit(Self.titleLineLimit)
-                .minimumScaleFactor(0.5)
-                .lineSpacing(-6)
-
-            HStack(spacing: 12) {
-                Text("★ \(movie.rating)")
-                    .fontWeight(.heavy)
-                    .foregroundStyle(theme.accent)
-                Text(movie.certification)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Palette.text(0.3), lineWidth: 1.5))
-                Text(movie.year)
-                dot
-                Text(genreTail)
-                if !movie.runtime.isEmpty {
-                    dot
-                    Text(movie.runtime)
-                }
-            }
-            .font(Typography.font(19, .semibold))
-            .foregroundStyle(Palette.text(0.68))
-
-            Text(movie.synopsis)
-                .font(Typography.font(20, .medium))
-                .foregroundStyle(Palette.text(0.7))
-                .lineLimit(3)
-                .lineSpacing(6)
-                .frame(maxWidth: Self.synopsisMaxWidth, alignment: .leading)
-        }
-        .frame(maxWidth: Self.infoMaxWidth, alignment: .leading)
-    }
-
-    private var genreTail: String {
-        movie.genreLabel.split(separator: "/").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? movie.genreLabel
-    }
-
-    private var dot: some View { Text("·").foregroundStyle(Palette.text(0.4)) }
 }

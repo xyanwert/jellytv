@@ -9,9 +9,17 @@ import JellyTVKit
 struct HeroView: View {
     let hero: HeroFeature
     var resumeFocus: FocusState<HomeFocus?>.Binding
+    /// Details opens the hero's own screen — the film's, or for an episode
+    /// the show's. It was an empty `Button {}` for a long time: the second
+    /// most prominent control on the screen, and the only one that did
+    /// nothing.
+    var onDetails: () -> Void = {}
 
     @EnvironmentObject private var theme: Theme
     @EnvironmentObject private var appState: AppState
+    /// Optimistic favourite state until the server answers — see
+    /// `toggleFavorite`. Reset per slide.
+    @State private var favoriteOverride: Bool?
 
     // tvOS's hero text zone was sized for a 1080pt-tall canvas with room to
     // spare below it for Continue Watching/Recommended. An iPad landscape
@@ -46,6 +54,7 @@ struct HeroView: View {
             actionsRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: hero.id) { _, _ in favoriteOverride = nil }
     }
 
     private var textBlock: some View {
@@ -137,53 +146,142 @@ struct HeroView: View {
         .font(Typography.font(19, .medium))
     }
 
+    #if os(iOS)
+    @ViewBuilder
+    private var actionsRow: some View {
+        if DeviceClass.current == .phone {
+            // **iPad's row doesn't survive a phone width — it wraps a
+            // button's own label, not just the row.** Resume's 220pt
+            // `minWidth` plus "Details" plus a 56pt "+" square add up to
+            // more than a phone's content width; an `HStack` that runs out
+            // of room doesn't clip its overflow, it *shrinks the proposed
+            // width it hands each child* — and a plain `Text` given less
+            // width than one character wraps instead of truncating, which
+            // is how "Details" turned into a very tall, apparently-empty
+            // grey box (each wrapped line a sliver a pixel or two tall).
+            // Phone gets Resume full-width on its own row — it's the button
+            // meant to need no aiming — with Details/Favorite as a compact
+            // pair underneath.
+            VStack(spacing: 10) {
+                resumeButton(fullWidth: true)
+                HStack(spacing: 10) {
+                    detailsButton(fullWidth: true)
+                    favoriteButton
+                }
+            }
+            .padding(.top, 4)
+        } else {
+            HStack(spacing: 16) {
+                resumeButton(fullWidth: false)
+                detailsButton(fullWidth: false)
+                favoriteButton
+            }
+            .padding(.top, 4)
+        }
+    }
+    #else
     private var actionsRow: some View {
         HStack(spacing: 16) {
-            // Resume — accent-filled with a soft glow (design 3a).
-            Button(action: resume) {
-                HStack(spacing: 12) {
-                    Image(systemName: "play.fill").font(.system(size: 20))
-                    Text(hero.resumeLabel)
-                }
-                .font(Typography.button)
-                .foregroundStyle(.white)
-                .padding(.vertical, 16)
-                .padding(.horizontal, 24)
-                .frame(minWidth: 220)   // ~50% wider than the Details button
-                .background(theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                // The lit-tube treatment the detail screens' primary actions
-                // wear. iPad only: tvOS already has LEDRing on focus, and two
-                // glows on one control fight each other.
-                #if os(iOS)
-                .overlay { NeonTube(shape: RoundedRectangle(cornerRadius: 14, style: .continuous),
-                                    accent: theme.accent, intensity: 0.7) }
-                #endif
-                .shadow(color: theme.accent.opacity(0.45), radius: 20, y: 6)
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
-            .focused(resumeFocus, equals: .heroResume)
-
-            Button {} label: {
-                Text("Details")
-                    .font(Typography.button)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 16)
-                    .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
-
-            Button {} label: {
-                Image(systemName: "plus").font(.system(size: 24, weight: .regular))
-                    .foregroundStyle(Palette.text(0.85))
-                    .frame(width: 56, height: 56)
-                    .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
-            }
-            .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
+            resumeButton(fullWidth: false)
+            detailsButton(fullWidth: false)
+            favoriteButton
         }
         .padding(.top, 4)
+        // Without this, Left at Resume (leftmost) or Right at the favorite
+        // square (rightmost) lets the focus engine search the whole screen
+        // for the geometrically-nearest focusable view and jump there — the
+        // same "selection just vanished" failure `ShowView.seasonSelector`
+        // documents. Up/Down still cross normally into/out of Continue
+        // Watching below and TopBar above.
+        .focusSection()
+    }
+    #endif
+
+    /// Resume — accent-filled with a soft glow (design 3a). `fullWidth` is
+    /// the phone-only stacked layout's own row; iPad/tvOS keep the fixed
+    /// `minWidth` that reads as "the widest of the three, but not the whole
+    /// row" alongside Details and the favorite square.
+    private func resumeButton(fullWidth: Bool) -> some View {
+        Button(action: resume) {
+            HStack(spacing: 12) {
+                Image(systemName: "play.fill").font(.system(size: 20))
+                Text(hero.resumeLabel)
+            }
+            .font(Typography.button)
+            .foregroundStyle(.white)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 24)
+            .frame(minWidth: fullWidth ? nil : 220)   // ~50% wider than Details on iPad/tvOS
+            .frame(maxWidth: fullWidth ? .infinity : nil)
+            .background(theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            // The lit-tube treatment the detail screens' primary actions
+            // wear. iPad/phone only: tvOS already has LEDRing on focus, and
+            // two glows on one control fight each other.
+            #if os(iOS)
+            .overlay { NeonTube(shape: RoundedRectangle(cornerRadius: 14, style: .continuous),
+                                accent: theme.accent, intensity: 0.7) }
+            #endif
+            .shadow(color: theme.accent.opacity(0.45), radius: 20, y: 6)
+        }
+        .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
+        .focused(resumeFocus, equals: .heroResume)
+    }
+
+    private func detailsButton(fullWidth: Bool) -> some View {
+        Button(action: onDetails) {
+            Text("Details")
+                .font(Typography.button)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 16)
+                .frame(maxWidth: fullWidth ? .infinity : nil)
+                .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
+        }
+        .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
+        .focused($detailsFocused)
+        // The film's page zooms out of this button — see `ZoomTransition`.
+        .zoomOrigin(detailsFocused)
+    }
+
+    @FocusState private var detailsFocused: Bool
+
+    /// A heart, not a plus: it favourites the item on the server (the same
+    /// `setFavorite`/`clearFavorite` the show page and the player use), and a
+    /// "+" promised a list this app doesn't have. Filled in the accent while
+    /// the item is a favourite; optimistic, reverted if the server refuses.
+    private var favoriteButton: some View {
+        let on = effectiveIsFavorite
+        return Button(action: toggleFavorite) {
+            Image(systemName: on ? "heart.fill" : "heart").font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(on ? theme.accent : Palette.text(0.85))
+                .frame(width: 56, height: 56)
+                .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(on ? theme.accent.opacity(0.5) : Palette.text(0.14), lineWidth: 1))
+        }
+        .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
+        .accessibilityLabel(on ? "Remove from favourites" : "Add to favourites")
+    }
+
+    private var effectiveIsFavorite: Bool { favoriteOverride ?? hero.isFavorite }
+
+    private func toggleFavorite() {
+        guard let client = appState.jellyfinClient else { return }
+        let newValue = !effectiveIsFavorite
+        favoriteOverride = newValue
+        Task {
+            do {
+                if newValue {
+                    try await client.setFavorite(userId: appState.currentUserId, itemId: hero.id)
+                } else {
+                    try await client.clearFavorite(userId: appState.currentUserId, itemId: hero.id)
+                }
+            } catch {
+                favoriteOverride = !newValue
+            }
+        }
     }
 
     private func resume() {
@@ -219,7 +317,12 @@ struct HeroDotsRow: View {
 
     var body: some View {
         if count > 1 {
-            TimelineView(.animation) { context in
+            // Twelve redraws a second, not sixty: a 44pt pill draining over
+            // 5–30 seconds moves well under a point per frame either way, and
+            // `.animation` alone kept this row invalidating every frame for
+            // the whole time Home was on screen — a constant tax on the same
+            // GPU the crumble has to share.
+            TimelineView(.animation(minimumInterval: 1.0 / 12)) { context in
                 let elapsed = context.date.timeIntervalSince(slideStartTime)
                 let drain = max(0.1, interval - leadIn)
                 let progress = max(0, min(1, (elapsed - leadIn) / drain))

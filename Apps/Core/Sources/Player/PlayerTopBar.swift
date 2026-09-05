@@ -1,48 +1,59 @@
 import SwiftUI
 import JellyTVKit
 
-/// BACK, the item's identity, and its tags on the left; AirPlay and Night on
-/// the right.
+/// BACK and the item's tags on the left; AirPlay and Night on the right.
 ///
 /// **BACK is the only word left in the control layer.** Everything else that
 /// could be read from a glyph lost its label so the five transport circles
 /// could be full size — the kicker line (`MOVIE · 1993 · PG-13`, plus the
 /// queue position) went with it.
 ///
-/// **Where the item has logo artwork, that artwork *is* the title.** Jellyfin
-/// serves it at `/Items/{id}/Images/Logo`; a title already set as art beats
-/// the same words in the UI font. Plain type is the fallback, and only the
-/// fallback — see `PlayableItem.logoURL`.
+/// **The identity is no longer here.** The logo/title moved to the opposite
+/// corner (`PlayerIdentityMark`) so the tag row gets the whole width of this
+/// column instead of whatever a wordmark left over — this is the screen tags
+/// are edited from, and it was showing four of them where it now shows eight.
 ///
 /// The Night toggle is the only way in and out of Night mode, so it still
 /// carries that mode's whole readout: how long the sleep timer has left, and
 /// — while the lock is open — how long until it closes itself again.
 struct PlayerTopBar: View {
     let item: PlayableItem?
+    /// Live tags, not `item.tags` — a `PlayableItem` is built when the queue
+    /// is, so it can't reflect a tag applied a minute ago from the panel.
+    let tags: [String]
     let accent: Color
     let night: NightModeController
     let onBack: () -> Void
     let onToggleNight: () -> Void
+    /// Non-nil when this account may edit tags; the row becomes the way into
+    /// `PlayerTagsPanel`. Nil leaves the chips as a read-only display.
+    var onEditTags: (() -> Void)?
     @FocusState.Binding var focus: PlayerFocusField?
-
-    /// Tall enough to read as artwork, capped so a wide logo can't push the
-    /// tags row off its line.
-    private static let logoMaxHeight: CGFloat = 96
-    private static let logoMaxWidth: CGFloat = 520
 
     var body: some View {
         HStack(alignment: .top, spacing: 40) {
             VStack(alignment: .leading, spacing: 20) {
                 backButton
-                identity
-                if let tags = item?.tags, !tags.isEmpty {
-                    tagRow(tags)
-                }
+                tagRow
             }
-            Spacer(minLength: 0)
+            // Takes whatever the cluster on the right doesn't. That is what
+            // gives `ViewThatFits` below a truthful width to measure against
+            // — proposed the whole bar, it would happily fit eight chips
+            // straight through the AirPlay button.
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             VStack(alignment: .trailing, spacing: 10) {
                 HStack(spacing: 12) {
+                    // iOS only. On tvOS the TV owns routing (there is no
+                    // `AVRoutePickerView`), so this was an inert readout that
+                    // said "SPEAKER" in exactly the clothes of the live Night
+                    // button beside it — a control-shaped non-control, the
+                    // same problem the SIGNAL/4K·HDR readout had before it
+                    // went. Nothing to press, nothing it could tell a viewer
+                    // on a TV they don't already know.
+                    #if os(iOS)
                     AirPlayButton(accent: accent)
+                    #endif
                     nightButton
                 }
                 if let nightCaption {
@@ -52,74 +63,95 @@ struct PlayerTopBar: View {
                         .foregroundStyle(NightPalette.amberBright.opacity(0.85))
                 }
             }
+            // Sized first, at its ideal — these are controls, and they never
+            // give ground to a tag list however long it gets.
+            .layoutPriority(1)
         }
     }
 
-    // MARK: - Identity
-
-    /// Logo artwork when the server has it, the title in type when it does
-    /// not.
+    /// Jellyfin's free-form `Tags`, as chips — and, where the account can
+    /// edit them, the way into `PlayerTagsPanel`.
     ///
-    /// Deliberately a bare `AsyncImage` rather than the shared
-    /// `JellyfinAsyncImage`: that component's contract is "fill this rect
-    /// with art, or with a gradient" — both halves wrong here. A logo has to
-    /// *fit* (filling crops the wordmark), and its fallback is the title in
-    /// type, never a coloured rectangle. The URL is one of Jellyfin's
-    /// token-less image endpoints, so it needs no auth wrapper either way.
+    /// **It renders even with no tags**, as a single ADD TAGS pill. An item
+    /// with nothing on it is exactly the item you want to tag, and a control
+    /// that only appears once the job is done is no control at all — v1 shipped
+    /// that bug and had to fix it (`de310da` → `c4a472c`).
     @ViewBuilder
-    private var identity: some View {
-        if let logo = item?.logoURL, let url = URL(string: logo) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: Self.logoMaxWidth, maxHeight: Self.logoMaxHeight,
-                               alignment: .leading)
-                        .shadow(color: .black.opacity(0.7), radius: 18, y: 2)
-                        .accessibilityLabel(item?.title ?? "")
-                default:
-                    // Never a spinner and never a placeholder box: a logo
-                    // still in flight, or one that fails, reads as the title
-                    // — not as a hole where the title goes.
-                    titleText
-                }
+    private var tagRow: some View {
+        if let onEditTags {
+            Button(action: onEditTags) {
+                chips
             }
-            .frame(height: Self.logoMaxHeight, alignment: .leading)
-        } else {
-            titleText
+            .buttonStyle(FocusScaleStyle(cornerRadius: 24))
+            .remoteFocus($focus, equals: .tags)
+            .accessibilityLabel(tags.isEmpty ? "Add tags"
+                                             : "Tags: \(tags.joined(separator: ", ")). Edit.")
+        } else if !tags.isEmpty {
+            chips.accessibilityElement(children: .combine)
         }
     }
 
-    private var titleText: some View {
-        Text(item?.title ?? "")
-            .font(Typography.font(40, .black))
-            .foregroundStyle(Palette.textPrimary)
-            .lineLimit(1)
-            .shadow(color: .black.opacity(0.6), radius: 16, y: 2)
+    /// **How many chips fit is measured, not assumed.**
+    ///
+    /// A fixed count can't work: "Drama" and "Watched before" are not the
+    /// same width, and picking a number that suits one truncates the other.
+    /// Capping at eight and letting SwiftUI compress produced a row of
+    /// `Dr… Sp… Watc…` — chips that take the space of a tag while naming
+    /// none. So the chips refuse to shrink (`fixedSize`) and `ViewThatFits`
+    /// walks down from eight until a whole row genuinely fits the width the
+    /// controls left over. Whatever that costs is *counted*, not dropped.
+    private var chips: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Self.chipCounts, id: \.self) { count in
+                chipRow(showing: count)
+            }
+        }
     }
 
-    /// Jellyfin's free-form `Tags`, as chips. Display only this pass —
-    /// interactive tags (tap a tag, get that tag's library search) are a
-    /// separate piece of work; nothing here pretends to be tappable.
-    private func tagRow(_ tags: [String]) -> some View {
+    /// Descending, because `ViewThatFits` takes the first that fits.
+    private static let chipCounts = [8, 7, 6, 5, 4, 3, 2, 1, 0]
+
+    private func chipRow(showing count: Int) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "tag")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Palette.text(0.4))
-            ForEach(tags.prefix(4), id: \.self) { tag in
-                Text(tag)
-                    .font(Typography.font(19, .bold))
-                    .foregroundStyle(Palette.text(0.88))
-                    .lineLimit(1)
-                    .padding(.horizontal, 18)
-                    .frame(height: 48)
-                    .background(Palette.text(0.10), in: Capsule())
-                    .overlay(Capsule().stroke(Palette.text(0.16), lineWidth: 1))
+            if tags.isEmpty {
+                chip("ADD TAGS", mono: true)
+            } else {
+                ForEach(tags.prefix(count), id: \.self) { tag in
+                    chip(tag, mono: false)
+                }
+                if tags.count > count {
+                    chip("+\(tags.count - count)", mono: true)
+                }
+                // Only when the row is a control: a read-only row has nothing
+                // to promise with a plus sign.
+                if onEditTags != nil {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(Palette.text(0.55))
+                        .frame(width: 48, height: 48)
+                        .background(Palette.text(0.10), in: Circle())
+                        .overlay(Circle().stroke(Palette.text(0.16), lineWidth: 1))
+                }
             }
         }
-        .accessibilityElement(children: .combine)
+    }
+
+    private func chip(_ text: String, mono: Bool) -> some View {
+        Text(text)
+            .font(mono ? Mono.font(16, .bold) : Typography.font(19, .bold))
+            .tracking(mono ? 1.6 : 0)
+            .foregroundStyle(Palette.text(mono ? 0.6 : 0.88))
+            .lineLimit(1)
+            // Never ellipsised: a chip narrower than its tag is worse than no
+            // chip, because it occupies the row without naming anything.
+            .fixedSize()
+            .padding(.horizontal, 18)
+            .frame(height: 48)
+            .background(Palette.text(0.10), in: Capsule())
+            .overlay(Capsule().stroke(Palette.text(0.16), lineWidth: 1))
     }
 
     // MARK: - Controls
