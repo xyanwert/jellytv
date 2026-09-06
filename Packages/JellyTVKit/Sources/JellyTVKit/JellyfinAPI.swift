@@ -9,29 +9,65 @@ import Foundation
 /// prevent.
 public enum JellyfinAPI {
 
+    /// Which kind of server answered `/System/Info/Public` — a plain Jellyfin,
+    /// or a YSOJ-server proxying one. One place to change if the marker that
+    /// tells them apart ever moves.
+    public enum ServerKind: String, Equatable, Sendable {
+        case jellyfin
+        case ysoj
+    }
+
     /// `GET /System/Info/Public` — unauthenticated reachability + identity.
+    ///
+    /// A **YSOJ-server** is a Jellyfin-compatible proxy that forwards every
+    /// other endpoint byte-for-byte to the real Jellyfin it sits in front of,
+    /// but rewrites this one response with its own name/id and adds the
+    /// `YsojServer` marker. That marker is the *only* reliable way to tell
+    /// the two apart — never by port (a convention, not a promise) and never
+    /// by `Version`, which YSOJ deliberately forwards untouched so clients
+    /// that gate features on it keep working.
     public struct PublicSystemInfo: Decodable, Equatable, Sendable {
         public let serverName: String?
         public let version: String?
         public let id: String?
         public let productName: String?
+        public let isYsojServer: Bool
+        public let ysojVersion: String?
 
         enum CodingKeys: String, CodingKey {
             case serverName = "ServerName"
             case version = "Version"
             case id = "Id"
             case productName = "ProductName"
+            case isYsojServer = "YsojServer"
+            case ysojVersion = "YsojVersion"
         }
 
-        public init(serverName: String?, version: String?, id: String?, productName: String? = nil) {
+        public init(serverName: String?, version: String?, id: String?, productName: String? = nil,
+                    isYsojServer: Bool = false, ysojVersion: String? = nil) {
             self.serverName = serverName
             self.version = version
             self.id = id
             self.productName = productName
+            self.isYsojServer = isYsojServer
+            self.ysojVersion = ysojVersion
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            serverName = try c.decodeIfPresent(String.self, forKey: .serverName)
+            version = try c.decodeIfPresent(String.self, forKey: .version)
+            id = try c.decodeIfPresent(String.self, forKey: .id)
+            productName = try c.decodeIfPresent(String.self, forKey: .productName)
+            isYsojServer = try c.decodeIfPresent(Bool.self, forKey: .isYsojServer) ?? false
+            ysojVersion = try c.decodeIfPresent(String.self, forKey: .ysojVersion)
         }
 
         /// True when the payload actually looks like a Jellyfin server.
         public var looksLikeJellyfin: Bool { id != nil || serverName != nil }
+
+        /// `.ysoj` when the marker is present, `.jellyfin` otherwise.
+        public var kind: ServerKind { isYsojServer ? .ysoj : .jellyfin }
     }
 
     /// `POST /Users/AuthenticateByName` result.
@@ -51,16 +87,62 @@ public enum JellyfinAPI {
     public struct User: Decodable, Equatable, Sendable, Identifiable {
         public let id: String
         public let name: String
+        public let policy: Policy?
+
+        /// The subset of a user's `Policy` this app has an opinion about.
+        public struct Policy: Decodable, Equatable, Sendable {
+            public let isAdministrator: Bool?
+            enum CodingKeys: String, CodingKey { case isAdministrator = "IsAdministrator" }
+            public init(isAdministrator: Bool?) { self.isAdministrator = isAdministrator }
+        }
 
         enum CodingKeys: String, CodingKey {
             case id = "Id"
             case name = "Name"
+            case policy = "Policy"
         }
 
-        public init(id: String, name: String) {
+        public init(id: String, name: String, policy: Policy? = nil) {
             self.id = id
             self.name = name
+            self.policy = policy
         }
+    }
+
+    /// The outcome of picking one Jellyfin account out of `GET /Users` to act
+    /// as — the decision `ServerConnection.resolveUserId` defers to.
+    public enum UserResolution: Equatable, Sendable {
+        case resolved(userId: String)
+        case notFound
+        case ambiguous
+    }
+
+    /// Preference order for resolving an API key (which isn't bound to any
+    /// one account) to a single Jellyfin user:
+    ///
+    /// 1. An explicitly typed username wins outright — a case-insensitive
+    ///    name match, or `.notFound` if it doesn't match anyone.
+    /// 2. Failing that, the single administrator — the common case on a
+    ///    single-owner Jellyfin/YSOJ-server.
+    /// 3. Failing that, the sole account, when there is only one.
+    ///
+    /// Several non-admin candidates left over is refused rather than
+    /// guessed at: once guests exist behind hidden shadow users (a
+    /// YSOJ-server's Phase 2), `users.first` is one of them as often as
+    /// not, and silently browsing as the wrong account is worse than
+    /// asking for a username.
+    public static func resolveUser(from users: [User], username: String?) -> UserResolution {
+        let trimmed = username?.trimmingCharacters(in: .whitespaces) ?? ""
+        if !trimmed.isEmpty {
+            guard let match = users.first(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) else {
+                return .notFound
+            }
+            return .resolved(userId: match.id)
+        }
+        let admins = users.filter { $0.policy?.isAdministrator == true }
+        if admins.count == 1 { return .resolved(userId: admins[0].id) }
+        if users.count == 1 { return .resolved(userId: users[0].id) }
+        return .ambiguous
     }
 
     /// `GET /Users/Me` — who the token belongs to, and what they may do.

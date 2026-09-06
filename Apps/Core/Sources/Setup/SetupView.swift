@@ -76,6 +76,7 @@ struct SetupView: View {
             guard !alreadyPicked else { return }
             server.host = first.host
             server.port = String(first.port)
+            server.selectedServerKind = first.kind
             focusedField = .server(first.id)
         }
     }
@@ -234,6 +235,11 @@ struct SetupView: View {
             serverSection
                 .padding(.bottom, 26)
 
+            if let hint = ysojSignInHint {
+                ysojHintRow(hint)
+                    .padding(.bottom, 18)
+            }
+
             AuthBox(
                 title: "SIGN IN",
                 tag: credTag, tagColor: credTagColor,
@@ -337,6 +343,7 @@ struct SetupView: View {
         return Button {
             server.host = s.host
             server.port = String(s.port)
+            server.selectedServerKind = s.kind
             hostMode = .none
             focusedField = .username
         } label: {
@@ -345,9 +352,12 @@ struct SetupView: View {
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(selected ? accent : Palette.text(0.55))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(s.name)
-                        .font(Typography.font(21, .heavy))
-                        .foregroundStyle(Palette.textPrimary)
+                    HStack(spacing: 8) {
+                        Text(s.name)
+                            .font(Typography.font(21, .heavy))
+                            .foregroundStyle(Palette.textPrimary)
+                        if s.kind == .ysoj { ysojBadge }
+                    }
                     Text(s.address)
                         .font(Mono.font(15))
                         .foregroundStyle(Palette.text(0.5))
@@ -365,6 +375,39 @@ struct SetupView: View {
         }
         .buttonStyle(FocusScaleStyle(scale: 1.02, cornerRadius: 14, outline: true))
         .focused($focusedField, equals: .server(s.id))
+    }
+
+    /// A YSOJ-server can't tell who an API key belongs to (`/Users/Me` 400s
+    /// for a key — keys aren't bound to an account), so it can only resolve
+    /// owner/member/guest from a password sign-in's own token. Shown only
+    /// once a discovered YSOJ row is selected and only while the user hasn't
+    /// already committed to the API-key box.
+    private var ysojSignInHint: String? {
+        guard server.selectedServerKind == .ysoj, !hasKey else { return nil }
+        return "This is a YSOJ server — sign in with your username & password so it knows which account you are."
+    }
+
+    private func ysojHintRow(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "person.badge.key.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(accent)
+            Text(text)
+                .font(Typography.font(14, .medium))
+                .foregroundStyle(Palette.text(0.55))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var ysojBadge: some View {
+        Text("YSOJ")
+            .font(Mono.font(11))
+            .tracking(1.2)
+            .foregroundStyle(accent)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(accent.opacity(0.16)))
+            .overlay(Capsule().stroke(accent.opacity(0.4), lineWidth: 1))
     }
 
     private func statusStrip(spinner: Bool, text: String) -> some View {
@@ -456,7 +499,7 @@ struct SetupView: View {
                              onSubmit: { focusedField = .port })
                 portField
             }
-            Text("Enter an IP or hostname. Default Jellyfin port is 8096.")
+            Text("Enter an IP or hostname. Leave the port blank to auto-detect — tries 8097, then 8096.")
                 .font(Typography.font(14, .medium))
                 .foregroundStyle(Palette.text(0.35))
         }
@@ -464,7 +507,7 @@ struct SetupView: View {
     }
 
     private var portField: some View {
-        AppTextField(placeholder: "8096",
+        AppTextField(placeholder: "Auto",
                      text: $server.port, mono: true, prefix: ":", width: 150,
                      accent: accent, field: .port, focus: $focusedField,
                      onSubmit: { focusedField = .username })
@@ -705,6 +748,10 @@ struct SetupView: View {
     private var phoneFormPanel: some View {
         VStack(alignment: .leading, spacing: 22) {
             serverSection
+
+            if let hint = ysojSignInHint {
+                ysojHintRow(hint)
+            }
 
             AuthBox(
                 title: "SIGN IN",

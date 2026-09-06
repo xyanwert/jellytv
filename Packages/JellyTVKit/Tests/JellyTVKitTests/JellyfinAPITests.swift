@@ -47,6 +47,35 @@ final class JellyfinAPITests: XCTestCase {
         XCTAssertFalse(info.looksLikeJellyfin)
     }
 
+    func testPublicSystemInfoDetectsYsojServerMarker() throws {
+        let json = """
+        {
+            "LocalAddress": "http://192.168.1.150:8097",
+            "ServerName": "xyan-media (YSOJ)",
+            "Version": "10.11.11",
+            "ProductName": "Jellyfin Server",
+            "Id": "ef7d23a1d39a4818b71b622ca704eb9c",
+            "StartupWizardCompleted": true,
+            "YsojServer": true,
+            "YsojVersion": "0.1.0"
+        }
+        """
+        let info = try decode(JellyfinAPI.PublicSystemInfo.self, json)
+        XCTAssertTrue(info.isYsojServer)
+        XCTAssertEqual(info.ysojVersion, "0.1.0")
+        XCTAssertEqual(info.kind, .ysoj)
+        // The real Jellyfin's own version is forwarded truthfully — never
+        // used to detect YSOJ.
+        XCTAssertEqual(info.version, "10.11.11")
+    }
+
+    func testPublicSystemInfoWithoutMarkerIsPlainJellyfin() throws {
+        let info = try decode(JellyfinAPI.PublicSystemInfo.self, #"{ "ServerName": "xyan-media", "Id": "abc" }"#)
+        XCTAssertFalse(info.isYsojServer)
+        XCTAssertNil(info.ysojVersion)
+        XCTAssertEqual(info.kind, .jellyfin)
+    }
+
     // MARK: - AuthenticationResult (/Users/AuthenticateByName)
 
     func testAuthenticationResultDecodesPascalCase() throws {
@@ -85,6 +114,66 @@ final class JellyfinAPITests: XCTestCase {
         XCTAssertEqual(users.map(\.name), ["alex", "Marina"])
         // case-insensitive name match, mirroring ServerConnection.resolveUser
         XCTAssertEqual(users.first { $0.name.lowercased() == "ALEX".lowercased() }?.id, "u1")
+    }
+
+    func testUsersListDecodesAdministratorPolicy() throws {
+        let json = """
+        [
+            { "Name": "owner", "Id": "u1", "Policy": { "IsAdministrator": true } },
+            { "Name": "guest", "Id": "u2", "Policy": { "IsAdministrator": false } },
+            { "Name": "legacy", "Id": "u3" }
+        ]
+        """
+        let users = try decode([JellyfinAPI.User].self, json)
+        XCTAssertEqual(users[0].policy?.isAdministrator, true)
+        XCTAssertEqual(users[1].policy?.isAdministrator, false)
+        XCTAssertNil(users[2].policy)
+    }
+
+    // MARK: - resolveUser (which account an API key acts as)
+
+    func testResolveUserMatchesTypedUsernameCaseInsensitively() {
+        let users = [JellyfinAPI.User(id: "u1", name: "Alex"), JellyfinAPI.User(id: "u2", name: "Marina")]
+        XCTAssertEqual(JellyfinAPI.resolveUser(from: users, username: "alex"), .resolved(userId: "u1"))
+    }
+
+    func testResolveUserTypedUsernameNotFound() {
+        let users = [JellyfinAPI.User(id: "u1", name: "Alex")]
+        XCTAssertEqual(JellyfinAPI.resolveUser(from: users, username: "nobody"), .notFound)
+    }
+
+    func testResolveUserPrefersSingleAdministratorWithNoTypedUsername() {
+        let users = [
+            JellyfinAPI.User(id: "owner", name: "Alex", policy: .init(isAdministrator: true)),
+            JellyfinAPI.User(id: "guest1", name: "Riley", policy: .init(isAdministrator: false)),
+            JellyfinAPI.User(id: "guest2", name: "Sam", policy: .init(isAdministrator: false)),
+        ]
+        XCTAssertEqual(JellyfinAPI.resolveUser(from: users, username: nil), .resolved(userId: "owner"))
+        XCTAssertEqual(JellyfinAPI.resolveUser(from: users, username: ""), .resolved(userId: "owner"))
+    }
+
+    func testResolveUserFallsBackToSoleAccount() {
+        let users = [JellyfinAPI.User(id: "u1", name: "Alex")]
+        XCTAssertEqual(JellyfinAPI.resolveUser(from: users, username: nil), .resolved(userId: "u1"))
+    }
+
+    func testResolveUserRefusesToGuessAmongMultipleNonAdmins() {
+        // The YSOJ-server "hidden shadow guests" scenario: no typed username,
+        // no single administrator, more than one account — never fall back
+        // to `users.first`.
+        let users = [
+            JellyfinAPI.User(id: "guest1", name: "Riley", policy: .init(isAdministrator: false)),
+            JellyfinAPI.User(id: "guest2", name: "Sam", policy: .init(isAdministrator: false)),
+        ]
+        XCTAssertEqual(JellyfinAPI.resolveUser(from: users, username: nil), .ambiguous)
+    }
+
+    func testResolveUserAmbiguousWithMultipleAdministrators() {
+        let users = [
+            JellyfinAPI.User(id: "u1", name: "Alex", policy: .init(isAdministrator: true)),
+            JellyfinAPI.User(id: "u2", name: "Marina", policy: .init(isAdministrator: true)),
+        ]
+        XCTAssertEqual(JellyfinAPI.resolveUser(from: users, username: nil), .ambiguous)
     }
 
     // MARK: - Authorization header

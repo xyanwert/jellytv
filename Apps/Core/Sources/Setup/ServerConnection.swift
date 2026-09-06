@@ -17,6 +17,7 @@ final class ServerConnection: ObservableObject {
         let userId: String
         let apiKey: String
         let baseURL: URL
+        let kind: JellyfinAPI.ServerKind
     }
 
     @Published var status: Status = .disconnected
@@ -39,10 +40,19 @@ final class ServerConnection: ObservableObject {
 
     // Input fields
     @Published var host: String = ""
-    @Published var port: String = "8096"
+    /// Empty means "auto-detect" — try 8097 (YSOJ-server's convention), then
+    /// 8096 (plain Jellyfin). A non-empty value is honoured **exactly**:
+    /// someone who types `:8096` means it, even when a YSOJ-server answers
+    /// on 8097 too. See `resolveEndpoint`.
+    @Published var port: String = ""
     @Published var username: String = ""
     @Published var password: String = ""
     @Published var apiKey: String = ""
+    /// Set when the user picks a discovered server row, so the form can
+    /// nudge them toward signing in with a password on a YSOJ-server (an API
+    /// key isn't bound to an account — see `resolveUserId`). Purely a UI
+    /// hint; connecting re-detects the kind from the server itself.
+    @Published var selectedServerKind: JellyfinAPI.ServerKind?
 
     /// The in-flight `connect()`/`reconnect()` task, if any. Stored so
     /// `cancelConnect()` can actually reach and cancel it — `URLSession`'s
@@ -60,6 +70,7 @@ final class ServerConnection: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let hostKey = "jelly:server.host"
     private let portKey = "jelly:server.port"
+    private let kindKey = "jelly:server.kind"
     private let apiKeyKey = "jelly:auth.apiKey"
     private let userIdKey = "jelly:auth.userId"
     private let deviceName = "JellyTV"
@@ -84,16 +95,18 @@ final class ServerConnection: ObservableObject {
     }
 
     /// `host:port` for progress/error readouts, falling back to placeholders.
+    /// An empty port means auto-detect (see `port`'s doc comment) — shown as
+    /// "auto" rather than a specific number that wasn't actually chosen.
     var hostReadout: String {
         let h = host.trimmingCharacters(in: .whitespaces)
         let p = port.trimmingCharacters(in: .whitespaces)
-        return "\(h.isEmpty ? "server" : h):\(p.isEmpty ? "8096" : p)"
+        return "\(h.isEmpty ? "server" : h):\(p.isEmpty ? "auto" : p)"
     }
 
     init() {
         // Hydrate from UserDefaults
         host = userDefaults.string(forKey: hostKey) ?? ""
-        port = userDefaults.string(forKey: portKey) ?? "8096"
+        port = userDefaults.string(forKey: portKey) ?? ""
         apiKey = userDefaults.string(forKey: apiKeyKey) ?? ""
 
         // Dev-only hook: stand up the mock Jellyfin server (real TMDB/AniList
@@ -135,7 +148,7 @@ final class ServerConnection: ObservableObject {
             let baseURL = await MockJellyfinServer.start()
             status = .connected(ServerInfo(
                 name: "Mock Jellyfin", version: "mock-1.0",
-                userId: "mock-user", apiKey: "mock-key", baseURL: baseURL
+                userId: "mock-user", apiKey: "mock-key", baseURL: baseURL, kind: .jellyfin
             ))
         }
         return true
@@ -212,7 +225,8 @@ final class ServerConnection: ObservableObject {
     /// succeeded, so there's nothing left to roll back.
     func connect() async {
         errorMessage = nil
-        guard let baseURL = buildURL() else {
+        let hostTrimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !hostTrimmed.isEmpty else {
             fail("Enter a valid server host to continue.")
             return
         }
@@ -226,13 +240,15 @@ final class ServerConnection: ObservableObject {
         await dwell()   // let "Reaching server…" register
         guard !Task.isCancelled else { return }
 
-        // Steps 1 & 2 — reach + handshake, verified with the unauthenticated
-        // public info endpoint (also gives us the server name for both modes).
-        guard let publicInfo = await fetchPublicSystemInfo(baseURL: baseURL) else {
+        // Steps 1 & 2 — reach + handshake: pick the endpoint (an explicit
+        // port is honoured exactly; a blank field tries YSOJ-server's 8097
+        // then plain Jellyfin's 8096) and confirm it answers as one.
+        guard let resolved = await resolveEndpoint(host: hostTrimmed, portField: port) else {
             guard !Task.isCancelled else { return }
             fail("Couldn't reach a Jellyfin server at \(hostReadout). Check the host and port.")
             return
         }
+        let baseURL = resolved.baseURL
         connectStep = 2
         await dwell()
         guard !Task.isCancelled else { return }
@@ -242,15 +258,22 @@ final class ServerConnection: ObservableObject {
         let userId: String
 
         if !apiKey.isEmpty {
-            let resolved = username.isEmpty
-                ? await fetchFirstUserId(baseURL: baseURL, apiKey: apiKey)
-                : await resolveUser(baseURL: baseURL, apiKey: apiKey, username: username)
-            guard let resolved else {
+            switch await resolveUserId(baseURL: baseURL, apiKey: apiKey, username: username) {
+            case .resolved(let id):
+                userId = id
+            case .notFound:
+                guard !Task.isCancelled else { return }
+                fail("No user named \"\(username)\" was found on that server.")
+                return
+            case .ambiguous:
+                guard !Task.isCancelled else { return }
+                fail("Enter your username as well as the API key so we know which account to use.")
+                return
+            case .networkFailure:
                 guard !Task.isCancelled else { return }
                 fail("The server is reachable, but that API key was rejected.")
                 return
             }
-            userId = resolved
         } else {
             switch await authenticateByName(baseURL: baseURL, username: username, password: password) {
             case .success(let auth):
@@ -267,18 +290,21 @@ final class ServerConnection: ObservableObject {
         await dwell()
         guard !Task.isCancelled else { return }
 
-        // Step 4 — synchronize + persist.
-        saveCredentials(host: host, port: port, apiKey: finalApiKey, userId: userId)
+        // Step 4 — synchronize + persist. Persist the port that actually
+        // answered, not whatever the field held (it may have been blank).
+        let resolvedPort = baseURL.port.map(String.init) ?? port
+        saveCredentials(host: hostTrimmed, port: resolvedPort, kind: resolved.kind, apiKey: finalApiKey, userId: userId)
         await dwell()
         guard !Task.isCancelled else { return }
         connectStep = 4   // shows the "All set" success banner
 
         let info = ServerInfo(
-            name: publicInfo.name,
-            version: publicInfo.version,
+            name: resolved.name,
+            version: resolved.version,
             userId: userId,
             apiKey: finalApiKey,
-            baseURL: baseURL
+            baseURL: baseURL,
+            kind: resolved.kind
         )
         // Hold the success banner (status stays .connecting so RootView keeps
         // showing this screen), then flip to Home. No cancellation guard here
@@ -295,16 +321,38 @@ final class ServerConnection: ObservableObject {
     /// cancelled attempt's `nil` results would post a real failure message
     /// (or silently retry) instead of just returning to the form.
     private func reconnect() async {
-        guard let baseURL = buildURL(), !apiKey.isEmpty else {
+        let hostTrimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !hostTrimmed.isEmpty, !apiKey.isEmpty else {
             status = .disconnected
             return
+        }
+        // Try the port that worked last time first, then the other of
+        // 8097/8096 — a server that moved between them should reconnect
+        // silently rather than dumping the user back on the form. A custom
+        // (non-8096/8097) port has no swap partner to try.
+        let storedPort = port.trimmingCharacters(in: .whitespaces)
+        let candidatePorts: [String]
+        switch storedPort {
+        case "": candidatePorts = ["8097", "8096"]
+        case "8097": candidatePorts = ["8097", "8096"]
+        case "8096": candidatePorts = ["8096", "8097"]
+        default: candidatePorts = [storedPort]
         }
 
         for attempt in 1...3 {
             status = .connecting("Reconnecting…")
             connectStep = 0
 
-            guard let publicInfo = await fetchPublicSystemInfo(baseURL: baseURL) else {
+            var resolved: (baseURL: URL, kind: JellyfinAPI.ServerKind, name: String, version: String)?
+            for candidate in candidatePorts {
+                guard !Task.isCancelled, let url = URL(string: "http://\(hostTrimmed):\(candidate)") else { continue }
+                if let info = await fetchPublicSystemInfo(baseURL: url) {
+                    resolved = (url, info.kind, info.name, info.version)
+                    break
+                }
+            }
+
+            guard let resolved else {
                 guard !Task.isCancelled else { return }
                 if attempt < 3 {
                     connectStep = 0
@@ -319,21 +367,35 @@ final class ServerConnection: ObservableObject {
             connectStep = 2
             guard !Task.isCancelled else { return }
 
-            guard await fetchFirstUserId(baseURL: baseURL, apiKey: apiKey) != nil else {
+            switch await resolveUserId(baseURL: resolved.baseURL, apiKey: apiKey, username: username) {
+            case .networkFailure:
                 guard !Task.isCancelled else { return }
                 fail("Your saved session has expired. Sign in again.")
                 return
+            case .resolved, .notFound, .ambiguous:
+                // Any answer at all means the key is still valid — keep the
+                // already-stored userId rather than re-picking one here.
+                break
             }
             guard !Task.isCancelled else { return }
             connectStep = 4
 
+            // The server may have moved since the last launch — persist
+            // whichever port/kind actually answered this time.
+            if let resolvedPort = resolved.baseURL.port {
+                port = String(resolvedPort)
+                userDefaults.set(port, forKey: portKey)
+            }
+            userDefaults.set(resolved.kind.rawValue, forKey: kindKey)
+
             let userId = userDefaults.string(forKey: userIdKey) ?? ""
             status = .connected(ServerInfo(
-                name: publicInfo.name,
-                version: publicInfo.version,
+                name: resolved.name,
+                version: resolved.version,
                 userId: userId,
                 apiKey: apiKey,
-                baseURL: baseURL
+                baseURL: resolved.baseURL,
+                kind: resolved.kind
             ))
             return
         }
@@ -364,6 +426,7 @@ final class ServerConnection: ObservableObject {
     func signOut() {
         userDefaults.removeObject(forKey: hostKey)
         userDefaults.removeObject(forKey: portKey)
+        userDefaults.removeObject(forKey: kindKey)
         userDefaults.removeObject(forKey: apiKeyKey)
         userDefaults.removeObject(forKey: userIdKey)
         apiKey = ""
@@ -376,17 +439,10 @@ final class ServerConnection: ObservableObject {
 
     // MARK: - Private
 
-    private func buildURL() -> URL? {
-        let hostTrimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let portTrimmed = port.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !hostTrimmed.isEmpty else { return nil }
-        let urlString = "http://\(hostTrimmed):\(portTrimmed)"
-        return URL(string: urlString)
-    }
-
-    private func saveCredentials(host: String, port: String, apiKey: String, userId: String) {
+    private func saveCredentials(host: String, port: String, kind: JellyfinAPI.ServerKind, apiKey: String, userId: String) {
         userDefaults.set(host, forKey: hostKey)
         userDefaults.set(port, forKey: portKey)
+        userDefaults.set(kind.rawValue, forKey: kindKey)
         userDefaults.set(apiKey, forKey: apiKeyKey)
         userDefaults.set(userId, forKey: userIdKey)
     }
@@ -394,8 +450,9 @@ final class ServerConnection: ObservableObject {
     // MARK: - API Calls
 
     /// Unauthenticated reachability + identity check via `/System/Info/Public`.
-    /// Confirms the host is actually a Jellyfin server before we try to auth.
-    private func fetchPublicSystemInfo(baseURL: URL) async -> (name: String, version: String)? {
+    /// Confirms the host is actually a Jellyfin server (or a YSOJ-server
+    /// proxying one) before we try to auth.
+    private func fetchPublicSystemInfo(baseURL: URL) async -> (name: String, version: String, kind: JellyfinAPI.ServerKind)? {
         guard let url = URL(string: "System/Info/Public", relativeTo: baseURL) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -407,10 +464,31 @@ final class ServerConnection: ObservableObject {
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else { return nil }
             let info = try JSONDecoder().decode(JellyfinAPI.PublicSystemInfo.self, from: data)
-            return (info.serverName ?? "Jellyfin", info.version ?? "Unknown")
+            guard info.looksLikeJellyfin else { return nil }
+            return (info.serverName ?? "Jellyfin", info.version ?? "Unknown", info.kind)
         } catch {
             return nil
         }
+    }
+
+    /// Picks the URL to connect to and confirms it answers as one:
+    ///
+    /// - An **explicit, non-empty** port is honoured exactly — someone who
+    ///   types `:8096` means it, even if a YSOJ-server answers on 8097 too.
+    ///   Nothing else is tried.
+    /// - A **blank** port field tries YSOJ-server's own convention (8097)
+    ///   first, then plain Jellyfin's (8096), and takes the first that
+    ///   answers `looksLikeJellyfin`.
+    private func resolveEndpoint(host: String, portField: String) async -> (baseURL: URL, kind: JellyfinAPI.ServerKind, name: String, version: String)? {
+        let portTrimmed = portField.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidatePorts = portTrimmed.isEmpty ? ["8097", "8096"] : [portTrimmed]
+        for candidate in candidatePorts {
+            guard !Task.isCancelled, let url = URL(string: "http://\(host):\(candidate)") else { continue }
+            if let info = await fetchPublicSystemInfo(baseURL: url) {
+                return (url, info.kind, info.name, info.version)
+            }
+        }
+        return nil
     }
 
     /// Attempts `AuthenticateByName`. On failure, the reason string surfaces the
@@ -471,28 +549,20 @@ final class ServerConnection: ObservableObject {
         }
     }
 
-    private func resolveUser(baseURL: URL, apiKey: String, username: String) async -> String? {
-        guard let url = URL(string: "Users", relativeTo: baseURL) else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(mediaBrowserHeader(apiKey: apiKey), forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 10
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else { return nil }
-            let users = try JSONDecoder().decode([JellyfinAPI.User].self, from: data)
-            // Match by name (case-insensitive)
-            return users.first { $0.name.lowercased() == username.lowercased() }?.id
-        } catch {
-            return nil
-        }
+    /// Which account an API key should act as — an API key isn't bound to
+    /// any one user, so this asks `GET /Users` and defers the decision to
+    /// `JellyfinAPI.resolveUser`. Never falls back to `users.first`: once a
+    /// YSOJ-server has guests behind hidden shadow accounts, that account is
+    /// as likely to be one of them as the owner.
+    enum UserIdOutcome: Equatable {
+        case resolved(String)
+        case notFound
+        case ambiguous
+        case networkFailure
     }
 
-    private func fetchFirstUserId(baseURL: URL, apiKey: String) async -> String? {
-        guard let url = URL(string: "Users", relativeTo: baseURL) else { return nil }
+    private func resolveUserId(baseURL: URL, apiKey: String, username: String) async -> UserIdOutcome {
+        guard let url = URL(string: "Users", relativeTo: baseURL) else { return .networkFailure }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(mediaBrowserHeader(apiKey: apiKey), forHTTPHeaderField: "Authorization")
@@ -502,11 +572,15 @@ final class ServerConnection: ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else { return nil }
+                  httpResponse.statusCode == 200 else { return .networkFailure }
             let users = try JSONDecoder().decode([JellyfinAPI.User].self, from: data)
-            return users.first?.id
+            switch JellyfinAPI.resolveUser(from: users, username: username) {
+            case .resolved(let id): return .resolved(id)
+            case .notFound: return .notFound
+            case .ambiguous: return .ambiguous
+            }
         } catch {
-            return nil
+            return .networkFailure
         }
     }
 

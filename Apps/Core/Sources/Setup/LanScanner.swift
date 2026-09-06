@@ -4,24 +4,18 @@ import JellyTVKit
 import Darwin
 #endif
 
-/// A Jellyfin server found on the local network.
-struct DiscoveredServer: Identifiable, Equatable {
-    let host: String     // dotted-quad IP
-    let port: Int
-    let name: String
-    var id: String { "\(host):\(port)" }
-    var address: String { "\(host):\(port)" }
-}
-
-/// Discovers Jellyfin servers on the local `/24` subnet.
+/// Discovers Jellyfin (and YSOJ-server) instances on the local `/24` subnet.
+/// `DiscoveredServer` and the YSOJ-preferring collapse rule live in
+/// `JellyTVKit.ServerDiscovery` so they're testable without a simulator.
 ///
 /// Jellyfin's own UDP-broadcast auto-discovery would need Apple's multicast
 /// entitlement on tvOS (special approval), so instead we do an entitlement-free
 /// **unicast sweep**: read the Apple TV's own IPv4 via `getifaddrs`, then probe
-/// every host `x.y.z.1…254` on port 8096 with the same unauthenticated
-/// `/System/Info/Public` check the connect flow uses. Any reachable Jellyfin
-/// answers regardless of whether it supports broadcast. Only the standard Local
-/// Network permission is required.
+/// every host `x.y.z.1…254` on **both** 8097 (YSOJ-server's convention) and
+/// 8096 (plain Jellyfin) with the same unauthenticated `/System/Info/Public`
+/// check the connect flow uses. Any reachable server answers regardless of
+/// whether it supports broadcast. Only the standard Local Network permission
+/// is required.
 @MainActor
 final class LanScanner: ObservableObject {
     enum Phase: Equatable { case idle, scanning, done }
@@ -31,8 +25,16 @@ final class LanScanner: ObservableObject {
     /// e.g. "192.168.1.x" — the subnet being swept, for the UI readout.
     @Published private(set) var subnetLabel: String?
 
-    private let port = 8096
-    private let maxConcurrent = 24
+    /// YSOJ-server first: a box running both must collapse to one row (see
+    /// `ServerDiscovery.collapsePreferringYsoj`), and probing it first is
+    /// what makes "first found for this host wins" resolve the way that
+    /// collapse expects.
+    private let ports = [8097, 8096]
+    /// Doubled from 24 (one probe per host) now that every host is probed on
+    /// two ports — keeps worst-case sweep time roughly where it was. A closed
+    /// port on the LAN refuses immediately, so this only matters for hosts
+    /// that silently drop packets.
+    private let maxConcurrent = 48
     private let probeTimeout: TimeInterval = 1.2
     private var task: Task<Void, Never>?
 
@@ -42,11 +44,11 @@ final class LanScanner: ObservableObject {
         task?.cancel()
         servers = []
         phase = .scanning
-        let port = self.port
+        let ports = self.ports
         let maxConcurrent = self.maxConcurrent
         let timeout = self.probeTimeout
         task = Task { [weak self] in
-            await self?.scan(port: port, maxConcurrent: maxConcurrent, timeout: timeout)
+            await self?.scan(ports: ports, maxConcurrent: maxConcurrent, timeout: timeout)
         }
     }
 
@@ -56,7 +58,7 @@ final class LanScanner: ObservableObject {
         if phase == .scanning { phase = .done }
     }
 
-    private func scan(port: Int, maxConcurrent: Int, timeout: TimeInterval) async {
+    private func scan(ports: [Int], maxConcurrent: Int, timeout: TimeInterval) async {
         guard let net = Self.localSubnet() else {
             subnetLabel = nil
             phase = .done
@@ -71,23 +73,28 @@ final class LanScanner: ObservableObject {
         config.allowsCellularAccess = false
         let session = URLSession(configuration: config)
 
+        // One task per (host, port) — every host probed on every port.
+        var jobs: [(host: String, port: Int)] = []
+        for octet in 1...254 {
+            let host = "\(net.base).\(octet)"
+            if host == net.selfIP { continue }
+            for port in ports { jobs.append((host, port)) }
+        }
+
         await withTaskGroup(of: DiscoveredServer?.self) { group in
-            var next = 1
+            var next = 0
             func enqueueNext() {
-                while next <= 254 {
-                    let host = "\(net.base).\(next)"
-                    next += 1
-                    if host == net.selfIP { continue }
-                    group.addTask { await Self.probe(host: host, port: port, session: session) }
-                    return
-                }
+                guard next < jobs.count else { return }
+                let job = jobs[next]
+                next += 1
+                group.addTask { await Self.probe(host: job.host, port: job.port, session: session) }
             }
-            for _ in 0..<maxConcurrent { enqueueNext() }
+            for _ in 0..<min(maxConcurrent, jobs.count) { enqueueNext() }
 
             for await found in group {
                 if Task.isCancelled { break }
                 if let found {
-                    servers.append(found)
+                    servers = ServerDiscovery.collapsePreferringYsoj(servers + [found])
                     servers.sort { $0.host.localizedStandardCompare($1.host) == .orderedAscending }
                 }
                 enqueueNext()
@@ -98,7 +105,7 @@ final class LanScanner: ObservableObject {
     }
 
     /// Probe one host's `/System/Info/Public`; return a server if it looks like
-    /// Jellyfin. Runs off the main actor.
+    /// Jellyfin (or a YSOJ-server proxying one). Runs off the main actor.
     nonisolated private static func probe(host: String, port: Int, session: URLSession) async -> DiscoveredServer? {
         guard let url = URL(string: "http://\(host):\(port)/System/Info/Public") else { return nil }
         var request = URLRequest(url: url)
@@ -110,7 +117,7 @@ final class LanScanner: ObservableObject {
             let info = try JSONDecoder().decode(JellyfinAPI.PublicSystemInfo.self, from: data)
             // Only accept responses that actually look like Jellyfin.
             guard info.looksLikeJellyfin else { return nil }
-            return DiscoveredServer(host: host, port: port, name: info.serverName ?? host)
+            return DiscoveredServer(host: host, port: port, name: info.serverName ?? host, kind: info.kind)
         } catch {
             return nil
         }
@@ -159,8 +166,14 @@ final class LanScanner: ObservableObject {
         switch demo {
         case "found":
             servers = [
-                DiscoveredServer(host: "192.168.1.150", port: 8096, name: "Living Room"),
-                DiscoveredServer(host: "192.168.1.42", port: 8096, name: "Basement NAS"),
+                DiscoveredServer(host: "192.168.1.150", port: 8096, name: "Living Room", kind: .jellyfin),
+                DiscoveredServer(host: "192.168.1.42", port: 8096, name: "Basement NAS", kind: .jellyfin),
+            ]
+            phase = .done
+        case "ysoj":   // one of each kind, so the YSOJ badge can be screenshotted without a live server
+            servers = [
+                DiscoveredServer(host: "192.168.1.150", port: 8097, name: "xyan-media (YSOJ)", kind: .ysoj),
+                DiscoveredServer(host: "192.168.1.42", port: 8096, name: "Basement NAS", kind: .jellyfin),
             ]
             phase = .done
         case "scanning":

@@ -87,6 +87,19 @@ final class AppState: ObservableObject {
     /// no way to create a first tag (its `de310da` → `c4a472c`). Callers
     /// should offer the edit unless this is *definitely* false.
     @Published private(set) var canEditItemMetadata: Bool?
+    /// Whether the connected server is a YSOJ-server (as opposed to a plain
+    /// Jellyfin) — set from `configure(kind:)`. Not published on its own:
+    /// nothing renders directly off it yet, only `isOwner` below.
+    private(set) var serverKind: JellyfinAPI.ServerKind = .jellyfin
+    /// Whether the signed-in account is *this server's* owner — distinct
+    /// from `canEditItemMetadata`: the two happen to be the same bit today
+    /// (both gate on `IsAdministrator`), but only on a YSOJ-server does
+    /// "administrator" actually mean "owner" in any sense the server has an
+    /// opinion about. A plain Jellyfin has no such concept, so this is
+    /// always false there regardless of admin status. Kept separate rather
+    /// than overloading `canEditItemMetadata` — the two are expected to
+    /// diverge once owner-only surfaces exist.
+    @Published private(set) var isOwner: Bool = false
     /// Every tag in use on the server, for the player's tag picker. Fetched
     /// lazily, extended after a write so a tag invented once is offered the
     /// next time.
@@ -167,12 +180,15 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(data, forKey: key)
     }
 
-    func configure(baseURL: URL, apiKey: String, deviceId: String, userId: String) {
+    func configure(baseURL: URL, apiKey: String, deviceId: String, userId: String,
+                   kind: JellyfinAPI.ServerKind = .jellyfin) {
         let client = JellyfinClient(baseURL: baseURL, apiKey: apiKey, deviceId: deviceId)
         self.client = client
         self.userId = userId
         self.imageBaseURL = baseURL
         self.canEditItemMetadata = nil
+        self.serverKind = kind
+        self.isOwner = false
         self.cardTrickplay = TrickplayClient(client: client, userId: userId)
         Task { await loadEditPermission() }
     }
@@ -191,6 +207,9 @@ final class AppState: ObservableObject {
         // offering an edit that 403s is worse than not offering it.
         guard let user = try? await client.fetchCurrentUser() else { return }
         canEditItemMetadata = user.isAdministrator
+        // "Owner" is a concept only a YSOJ-server has an opinion about — an
+        // administrator on a plain Jellyfin gets no special treatment here.
+        isOwner = serverKind == .ysoj && user.isAdministrator
     }
 
     /// The server's tag vocabulary, fetched once per launch and after each

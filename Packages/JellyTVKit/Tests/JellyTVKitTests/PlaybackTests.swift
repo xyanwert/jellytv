@@ -105,6 +105,28 @@ final class PlaybackTests: XCTestCase {
         }
     }
 
+    // `GET /Users/Me` with a Jellyfin API key: keys aren't bound to a user,
+    // so Jellyfin (and YSOJ-server, which forwards this verbatim) answers
+    // 400 rather than 200 — the reason connecting to a YSOJ-server prefers
+    // a password sign-in over an API key. Not retried (400 isn't in the
+    // transient-status set) and surfaces as `.server(status: 400, …)`, which
+    // `AppState.loadEditPermission()`'s `try?` already turns into "unknown"
+    // rather than crashing or hanging.
+    func testFetchCurrentUserThrowsOn400ForApiKeyAuth() async throws {
+        MockURLProtocol.reset(responses: [.init(status: 400, body: Data())])
+        let client = mockClient()
+        do {
+            _ = try await client.fetchCurrentUser()
+            XCTFail("expected throw")
+        } catch {
+            XCTAssertEqual(MockURLProtocol.requestCount.get(), 1)
+            guard case JellyfinRequestError.server(let status, _) = error else {
+                return XCTFail("expected .server(400, …), got \(error)")
+            }
+            XCTAssertEqual(status, 400)
+        }
+    }
+
     func test401NeverRetries() async throws {
         MockURLProtocol.reset(responses: [.init(status: 401, body: Data())])
         let client = mockClient()

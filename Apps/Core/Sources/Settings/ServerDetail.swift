@@ -12,13 +12,23 @@ struct ServerDetail: View {
 
             if let info = server.serverInfo {
                 DetailRow(label: info.name, description: "Version \(info.version)") {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(Palette.connected)
-                            .frame(width: 10, height: 10)
-                        Text("Connected")
-                            .font(Typography.font(18, .semibold))
-                            .foregroundStyle(Palette.connected)
+                    HStack(spacing: 12) {
+                        if info.kind == .ysoj {
+                            Text("YSOJ")
+                                .font(Mono.font(12))
+                                .tracking(1.2)
+                                .foregroundStyle(Palette.text(0.6))
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Capsule().fill(Palette.text(0.08)))
+                        }
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(Palette.connected)
+                                .frame(width: 10, height: 10)
+                            Text("Connected")
+                                .font(Typography.font(18, .semibold))
+                                .foregroundStyle(Palette.connected)
+                        }
                     }
                 }
                 DetailDivider()

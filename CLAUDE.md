@@ -155,6 +155,63 @@ re-enables normal clipping. That clipping matters beyond the fade: a focused car
 bleeds into whatever sits above/below the strip. Give the scrolled content extra vertical padding
 (absorbing the scale-up) rather than relying on `scrollClipDisabled()` to let it hang out unclipped.
 
+## Server discovery & connection — YSOJ-server
+
+**YSOJ-server is a Jellyfin-compatible proxy, not a second protocol.** It sits in front of a
+real Jellyfin (conventionally on port 8097 beside the Jellyfin it proxies on 8096) and forwards
+every endpoint byte-for-byte — same status, same headers, same body, streaming/HLS/trickplay/
+`/socket` included. The **only** difference is `GET /System/Info/Public`, which it answers with
+the real Jellyfin's own payload plus a `YsojServer: true` marker (and `YsojVersion`). That marker
+is the *only* reliable way to tell the two apart (`JellyfinAPI.PublicSystemInfo.kind`) — never by
+port (a convention, not a promise) and never by `Version`, which YSOJ deliberately forwards
+untouched so a client gating features on it keeps working. `PublicSystemInfo` decodes the marker
+via a custom `init(from:)` defaulting to `false`/`nil` when absent, so a plain Jellyfin's response
+(no such key) decodes exactly as it always has.
+
+**Discovery sweeps both ports and collapses one box to one row.** `LanScanner` probes every host
+on the `/24` subnet on **both** 8097 and 8096 (`maxConcurrent` doubled to 48 to keep sweep time
+where it was for a single port) and, when a host answers on both, keeps only the YSOJ row
+(`JellyTVKit.ServerDiscovery.collapsePreferringYsoj`, tested — `DiscoveredServer` and the collapse
+rule live in the kit rather than on the scanner itself so the rule is checkable without a
+simulator) — a box running both must never present as two rows the user
+has to choose between. `DiscoveredServer.kind` drives a small "YSOJ" badge on that row
+(`SetupView.serverRow`); `JT_SCAN_DEMO=ysoj` seeds one of each kind for screenshotting without a
+live server.
+
+**Connecting: an explicit port is honoured exactly; a blank one probes 8097 then 8096.**
+`ServerConnection.port` is empty by default now (was a hardcoded `"8096"`) — empty means
+"auto-detect", shown as the `Auto` placeholder and as "auto" in progress/error text
+(`hostReadout`), and resolved by `resolveEndpoint(host:portField:)`: a non-empty port is tried
+alone (someone who types `:8096` means it, even when a YSOJ-server answers on 8097 too); a blank
+one tries 8097 then 8096 and takes the first that answers `looksLikeJellyfin`. The port that
+actually answered is what gets persisted (`jelly:server.port`), alongside the detected kind
+(`jelly:server.kind`) — never the literal field contents, which may have been blank.
+`reconnect()` applies the same idea in reverse: try the **stored** port first, then swap to the
+other of 8097/8096 before giving up, so a server that moved between them (or a YSOJ-server that
+was added later) reconnects silently rather than dumping the user back on the form. A custom
+(non-8096/8097) port has no swap partner and is just retried as-is.
+
+**An API key isn't bound to a user — `GET /Users/Me` 400s for one, on Jellyfin itself, not a YSOJ
+quirk.** That's the reason `resolveUserId` no longer takes `users.first` the way `fetchFirstUserId`
+used to: harmless against a single-account Jellyfin, but a real bug waiting for a YSOJ-server's
+Phase 2 guests, which will exist as hidden shadow Jellyfin users returned by the same `/Users`
+call. The decision is pure and tested (`JellyfinAPI.resolveUser(from:username:)`,
+`JellyfinAPITests`): a typed username wins outright (case-insensitive match, `.notFound` if it
+doesn't match anyone); failing that, the single administrator; failing that, the sole account when
+there is exactly one; several non-admin candidates left over is refused (`.ambiguous`) rather than
+guessed at — `connect()` turns that into "Enter your username as well as the API key so we know
+which account to use." rather than silently browsing as a random guest. `JellyfinAPI.User.Policy`
+(`IsAdministrator`) is the piece `/Users` was already returning and nothing decoded.
+
+**`AppState.isOwner` is deliberately not `canEditItemMetadata`.** Both happen to gate on
+`IsAdministrator` today, but only a YSOJ-server has any opinion about "owner" at all — a plain
+Jellyfin admin gets `isOwner == false` with `canEditItemMetadata` still `true`. `isOwner` exists so
+owner-only surfaces have something to gate on later without overloading a flag that means "may
+edit metadata" and is expected to diverge. Since an API key can't identify a user
+(`/Users/Me` 400s), the form nudges toward a password sign-in once a discovered YSOJ row is
+selected (`SetupView.ysojSignInHint`) — a hint, not a requirement; an API key + typed username
+still resolves via the same preference order above.
+
 ## Home on tvOS
 
 **Every control on Home does something, or it isn't there.** The hero's Details button was an

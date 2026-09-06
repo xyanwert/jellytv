@@ -156,7 +156,8 @@ struct RootView: View {
                     baseURL: info.baseURL,
                     apiKey: info.apiKey,
                     deviceId: server.deviceId,
-                    userId: info.userId
+                    userId: info.userId,
+                    kind: info.kind
                 )
                 Task {
                     await appState.refresh()
