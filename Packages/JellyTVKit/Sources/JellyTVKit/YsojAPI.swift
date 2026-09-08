@@ -73,6 +73,14 @@ public enum YsojAPI {
             public let simulated: Bool
             public let granularity: [String]
             public let pollSeconds: Int?
+            /// Whether `/ysoj/downloads/search` exists here — a release search over the
+            /// trackers. Absent on servers predating it. Whether the trackers' satellite
+            /// is *running* is reported by that endpoint per search, not here: the
+            /// capabilities document is read once on connect and a service can stop
+            /// between then and the press.
+            public let search: Bool?
+            /// The category ids the search accepts; `ReleaseCategory` names them.
+            public let searchCategories: [String]?
         }
 
         public struct LibraryOverrides: Decodable, Sendable, Equatable {
@@ -92,6 +100,21 @@ public enum YsojAPI {
         /// Films need a TMDB key on the server; without one Discover is television and
         /// anime only, and the screen says so rather than looking short of films.
         public var hasMovieSource: Bool { features.discover?.hasMovieSource ?? false }
+        /// Release search is the owner's: the rows carry magnets, and spending the
+        /// household's bandwidth on what they find is the owner's call — the same rule
+        /// that keeps a member from starting a download.
+        public var offersReleaseSearch: Bool {
+            owner && (features.downloads?.search ?? false)
+        }
+        /// The categories this server's search accepts, as the client's own enum, in the
+        /// enum's order. A server that names none gets all four; one that names an id
+        /// this client does not know simply does not offer it.
+        public var releaseCategories: [ReleaseCategory] {
+            guard let ids = features.downloads?.searchCategories else {
+                return ReleaseCategory.allCases
+            }
+            return ReleaseCategory.allCases.filter { ids.contains($0.rawValue) }
+        }
     }
 
     // MARK: - Discover
@@ -414,6 +437,102 @@ public enum YsojAPI {
         public let engine: String
         /// False for a member — they may watch the centre but not start or cancel.
         public let canManage: Bool
+    }
+
+    // MARK: - Release search
+
+    /// What to search the trackers for. Mirrors the server's own list; a category the
+    /// server does not name in its capabilities is not offered.
+    public enum ReleaseCategory: String, CaseIterable, Sendable, Equatable, Hashable {
+        case all, movies, tv, anime
+
+        public var label: String {
+            switch self {
+            case .all: return "Everything"
+            case .movies: return "Movies"
+            case .tv: return "TV"
+            case .anime: return "Anime"
+            }
+        }
+    }
+
+    /// One release a tracker offers — a row on the Find-a-release screen.
+    ///
+    /// `fileCountExact` is the honest half of `fileCount`: only one tracker reports a real
+    /// count, and for the others it is guessed from an episode range in the release name,
+    /// so it is rendered as an approximation. A row that shows a guessed count as exact
+    /// is lying about how many episodes are in the pack.
+    public struct Release: Decodable, Sendable, Equatable, Identifiable {
+        public let name: String
+        public let infoHash: String
+        public let magnet: String
+        public let sizeBytes: Int64
+        public let seeders: Int
+        public let leechers: Int
+        public let fileCount: Int
+        public let fileCountExact: Bool
+        public let quality: String
+        public let qualityTier: Int
+        public let category: String
+        public let provider: String
+        public let sourceId: String
+        public let score: [Int]
+
+        public var id: String { infoHash }
+
+        /// "12 files", "≈12 files", or nil when nothing is known.
+        public var fileCountLabel: String? {
+            guard fileCount > 0 else { return nil }
+            let noun = fileCount == 1 ? "file" : "files"
+            return fileCountExact ? "\(fileCount) \(noun)" : "≈\(fileCount) \(noun)"
+        }
+
+        /// Three bands at the thresholds the server's own page colours by. A release
+        /// nobody is seeding is not a release; the row says so before anyone waits on it.
+        public enum SeedHealth: Sendable, Equatable {
+            case healthy, thin, dead
+        }
+
+        public var seedHealth: SeedHealth {
+            if seeders >= 50 { return .healthy }
+            if seeders >= 5 { return .thin }
+            return .dead
+        }
+    }
+
+    /// How one tracker answered. A tracker that failed contributes no rows and says so
+    /// here, so the screen can name what was down instead of quietly showing fewer rows.
+    public struct ReleaseSource: Decodable, Sendable, Equatable, Identifiable {
+        public let id: String
+        public let ok: Bool
+        public let rows: Int
+        public let tookMs: Int
+        /// The failure's class name when `ok` is false — "ReadTimeout", "ConnectError".
+        public let detail: String?
+    }
+
+    /// Whether the library already has something by the searched name. Checked once per
+    /// query, not per row, and only ever a warning.
+    public struct ReleaseLibraryMatch: Decodable, Sendable, Equatable {
+        public let present: Bool
+        public let jellyfinItemId: String?
+    }
+
+    /// The answer to one search: ranked rows, how each tracker did, and whether the
+    /// query names something already owned.
+    public struct ReleaseSearch: Decodable, Sendable, Equatable {
+        public let query: String
+        /// What was actually searched for — a leading `~` is stripped and forces anime.
+        public let normalized: String
+        public let category: String
+        public let results: [Release]
+        public let sources: [ReleaseSource]
+        public let cached: Bool
+        public let tookMs: Int
+        public let inLibrary: ReleaseLibraryMatch?
+
+        public var failedSources: [ReleaseSource] { sources.filter { !$0.ok } }
+        public var isAlreadyInLibrary: Bool { inLibrary?.present ?? false }
     }
 
     // MARK: - Library overrides

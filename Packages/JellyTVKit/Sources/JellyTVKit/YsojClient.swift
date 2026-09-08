@@ -183,6 +183,22 @@ public struct YsojClient: Sendable {
         _ = try await send(url: url, method: .delete, bodyData: nil)
     }
 
+    // MARK: - Release search
+
+    /// Searches the trackers through the server's own satellite. Owner only — a member
+    /// gets a 403 with a sentence. The satellite being down comes back as a 503 whose
+    /// `detail` says so, and callers show it as sent rather than paraphrasing.
+    public func searchReleases(
+        query: String, category: YsojAPI.ReleaseCategory = .all
+    ) async throws -> YsojAPI.ReleaseSearch {
+        let items = [URLQueryItem(name: "q", value: query),
+                     URLQueryItem(name: "category", value: category.rawValue)]
+        guard let url = buildURL(path: "/ysoj/downloads/search", query: items) else {
+            throw JellyfinRequestError.invalidURL
+        }
+        return try await request(url: url)
+    }
+
     // MARK: - Library overrides
 
     public func fetchLibraryOverrides() async throws -> [YsojAPI.LibraryOverride] {
@@ -288,6 +304,18 @@ public struct YsojClient: Sendable {
 
     private static let maxAttempts = 3
     private static let perAttemptTimeout: TimeInterval = 20
+    /// A release search fans out to trackers that are routinely slow, with a fallback
+    /// behind the first; the server itself waits up to 30 s on it. Twenty seconds here
+    /// would time out a search that was about to answer.
+    private static let searchTimeout: TimeInterval = 45
+
+    private static func timeout(for url: URL) -> TimeInterval {
+        Self.isReleaseSearch(url) ? searchTimeout : perAttemptTimeout
+    }
+
+    private static func isReleaseSearch(_ url: URL) -> Bool {
+        url.path.hasSuffix("/downloads/search")
+    }
 
     private struct SourcesResponse: Decodable, Sendable {
         let sources: [YsojAPI.Capabilities.Source]
@@ -328,7 +356,7 @@ public struct YsojClient: Sendable {
         request.httpMethod = method.rawValue
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = Self.perAttemptTimeout
+        request.timeoutInterval = Self.timeout(for: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         if let bodyData {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -353,6 +381,9 @@ public struct YsojClient: Sendable {
     /// a job that had in fact just started. `plan` is retried: a spare plan row expires on
     /// its own and starts nothing.
     private func shouldRetry(method: HTTPMethod, url: URL, error: Error) -> Bool {
+        // A release search is slow by nature and says "the satellite is down" honestly;
+        // a second attempt only doubles the wait for the same answer.
+        if Self.isReleaseSearch(url) { return false }
         // Only what a second attempt could change: a transient status or a transport
         // failure. A body that failed to decode will fail to decode three times.
         switch error {

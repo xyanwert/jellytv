@@ -23,6 +23,11 @@ struct RootView: View {
         if env["JT_SHOW_ANIME"] == "1" { return .animeLibrary }
         if env["JT_SHOW_LATE_NIGHT"] == "1" { return .lateNight }
         if env["JT_SHOW_SEARCH"] == "1" { return .search }
+        // Discover and the download centre need a YSOJ-server; `=demo` seeds fixture
+        // rows and `JT_SHOW_DOWNLOADS=search` a finished release search — see
+        // `DiscoverStore.demo(releases:)`. Same hooks as `Remote`'s `RootView`.
+        if env["JT_SHOW_DISCOVER"] != nil { return .discover }
+        if env["JT_SHOW_DOWNLOADS"] != nil { return .downloads }
         // `1` for Home Videos, `nsfw` for After Hours — the two libraries a
         // `homevideos` collection resolves to. See `Remote`'s `RootView` for
         // the same hook on iPad.
@@ -239,8 +244,8 @@ struct RootView: View {
     private func discoverStore() -> DiscoverStore? {
         if let existing = discoverStoreBox.store { return existing }
         let env = ProcessInfo.processInfo.environment
-        if env["JT_SHOW_DISCOVER"] == "demo" || env["JT_SHOW_DOWNLOADS"] == "demo" {
-            let demo = DiscoverStore.demo()
+        if env["JT_SHOW_DISCOVER"] == "demo" || ["demo", "search"].contains(env["JT_SHOW_DOWNLOADS"] ?? "") {
+            let demo = DiscoverStore.demo(releases: env["JT_SHOW_DOWNLOADS"] == "search")
             discoverStoreBox.store = demo
             return demo
         }
