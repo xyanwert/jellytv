@@ -275,3 +275,44 @@ public enum ServerMessage {
         return object["detail"] as? String
     }
 }
+
+// MARK: - Which TV, when there are two
+
+/// The one rule for which paired TV the remote points at. Nothing physical tells two rooms
+/// apart on a LAN, so the signal is what the server knows: which TV app is up, and which
+/// one is playing.
+public enum TVSelection {
+    /// In order: the TV the owner picked by hand while it is online (sticky — a second TV
+    /// coming on never yanks the remote away); else the online TV that is playing
+    /// something; else the online TV used most recently from this phone; else the first
+    /// online; else none.
+    public static func choose(
+        pairings: [YsojAPI.RemotePairing],
+        online: Set<String>,
+        playing: Set<String>,
+        manual: String?,
+        lastUsed: [String: Date]
+    ) -> YsojAPI.RemotePairing? {
+        let candidates = pairings.filter { online.contains($0.tvDeviceId) }
+        guard !candidates.isEmpty else { return nil }
+        if let manual, let picked = candidates.first(where: { $0.tvDeviceId == manual }) {
+            return picked
+        }
+        if let busy = candidates.first(where: { playing.contains($0.tvDeviceId) }) {
+            return busy
+        }
+        let recent = candidates
+            .compactMap { pairing in lastUsed[pairing.tvDeviceId].map { (pairing, $0) } }
+            .max { $0.1 < $1.1 }?.0
+        return recent ?? candidates[0]
+    }
+}
+
+extension YsojAPI.RemotePairing {
+    /// The TV's name, with the tail of its device id when another paired TV shares it —
+    /// two boxes out of the carton are both "Apple TV 4K (3rd generation)".
+    public func tvDisplayName(among others: [YsojAPI.RemotePairing]) -> String {
+        let twin = others.contains { $0.tvName == tvName && $0.tvDeviceId != tvDeviceId }
+        return twin ? "\(tvName) · \(tvDeviceId.suffix(4))" : tvName
+    }
+}

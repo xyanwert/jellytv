@@ -5,6 +5,7 @@ public enum HTTPMethod: String, Sendable {
     case post = "POST"
     case put = "PUT"
     case delete = "DELETE"
+    case patch = "PATCH"
 }
 
 /// Richer than a raw `URLError` — lets callers (the stale-session detector,
@@ -609,6 +610,19 @@ public struct JellyfinClient: Sendable {
         try await requestVoid(url: url, method: .post)
     }
 
+    /// `POST /Sessions/{id}/Message` — a banner on another session's screen. The TV
+    /// receives it as `GeneralCommand DisplayMessage` and shows it as a toast; the phone
+    /// uses it to ask "which of my two TVs is this one?" before naming it.
+    public func sendMessage(toSession sessionId: String, header: String, text: String,
+                            timeoutMs: Int = 4000) async throws {
+        guard let url = buildURL(path: "/Sessions/\(sessionId)/Message", query: nil) else {
+            throw URLError(.badURL)
+        }
+        let body: [String: Any] = ["Header": header, "Text": text, "TimeoutMs": timeoutMs]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        try await requestVoid(url: url, method: .post, bodyData: data)
+    }
+
     // MARK: - Transport (retry/backoff + decode)
 
     private static let maxAttempts = 3
@@ -688,7 +702,7 @@ public struct JellyfinClient: Sendable {
             }
         }
         switch method {
-        case .get, .put, .delete: return true
+        case .get, .put, .delete, .patch: return true
         case .post:
             if url.path.hasSuffix("/Sessions/Playing/Progress") { return true }
             // `POST /Items/{id}` is a full-state overwrite — the second

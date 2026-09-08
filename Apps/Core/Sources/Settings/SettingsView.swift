@@ -87,6 +87,9 @@ struct SettingsView: View {
                     }
                 }
                 .padding(20)
+                // The eighth row sat under the tab bar (and the TV bar above it), so a
+                // tap on Remote landed on the Movies tab.
+                .phoneTabBarClearance()
             }
             .background(Palette.background.ignoresSafeArea())
             .navigationTitle("Settings")

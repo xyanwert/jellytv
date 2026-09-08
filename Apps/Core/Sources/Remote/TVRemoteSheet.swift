@@ -26,7 +26,11 @@ struct TVRemoteSheet: View {
 
             VStack(spacing: 0) {
                 header
-                    .padding(.bottom, 18)
+                    .padding(.bottom, link.pairings.count > 1 ? 12 : 18)
+                if link.pairings.count > 1 {
+                    tvPicker
+                        .padding(.bottom, 16)
+                }
                 nowPlaying
                     .padding(.bottom, 22)
                 if scenesOpen, let item = link.nowPlaying {
@@ -98,6 +102,67 @@ struct TVRemoteSheet: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close remote")
+        }
+    }
+
+    /// Which TV, first: one row per paired TV — lit while it is up, ticked when it is the
+    /// one — and a wave on each that flashes a banner on that screen, for the moment two
+    /// boxes out of the carton look alike. Rows, not chips: two default names are too
+    /// long to sit side by side, and the second one scrolled out of reach.
+    private var tvPicker: some View {
+        VStack(spacing: 6) {
+            ForEach(link.pairings) { pairing in
+                let isOn = pairing.id == link.activePairing?.id
+                let online = link.isOnline(pairing)
+                HStack(spacing: 10) {
+                    Button { link.select(pairing) } label: {
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(online ? Palette.connected : Palette.text(0.3))
+                                .frame(width: 8, height: 8)
+                            Text(pairing.tvDisplayName(among: link.pairings))
+                                .font(Typography.font(15, isOn ? .bold : .semibold))
+                                .foregroundStyle(isOn ? Palette.textPrimary : Palette.text(0.7))
+                                .lineLimit(1)
+                            Spacer(minLength: 6)
+                            if isOn {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 12, weight: .black))
+                                    .foregroundStyle(theme.accent)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 42)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(isOn ? theme.accent.opacity(0.16) : Palette.text(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(isOn ? theme.accent.opacity(0.6) : Palette.text(0.1), lineWidth: 1))
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(online ? 1 : 0.55)
+                    .accessibilityLabel("\(pairing.tvDisplayName(among: link.pairings)), \(online ? "on" : "off")\(isOn ? ", selected" : "")")
+
+                    Button {
+                        link.identify(pairing)
+                    } label: {
+                        Image(systemName: "hand.wave.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(Palette.text(0.85))
+                            .frame(width: 42, height: 42)
+                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Palette.text(0.08)))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Palette.text(0.14), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!online)
+                    .opacity(online ? 1 : 0.4)
+                    .accessibilityLabel("Flash a banner on \(pairing.tvDisplayName(among: link.pairings))")
+                }
+            }
         }
     }
 
@@ -305,22 +370,6 @@ struct TVRemoteSheet: View {
 
     private var footer: some View {
         VStack(spacing: 0) {
-            if link.pairings.count > 1 {
-                Rectangle().fill(Palette.text(0.08)).frame(height: 1)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(link.pairings) { pairing in
-                            let isOn = pairing.id == link.activePairing?.id
-                            Button { link.select(pairing) } label: {
-                                Text(pairing.tvName)
-                            }
-                            .buttonStyle(FilterChipStyle(isOn: isOn, accent: theme.accent))
-                        }
-                    }
-                    .padding(.vertical, 12)
-                }
-            }
-
             Rectangle().fill(Palette.text(0.08)).frame(height: 1)
             Button {
                 // Closes whether or not a pairing is still there to forget — a button
@@ -354,6 +403,12 @@ struct PairingPrompt: View {
 
     private var isPhone: Bool { DeviceClass.current == .phone }
 
+    /// The TV's name, with its id tail when a TV already paired shares the name.
+    private var beaconName: String {
+        let twin = link.pairings.contains { $0.tvName == beacon.tvName && $0.tvDeviceId != beacon.tvDeviceId }
+        return twin ? "\(beacon.tvName) · \(beacon.tvDeviceId.suffix(4))" : beacon.tvName
+    }
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.78)
@@ -370,7 +425,7 @@ struct PairingPrompt: View {
                         .tracking(2.2)
                         .foregroundStyle(Palette.text(0.5))
                 }
-                Text("\(beacon.tvName) is looking for a remote")
+                Text("\(beaconName) is looking for a remote")
                     .font(Typography.font(isPhone ? 24 : 28, .black))
                     .foregroundStyle(Palette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)

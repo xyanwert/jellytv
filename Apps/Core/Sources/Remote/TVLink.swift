@@ -37,6 +37,9 @@ final class TVLink: ObservableObject {
     @Published private(set) var presence: Presence = .none
     /// Where the TV is in its film, interpolated between its reports.
     @Published private(set) var clock: RemoteClock?
+    /// Every paired TV that is up right now, by device id. One `/Sessions` call answers
+    /// for all of them, which is what lets the remote follow the TV that is on.
+    @Published private(set) var sessionsByTV: [String: JellyfinAPI.SessionInfo] = [:]
     /// Whether plays go to the TV while it is on. Default on after pairing — that is
     /// what pairing was for — and a switch in the bar and in Settings turns it off for
     /// an evening on the couch with the phone.
@@ -76,17 +79,47 @@ final class TVLink: ObservableObject {
     static let sendToTVKey = "jelly:remote.sendToTV"
     static let activeTVKey = "jelly:remote.activeTV"
     static let wasOnlineKey = "jelly:remote.wasOnline"
+    static let lastUsedKey = "jelly:remote.lastUsed"
+
+    /// The TV the owner picked by hand — sticky while it is up, cleared when it goes
+    /// off so the rule takes over cleanly.
+    private var manualTV: String? {
+        didSet { UserDefaults.standard.set(manualTV, forKey: Self.activeTVKey) }
+    }
+    /// When each TV was last driven from this phone — the tie-breaker when two are on
+    /// and neither is playing.
+    private var lastUsed: [String: Date] {
+        didSet {
+            UserDefaults.standard.set(lastUsed.mapValues(\.timeIntervalSince1970), forKey: Self.lastUsedKey)
+        }
+    }
 
     init() {
         let defaults = UserDefaults.standard
         pairings = RemotePairingStore.load()
         sendToTV = defaults.object(forKey: Self.sendToTVKey) as? Bool ?? true
         wasOnline = defaults.bool(forKey: Self.wasOnlineKey)
+        manualTV = defaults.string(forKey: Self.activeTVKey)
+        lastUsed = (defaults.dictionary(forKey: Self.lastUsedKey) as? [String: Double] ?? [:])
+            .mapValues { Date(timeIntervalSince1970: $0) }
     }
 
     // MARK: - Reading it
 
-    var tvName: String { activePairing?.tvName ?? "TV" }
+    /// The active TV's name, with its id tail when another paired TV shares the name.
+    var tvName: String { activePairing?.tvDisplayName(among: pairings) ?? "TV" }
+
+    /// The paired TVs that are up right now, in pairing order.
+    var onlinePairings: [YsojAPI.RemotePairing] {
+        pairings.filter { sessionsByTV[$0.tvDeviceId] != nil }
+    }
+
+    /// More than one TV to point at — the bar shows the switch glyph.
+    var canSwitch: Bool { onlinePairings.count > 1 }
+
+    func isOnline(_ pairing: YsojAPI.RemotePairing) -> Bool {
+        sessionsByTV[pairing.tvDeviceId] != nil
+    }
 
     var session: JellyfinAPI.SessionInfo? {
         if case .online(let session) = presence { return session }
@@ -132,10 +165,10 @@ final class TVLink: ObservableObject {
         self.appState = appState
         self.deviceId = deviceId
         let mine = pairings.filter { $0.remoteDeviceId == deviceId }
-        let preferred = UserDefaults.standard.string(forKey: Self.activeTVKey)
-        activePairing = mine.first { $0.tvDeviceId == preferred } ?? mine.first
+        activePairing = mine.first { $0.tvDeviceId == manualTV } ?? mine.first
         presence = activePairing == nil ? .none : .checking
         clock = nil
+        sessionsByTV = [:]
         // Capabilities land a moment after `configure()`; the beacon poll and the
         // server's pairing list both wait on them.
         capabilitiesSink = appState.$ysojCapabilities
@@ -189,18 +222,47 @@ final class TVLink: ObservableObject {
         }
     }
 
+    /// One `/Sessions` call for every paired TV, then the selection rule decides which
+    /// one the remote points at. A TV coming on in the other room is seen here; the
+    /// active one going off is followed here.
     func checkPresence() async {
-        guard let client = appState?.jellyfinClient, let pairing = activePairing else {
+        let mine = pairings.filter { $0.remoteDeviceId == deviceId }
+        guard let client = appState?.jellyfinClient, !mine.isEmpty else {
             presence = .none
             clock = nil
+            sessionsByTV = [:]
             return
         }
         do {
-            let sessions = try await client.fetchSessions(deviceId: pairing.tvDeviceId)
-            guard pairing.id == activePairing?.id else { return }
+            let sessions = try await client.fetchSessions()
             let now = Date()
-            if let session = TVPresence.session(forDevice: pairing.tvDeviceId, in: sessions),
-               TVPresence.isOnline(session) {
+            var byTV: [String: JellyfinAPI.SessionInfo] = [:]
+            for pairing in mine {
+                if let session = TVPresence.session(forDevice: pairing.tvDeviceId, in: sessions),
+                   TVPresence.isOnline(session) {
+                    byTV[pairing.tvDeviceId] = session
+                }
+            }
+            sessionsByTV = byTV
+            let online = Set(byTV.keys)
+            let playing = Set(byTV.filter { $0.value.nowPlayingItem != nil }.keys)
+            // A hand-picked TV that went off releases the pick, or the rule could never
+            // follow the other one.
+            if let manual = manualTV, !online.contains(manual) { manualTV = nil }
+
+            let previous = activePairing
+            let chosen = TVSelection.choose(pairings: mine, online: online, playing: playing,
+                                            manual: manualTV, lastUsed: lastUsed)
+            if let chosen {
+                if chosen.tvDeviceId != previous?.tvDeviceId {
+                    activePairing = chosen
+                    clock = nil
+                    // Followed over from a TV that went off (not the first sighting).
+                    if let previous, isOnlineState(presence), previous.tvDeviceId != chosen.tvDeviceId {
+                        show("Now on \(chosen.tvDisplayName(among: mine))")
+                    }
+                }
+                let session = byTV[chosen.tvDeviceId]!
                 presence = .online(session)
                 let fresh = clock?.updated(with: session, at: now) ?? RemoteClock(session: session, at: now)
                 // Inside the optimistic window a report that still says the *old* paused
@@ -219,6 +281,16 @@ final class TVLink: ObservableObject {
             // is worth changing the bar for.
             if presence == .checking { presence = .offline }
         }
+    }
+
+    private func isOnlineState(_ presence: Presence) -> Bool {
+        if case .online = presence { return true }
+        return false
+    }
+
+    private func touchLastUsed() {
+        guard let active = activePairing else { return }
+        lastUsed[active.tvDeviceId] = Date()
     }
 
     // MARK: - Pairing
@@ -284,26 +356,69 @@ final class TVLink: ObservableObject {
     }
 
     /// Which TV the bar is about, when there is more than one.
+    /// A pick by hand, which the rule keeps for as long as that TV is up.
     func select(_ pairing: YsojAPI.RemotePairing) {
+        manualTV = pairing.tvDeviceId
         activePairing = pairing
-        UserDefaults.standard.set(pairing.tvDeviceId, forKey: Self.activeTVKey)
-        presence = .checking
         clock = nil
+        if let session = sessionsByTV[pairing.tvDeviceId] {
+            presence = .online(session)
+        } else {
+            presence = .checking
+        }
         restartPresenceLoop()
+    }
+
+    /// Flash a banner on that TV's screen — the answer to "which of the two is this?".
+    func identify(_ pairing: YsojAPI.RemotePairing) {
+        guard let client = appState?.jellyfinClient else { return }
+        guard let session = sessionsByTV[pairing.tvDeviceId] else {
+            show("\(pairing.tvDisplayName(among: pairings)) isn't on right now")
+            return
+        }
+        let name = pairing.tvDisplayName(among: pairings)
+        Task {
+            do {
+                try await client.sendMessage(toSession: session.id, header: "Why.So.Jelly?",
+                                             text: "👋 This is the TV your \(DeviceIdentity.name) is pointing at")
+                show("Look at \(name)")
+            } catch {
+                show("Couldn't reach \(name)")
+            }
+        }
+    }
+
+    /// Name a TV — "Living Room", "Bedroom". Saved on the server so every phone agrees.
+    func rename(_ pairing: YsojAPI.RemotePairing, to name: String) async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let ysoj = appState?.ysojClient else { return }
+        do {
+            let renamed = try await ysoj.renameRemotePairing(id: pairing.id, name: trimmed)
+            pairings = pairings.map { row in
+                guard row.tvDeviceId == renamed.tvDeviceId else { return row }
+                return YsojAPI.RemotePairing(id: row.id, tvDeviceId: row.tvDeviceId, tvName: renamed.tvName,
+                                             remoteDeviceId: row.remoteDeviceId, remoteName: row.remoteName,
+                                             createdAt: row.createdAt, lastSeenAt: row.lastSeenAt)
+            }
+            persistPairings()
+            if activePairing?.tvDeviceId == renamed.tvDeviceId {
+                activePairing = pairings.first { $0.id == activePairing?.id }
+            }
+        } catch {
+            show(ServerMessage.text(for: error, fallback: "Couldn't rename \(pairing.tvName)."))
+        }
     }
 
     func forget(_ pairing: YsojAPI.RemotePairing) async {
         pairings.removeAll { $0.id == pairing.id }
         persistPairings()
+        sessionsByTV[pairing.tvDeviceId] = nil
+        if manualTV == pairing.tvDeviceId { manualTV = nil }
         if activePairing?.id == pairing.id {
-            if let next = pairings.first(where: { $0.remoteDeviceId == deviceId }) {
-                select(next)
-            } else {
-                activePairing = nil
-                presence = .none
-                clock = nil
-                restartPresenceLoop()
-            }
+            activePairing = pairings.first { $0.remoteDeviceId == deviceId }
+            presence = activePairing == nil ? .none : .checking
+            clock = nil
+            restartPresenceLoop()
         }
         if let ysoj = appState?.ysojClient {
             do {
@@ -324,20 +439,14 @@ final class TVLink: ObservableObject {
         let mine = remote.filter { $0.remoteDeviceId == deviceId }
         pairings = mine
         persistPairings()
-        if let active = activePairing {
-            if let refreshed = mine.first(where: { $0.id == active.id }) {
-                activePairing = refreshed
-            } else if let next = mine.first {
-                select(next)
-            } else {
-                activePairing = nil
-                presence = .none
-                clock = nil
-                restartPresenceLoop()
-            }
-        } else if let first = mine.first {
-            select(first)
+        if let active = activePairing, let refreshed = mine.first(where: { $0.id == active.id }) {
+            activePairing = refreshed
+        } else {
+            activePairing = mine.first { $0.tvDeviceId == manualTV } ?? mine.first
+            presence = activePairing == nil ? .none : .checking
+            clock = nil
         }
+        restartPresenceLoop()
     }
 
     private func upsert(_ pairing: YsojAPI.RemotePairing) {
@@ -359,6 +468,7 @@ final class TVLink: ObservableObject {
         let name = tvName
         let title = request.items.indices.contains(request.startIndex)
             ? request.items[request.startIndex].title : ""
+        touchLastUsed()
         Task {
             do {
                 try await client.sendPlay(toSession: session.id, itemIds: command.itemIds,
@@ -427,6 +537,7 @@ final class TVLink: ObservableObject {
     private func send(_ command: PlayStateCommand, seekTicks: Int64? = nil) {
         guard let session, let client = appState?.jellyfinClient else { return }
         let name = tvName
+        touchLastUsed()
         Task {
             do {
                 try await client.sendPlaystate(toSession: session.id, command, seekPositionTicks: seekTicks)
@@ -472,6 +583,7 @@ final class TVLink: ObservableObject {
             """.utf8))
             if let session {
                 presence = .online(session)
+                sessionsByTV = ["tv-demo": session]
                 clock = RemoteClock(session: session, at: Date())
                 wasOnline = true
             }

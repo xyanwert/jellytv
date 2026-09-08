@@ -28,10 +28,18 @@ struct TVBar: View {
                 HStack(spacing: 14) {
                     glyph
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                            .font(Typography.font(isPhone ? 15 : 16, .bold))
-                            .foregroundStyle(Palette.textPrimary)
-                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(title)
+                                .font(Typography.font(isPhone ? 15 : 16, .bold))
+                                .foregroundStyle(Palette.textPrimary)
+                                .lineLimit(1)
+                            if link.canSwitch {
+                                // Two TVs up: this one is a choice, and the sheet has the other.
+                                Image(systemName: "arrow.left.arrow.right")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(theme.accent)
+                            }
+                        }
                         Text(subtitle)
                             .font(Typography.font(isPhone ? 12 : 13, .medium))
                             .foregroundStyle(Palette.text(0.55))

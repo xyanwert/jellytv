@@ -79,6 +79,12 @@ struct RootView: View {
         .environmentObject(appState)
         .environmentObject(remote)
         .environmentObject(pairingHost)
+        // An overlay attached *outside* the `.environmentObject` modifiers does not see
+        // them — SwiftUI crashes on the first missing object at launch (verified). Inject
+        // what the toast reads by hand.
+        .overlay(alignment: .top) {
+            RemoteNoticeToast().environmentObject(remote).environmentObject(theme)
+        }
         .preferredColorScheme(.dark)
         .onChange(of: appState.activePlaybackRequest) { _, request in
             if let request {
@@ -106,6 +112,11 @@ struct RootView: View {
             // explicitly (`PlayerChrome` reads `theme` directly).
             .environmentObject(theme)
             .environmentObject(appState)
+            // The cover is its own window layer, so the toast has to be drawn here too
+            // for a "which TV is this?" to reach someone mid-film.
+            .overlay(alignment: .top) {
+                RemoteNoticeToast().environmentObject(remote).environmentObject(theme)
+            }
             // **tvOS dismisses this cover on Menu before any SwiftUI code
             // runs — `.interactiveDismissDisabled()` does not stop it.**
             // Verified three ways, all producing an unconditional exit back

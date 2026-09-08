@@ -334,6 +334,35 @@ tested), `JellyfinItem.episodeLine` ("S2 · E4 — Title", kit, tested — it ha
 spellings), and `Palette.sheet` / `.chromeInk` / `.pageBase` / `.scenesViolet` for the
 surfaces that were hex literals in seven places.
 
+**Two Apple TVs: the remote follows the TV that's on.** Nothing physical tells two rooms
+apart on a LAN, so the phone watches every paired TV in the one `/Sessions` call it already
+makes (`sessionsByTV`) and a tested rule picks the target (`TVSelection.choose`, kit): the TV
+picked by hand while it is up (sticky — a second TV coming on never yanks the remote away),
+else the online TV that is playing, else the one used most recently from this phone
+(`jelly:remote.lastUsed`), else the first online. The hand pick (`jelly:remote.activeTV`) is
+released the moment that TV goes off, so the rule can follow the other one — with a "Now
+on…" notice. The sheet opens on one row per TV (lit while up, ticked when chosen) with a
+wave on each: **Identify** posts Jellyfin's `/Sessions/{id}/Message`, which the TV already
+receives as `DisplayMessage` and now shows as a screen-level toast (`RemoteNoticeToast`, in
+`RootView` and again inside the player cover, which is its own window layer; the toast that
+sat beside Home's remote icon is gone). Two boxes out of the carton are both "Apple TV 4K
+(3rd generation)", so a TV can be **named from the phone** (Settings → Remote, the pencil;
+`PATCH /ysoj/remote/pairings/{id}`, the name lands on every pairing of that TV so a second
+phone sees it) and until then twins carry their id tail (`tvDisplayName(among:)`). Rows, not
+chips: two default names did not fit side by side and the second scrolled out of reach. The
+TV's own top-bar remote button exists only against a server that can pair
+(`appState.offersRemote`); on a plain Jellyfin the receiver switch stays in Settings → Remote.
+
+**Provisioning a second TV simulator: the token must be minted with the app's *own* device
+id.** Jellyfin keys a websocket by the *token record's* device id and an HTTP request by the
+`DeviceId` header, so a token minted out of band with a different id than the app's
+`jelly:device.id` splits one TV into two sessions — capabilities on one, the socket on the
+other — and the phone reads it as never online. Launch the app once so it mints its id into
+the container plist, read that plist (not `simctl spawn defaults`, which is a different
+store the app only sometimes sees), Quick Connect with that id, and write the token back
+into the same plist. A sign-in through the app itself can't split, which is why real
+devices never showed this.
+
 **Screenshot hooks:** `JT_SHOW_REMOTE_PANEL=1` (tvOS) opens the panel at launch;
 `RT_SHOW_REMOTE=bar|sheet|prompt` (iOS) seeds `TVLink` from fixtures and stops its polls.
 The phone tab bar's clearance (`phoneTabBarClearance()`) now reads `\.phoneBottomBarInset`

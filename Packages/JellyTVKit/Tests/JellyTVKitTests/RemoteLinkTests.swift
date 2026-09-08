@@ -202,6 +202,46 @@ final class RemoteLinkTests: XCTestCase {
         XCTAssertFalse(header.contains("Ana\"s"), "a quote inside a quoted value breaks the parse")
     }
 
+    // MARK: - Which TV
+
+    private func pairing(_ tv: String, name: String = "Apple TV") -> YsojAPI.RemotePairing {
+        YsojAPI.RemotePairing(id: "pair_\(tv)", tvDeviceId: tv, tvName: name,
+                              remoteDeviceId: "phone", remoteName: "iPhone")
+    }
+
+    func testTheOnlyTVThatIsOnWins() {
+        let both = [pairing("a", name: "Living Room"), pairing("b", name: "Bedroom")]
+        XCTAssertEqual(TVSelection.choose(pairings: both, online: ["b"], playing: [], manual: nil, lastUsed: [:])?.tvDeviceId, "b")
+        XCTAssertNil(TVSelection.choose(pairings: both, online: [], playing: [], manual: "a", lastUsed: [:]),
+                     "nothing on is no TV, whatever was picked")
+    }
+
+    func testAHandPickStaysWhileItIsOnAndYieldsWhenItIsNot() {
+        let both = [pairing("a"), pairing("b")]
+        XCTAssertEqual(TVSelection.choose(pairings: both, online: ["a", "b"], playing: ["b"], manual: "a", lastUsed: [:])?.tvDeviceId, "a",
+                       "the other one starting to play does not yank the remote away")
+        XCTAssertEqual(TVSelection.choose(pairings: both, online: ["b"], playing: [], manual: "a", lastUsed: [:])?.tvDeviceId, "b",
+                       "the picked TV went off: follow the one that is on")
+    }
+
+    func testThePlayingTVWinsOverAnIdleOneThenTheMostRecentlyUsed() {
+        let both = [pairing("a"), pairing("b")]
+        XCTAssertEqual(TVSelection.choose(pairings: both, online: ["a", "b"], playing: ["b"], manual: nil, lastUsed: [:])?.tvDeviceId, "b")
+        let used: [String: Date] = ["a": Date(timeIntervalSince1970: 10), "b": Date(timeIntervalSince1970: 20)]
+        XCTAssertEqual(TVSelection.choose(pairings: both, online: ["a", "b"], playing: [], manual: nil, lastUsed: used)?.tvDeviceId, "b")
+        XCTAssertEqual(TVSelection.choose(pairings: both, online: ["a", "b"], playing: [], manual: nil, lastUsed: [:])?.tvDeviceId, "a",
+                       "nothing to go on: the first paired")
+    }
+
+    func testTwoTVsWithOneNameAreToldApartByTheirIdTail() {
+        let a = pairing("58FF918F-7BC1", name: "Apple TV 4K")
+        let b = pairing("A1B2C3D4-9Z9Z", name: "Apple TV 4K")
+        let c = pairing("c", name: "Bedroom")
+        XCTAssertEqual(a.tvDisplayName(among: [a, b, c]), "Apple TV 4K · 7BC1")
+        XCTAssertEqual(c.tvDisplayName(among: [a, b, c]), "Bedroom")
+        XCTAssertEqual(a.tvDisplayName(among: [a]), "Apple TV 4K", "alone, a name needs no tail")
+    }
+
     // MARK: - Pairing shapes
 
     func testABeaconInAStateWeDoNotKnowReadsAsExpired() throws {

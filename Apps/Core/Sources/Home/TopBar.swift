@@ -16,6 +16,7 @@ struct TopBar: View {
     let heroIndex: Int
     let slideStartTime: Date
     let rotationSeconds: Double
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         ZStack {
@@ -29,7 +30,12 @@ struct TopBar: View {
 
                 HStack(alignment: .center, spacing: 26) {
                     #if os(tvOS)
-                    RemoteControlButton()
+                    // Pairing needs a YSOJ server; against a plain Jellyfin this button
+                    // had nothing to offer but the old switch, which lives in
+                    // Settings → Remote.
+                    if appState.offersRemote {
+                        RemoteControlButton()
+                    }
                     #endif
                     // A clock reads as intentional set dressing on tvOS (no
                     // visible system clock there) and has room to spare in
@@ -84,6 +90,7 @@ struct TopBar: View {
 /// half the world.
 struct TopBarClock: View {
     @EnvironmentObject private var theme: Theme
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -159,14 +166,10 @@ struct RemoteControlButton: View {
     private var isOn: Bool { remote.status == .on }
 
     var body: some View {
+        // The notice that used to sit beside this icon is `RemoteNoticeToast` now — a
+        // screen-level banner, because a phone's "which TV is this?" has to be readable
+        // from the sofa on any screen, the player included.
         HStack(spacing: 16) {
-            if let notice = remote.notice {
-                Text(notice)
-                    .font(Typography.font(17, .semibold))
-                    .foregroundStyle(Palette.text(0.7))
-                    .lineLimit(1)
-                    .transition(.opacity)
-            }
             // Opens the remote panel — the switch, *Pair a remote*, and who is paired —
             // rather than flipping the switch blind: the one press used to be the whole
             // feature, and now there is a second thing to do from here.
@@ -191,7 +194,6 @@ struct RemoteControlButton: View {
             .accessibilityLabel(isOn ? "Remote control on" : "Remote control off")
             .accessibilityHint("Opens remote control settings and pairing")
         }
-        .animation(.easeOut(duration: 0.25), value: remote.notice)
         .animation(.easeOut(duration: 0.25), value: remote.status)
     }
 

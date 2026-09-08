@@ -267,6 +267,16 @@ public struct YsojClient: Sendable {
         return response.pairings
     }
 
+    /// Name a TV from the phone. The server puts the name on every pairing of that TV,
+    /// so a second phone sees "Bedroom" too.
+    public func renameRemotePairing(id: String, name: String) async throws -> YsojAPI.RemotePairing {
+        guard let url = buildURL(path: "/ysoj/remote/pairings/\(id)", query: nil) else {
+            throw JellyfinRequestError.invalidURL
+        }
+        let body = try JSONEncoder().encode(["tvName": name])
+        return try await request(url: url, method: .patch, bodyData: body)
+    }
+
     public func deleteRemotePairing(id: String) async throws {
         guard let url = buildURL(path: "/ysoj/remote/pairings/\(id)", query: nil) else {
             throw JellyfinRequestError.invalidURL
@@ -358,8 +368,7 @@ public struct YsojClient: Sendable {
             return false
         }
         switch method {
-        case .get, .put: return true
-        case .delete: return true
+        case .get, .put, .patch, .delete: return true
         case .post: return !url.path.hasSuffix("/downloads/confirm")
         }
     }
