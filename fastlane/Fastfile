@@ -8,6 +8,14 @@ default_platform(:ios)
 
 APP_IDENTIFIER = "net.graficx.jellytv".freeze
 PROJECT        = "JellyTV.xcodeproj".freeze
+# The release lanes keep everything they write under build/ (gitignored). On this
+# Mac, Xcode's DerivedData preference and ~/Library/Developer/Xcode/Archives both
+# point at an external SSD, and with it unplugged xcodebuild cannot create either
+# path and dies before compiling ("You don't have permission to save the file
+# 'repositories'…"). A release build must not depend on removable media.
+BUILD_DIR      = File.expand_path("../build", __dir__).freeze
+DERIVED_DATA   = File.join(BUILD_DIR, "DerivedData").freeze
+ARCHIVES_DIR   = File.join(BUILD_DIR, "Archives").freeze
 
 # Build the App Store Connect API-key object from environment variables.
 # set_spaceship_token: true also configures spaceship-based tools (e.g. produce),
@@ -115,6 +123,8 @@ platform :ios do
       project: PROJECT,
       scheme: scheme,
       destination: destination,
+      derived_data_path: DERIVED_DATA, # see BUILD_DIR
+      build_path: ARCHIVES_DIR,        # where the .xcarchive lands
       export_method: "app-store",
       output_directory: "build",
       output_name: output_name,
