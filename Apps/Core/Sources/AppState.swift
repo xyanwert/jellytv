@@ -182,7 +182,9 @@ final class AppState: ObservableObject {
 
     func configure(baseURL: URL, apiKey: String, deviceId: String, userId: String,
                    kind: JellyfinAPI.ServerKind = .jellyfin) {
-        let client = JellyfinClient(baseURL: baseURL, apiKey: apiKey, deviceId: deviceId)
+        let deviceName = DeviceIdentity.name
+        let client = JellyfinClient(baseURL: baseURL, apiKey: apiKey, deviceId: deviceId,
+                                    deviceName: deviceName)
         self.client = client
         self.userId = userId
         self.imageBaseURL = baseURL
@@ -190,7 +192,13 @@ final class AppState: ObservableObject {
         self.serverKind = kind
         self.isOwner = false
         self.cardTrickplay = TrickplayClient(client: client, userId: userId)
+        self.ysojCapabilities = nil
+        self.ysojClient = kind == .ysoj
+            ? YsojClient(baseURL: baseURL, apiKey: apiKey, deviceId: deviceId,
+                         deviceName: deviceName)
+            : nil
         Task { await loadEditPermission() }
+        Task { await loadYsojCapabilities() }
     }
 
     /// Trickplay sheets for the home-video cards' frame slideshow — one
@@ -198,6 +206,82 @@ final class AppState: ObservableObject {
     /// fetched once however many cards page through it. The player keeps
     /// its own (`PlayerEngine.trickplayClient`) for the scenes panel.
     private(set) var cardTrickplay: TrickplayClient?
+
+    // MARK: - Extended server (YSOJ)
+
+    /// The `/ysoj/*` client — Discover and the download centre. Non-nil only
+    /// when the server announced itself with the `YsojServer` marker, the
+    /// same signal `isOwner` gates on.
+    private(set) var ysojClient: YsojClient?
+
+    /// What the connected server can actually do, or nil when it has no
+    /// extended surface at all.
+    ///
+    /// **Nothing here is ever gated on `ysojVersion`.** Two servers on the
+    /// same version differ by whether a TMDB key was entered and whether a
+    /// download engine exists, so the flags are the only honest answer — the
+    /// same reason `PublicSystemInfo.version` can't be used for this.
+    @Published private(set) var ysojCapabilities: YsojAPI.Capabilities?
+
+    /// How many downloads are running, mirrored here from `DiscoverStore` so the nav
+    /// rail can badge its icon without owning the whole download centre's state. Zero
+    /// draws nothing at all — a permanent "0" on a screen people leave on for hours is
+    /// noise, not information.
+    @Published var activeDownloadCount: Int = 0
+
+    /// The one question the nav rail asks. False on every plain Jellyfin, and
+    /// false on a YSOJ server whose sources are all unreachable — a Discover
+    /// entry that opens onto nothing is worse than no entry.
+    var offersDiscover: Bool { ysojCapabilities?.offersDiscover ?? false }
+    /// True unless the server said otherwise: the "no films" note is for a YSOJ server
+    /// missing its TMDB key, not for a plain Jellyfin that never claimed to have any.
+    var hasMovieSource: Bool { ysojCapabilities?.hasMovieSource ?? true }
+
+    /// Whether this session may *start* a download, as opposed to watching
+    /// the centre. Members can browse Discover but not spend the house's
+    /// disk; the server enforces it, this only decides what to draw.
+    var canStartDownloads: Bool {
+        guard let features = ysojCapabilities?.features else { return false }
+        return (features.downloads?.enabled ?? false) && (ysojCapabilities?.owner ?? false)
+    }
+
+    /// Seeds the capability flags for `RT_SHOW_DISCOVER=demo` / `JT_SHOW_DISCOVER=demo`.
+    ///
+    /// The rail's Discover and Downloads icons gate on `offersDiscover`, which is
+    /// answered by a real server — so without this the fixture can render the *screens*
+    /// but not the nav entry that leads to them, which is half of what there is to look
+    /// at. Same env-gated, inert-unless-set convention as the rest of the hooks.
+    func seedDemoCapabilities() {
+        let json = """
+        {"ysojVersion":"0.2.0","serverName":"xyan-media (YSOJ)","owner":true,
+         "features":{"discover":{"enabled":true,"search":true,
+           "sources":[{"id":"tmdb","name":"TMDB"},{"id":"tvmaze","name":"TVmaze"}],
+           "hasMovieSource":true},
+          "downloads":{"enabled":true,"engine":"stub","simulated":true,
+           "granularity":["movie","episode","season","series"],"pollSeconds":2},
+          "libraryOverrides":{"enabled":true},"remote":{"enabled":false}}}
+        """
+        ysojCapabilities = try? JSONDecoder().decode(
+            YsojAPI.Capabilities.self, from: Data(json.utf8)
+        )
+        activeDownloadCount = 2
+    }
+
+    private func loadYsojCapabilities() async {
+        // Checked here rather than at the call site because `configure()` clears the
+        // capabilities and re-runs this on every (re)connect — seeding anywhere else
+        // gets wiped the moment stored credentials resolve.
+        let env = ProcessInfo.processInfo.environment
+        if env["RT_SHOW_DISCOVER"] == "demo" || env["RT_SHOW_DOWNLOADS"] == "demo"
+            || env["JT_SHOW_DISCOVER"] == "demo" || env["JT_SHOW_DOWNLOADS"] == "demo" {
+            seedDemoCapabilities()
+            return
+        }
+        guard let ysojClient else { return }
+        // A 404 is the ordinary "this server has no extended features"
+        // answer and comes back as nil, not as a throw.
+        ysojCapabilities = try? await ysojClient.fetchCapabilities()
+    }
 
     // MARK: - Tags
 
@@ -1165,10 +1249,25 @@ final class AppState: ObservableObject {
     /// without `AppState` handing out its mutable `client`/`userId` storage.
     var jellyfinClient: JellyfinClient? { client }
     var currentUserId: String { userId }
+    /// Where this server's images live — for a view that has an item id and a tag in
+    /// hand (the remote sheet's poster) rather than a `MediaItem` with the URL built in.
+    var serverImageBaseURL: URL? { imageBaseURL }
 
+    /// The one place a play becomes a player. Every tap in the app — hero Resume, a
+    /// poster, an episode row, Random, Continue Watching — lands here, which is what
+    /// lets a phone send the whole app's plays to a TV with one hook.
     func requestPlayback(_ request: PlaybackRequest) {
+        if playbackRouter?(request) == true { return }
         activePlaybackRequest = request
     }
+
+    /// Installed by the phone's `TVLink`: given a request, either forwards it to the
+    /// paired TV and returns true, or returns false to play here. Nil everywhere else.
+    var playbackRouter: ((PlaybackRequest) -> Bool)?
+
+    /// Whether the server pairs phones to TVs at all. False on every plain Jellyfin.
+    var offersRemote: Bool { ysojCapabilities?.features.remote?.enabled ?? false }
+    var remotePollSeconds: Int { max(2, ysojCapabilities?.features.remote?.pollSeconds ?? 3) }
 
     /// The controller of whatever is playing right now — registered by
     /// `PlayerView` for as long as it is up — so a remote-control transport

@@ -23,6 +23,8 @@ struct PlayerView: View {
     /// user id passed in explicitly above, not read from here.
     @EnvironmentObject private var appState: AppState
 
+    /// Which request the engine currently holds — see the `.task(id:)` below.
+    @State private var loadedRequestId: String?
     @State private var engine: PlayerEngine?
     @State private var controller: PlayerController?
     @State private var chromeVisible = true
@@ -93,7 +95,12 @@ struct PlayerView: View {
             )
         )
         #endif
-        .task {
+        // Keyed on the request so a request that changes *underneath* a live
+        // player loads the new queue into it rather than being ignored. A plain
+        // `.task` re-runs on every re-appear too, which is why the engine is
+        // still built exactly once and a re-appear with the same request does
+        // nothing (`loadedRequestId`).
+        .task(id: request.id) {
             if engine == nil {
                 let e = PlayerEngine(client: client, userId: userId)
                 let c = PlayerController(engine: e)
@@ -103,7 +110,14 @@ struct PlayerView: View {
                 // app (`RemoteControl`) reaches the player that is actually
                 // up. Cleared below; weak on the other side regardless.
                 appState.activePlayerController = c
+                loadedRequestId = request.id
                 await e.play(request)
+            } else if loadedRequestId != request.id, let controller {
+                loadedRequestId = request.id
+                // The swap can run the old identity's `.onDisappear`, which unregisters
+                // the controller — a remote's next Pause would then find nobody to pause.
+                appState.activePlayerController = controller
+                await controller.load(request)
             }
         }
         .onDisappear {

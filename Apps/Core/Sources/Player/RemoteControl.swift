@@ -47,7 +47,6 @@ final class RemoteControl: ObservableObject {
     private var noticeTask: Task<Void, Never>?
 
     private static let enabledKey = "jelly:remote.enabled"
-    static let deviceLabel = "JellyTV"
 
     init() {
         isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
@@ -77,7 +76,7 @@ final class RemoteControl: ObservableObject {
         UserDefaults.standard.set(enabled, forKey: Self.enabledKey)
         if enabled {
             start()
-            show("Remote control on — this TV appears as “\(Self.deviceLabel)” in Jellyfin apps")
+            show("Remote control on — this TV appears as “\(DeviceIdentity.name)” in Jellyfin apps")
         } else {
             stopSocket()
             show("Remote control off")
@@ -143,7 +142,13 @@ final class RemoteControl: ObservableObject {
         case .play(let ids, let startIndex, let ticks, _):
             guard let request = await appState.playbackRequest(forItemIds: ids, startIndex: startIndex,
                                                                startPositionTicks: ticks) else { return }
-            appState.requestPlayback(request)
+            if let controller = appState.activePlayerController {
+                // A player is already up: give it the new queue. Presenting a second cover
+                // over the first left a dead player on screen — see `PlayerController.load`.
+                await controller.load(request)
+            } else {
+                appState.requestPlayback(request)
+            }
 
         case .playState(let state, let seekTicks):
             guard let controller = appState.activePlayerController else { return }

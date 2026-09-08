@@ -31,7 +31,7 @@ struct PlayerFootActions: View {
     let onOpenScenes: () -> Void
     @FocusState.Binding var focus: PlayerFocusField?
 
-    private let violet = Color(OKLCH(l: 0.58, c: 0.19, h: 292))
+    private let violet = Palette.scenesViolet
 
     private var isPhone: Bool {
         #if os(iOS)

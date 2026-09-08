@@ -175,11 +175,29 @@ final class PlayerEngine {
     func play() {
         avPlayer.play()
         isPlaying = true
+        reportNow()
     }
 
     func pause() {
         avPlayer.pause()
         isPlaying = false
+        reportNow()
+    }
+
+    /// Tells the server *now* rather than at the next ten-second tick. A paired phone
+    /// reads this session's `PlayState` to draw its remote; left to the throttle, a
+    /// pause pressed there would show the clock still running for up to ten seconds
+    /// and get pressed again.
+    private func reportNow() {
+        // Only once the item is actually up. The resume seek runs *before* the first
+        // `play()`, and reporting it said "paused" a few milliseconds ahead of the
+        // "playing" that followed — two posts racing, and a paired phone's glyph read
+        // whichever landed last (verified: paused, for the ten seconds until the next
+        // periodic report).
+        guard let progressReporter, case .ready = phase else { return }
+        let ticks = ticksFrom(seconds: currentTime)
+        let paused = !isPlaying
+        Task { await progressReporter.reportNow(positionTicks: ticks, isPaused: paused) }
     }
 
     func togglePlay() {
@@ -201,6 +219,7 @@ final class PlayerEngine {
         // Reflect the new position immediately — otherwise the chrome shows
         // the pre-seek time until the next periodic observer tick.
         currentTime = target
+        reportNow()
     }
 
     func seekRelative(_ delta: Double) async {
@@ -250,7 +269,12 @@ final class PlayerEngine {
     /// Final teardown. Posts `/Sessions/Playing/Stopped`, removes observers.
     func teardown() async {
         let positionTicks = ticksFrom(seconds: currentTime)
+        let token = generation.latest
         await progressReporter?.reportStop(positionTicks: positionTicks)
+        // A new item loaded while that stop was in flight (`PlayerView` swapping its
+        // request into a live engine) owns the player now; destroying it here would be
+        // the dead-player bug by another route.
+        guard !generation.isCancelled(token) else { return }
         progressReporter = nil
         avPlayer.pause()
         avPlayer.replaceCurrentItem(with: nil)
@@ -369,6 +393,9 @@ final class PlayerEngine {
             Task { @MainActor in
                 guard let self, let reporter else { return }
                 self.currentTime = self.avPlayer.currentTime().seconds
+                // Not while loading: the observer's first tick lands before the first
+                // `play()`, and "paused" is not what a still-buffering item is.
+                guard case .ready = self.phase else { return }
                 let positionTicks = self.ticksFrom(seconds: self.currentTime)
                 await reporter.reportProgressIfDue(positionTicks: positionTicks, isPaused: !self.isPlaying)
             }

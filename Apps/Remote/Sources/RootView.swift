@@ -17,6 +17,13 @@ struct RootView: View {
     @StateObject private var theme = Theme()
     @StateObject private var server = ServerConnection()
     @StateObject private var appState = AppState()
+    /// A plain box rather than `@StateObject`: the store cannot be built until a server
+    /// is connected, and `@StateObject` has to be initialised at view-init time.
+    @StateObject private var discoverStoreBox = DiscoverStoreBox()
+    /// The paired Apple TV — the phone's side of remote control. Attached on connect;
+    /// installed as `AppState.playbackRouter` so every play in the app can go there.
+    @StateObject private var tvLink = TVLink()
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var selection: NavDestination? = {
         let env = ProcessInfo.processInfo.environment
@@ -25,6 +32,11 @@ struct RootView: View {
         if env["RT_SHOW_ANIME"] == "1" { return .animeLibrary }
         if env["RT_SHOW_LATE_NIGHT"] == "1" { return .lateNight }
         if env["RT_SHOW_SEARCH"] == "1" { return .search }
+        // Discover and its download centre. Both only render against a YSOJ-server, so
+        // these land on an explanatory empty state rather than a screen when pointed at
+        // a plain Jellyfin — which is itself the thing worth screenshotting.
+        if env["RT_SHOW_DISCOVER"] != nil { return .discover }
+        if env["RT_SHOW_DOWNLOADS"] != nil { return .downloads }
         // `1` for Home Videos, `nsfw` for After Hours — the two libraries a
         // `homevideos` collection resolves to.
         if let videos = env["RT_SHOW_VIDEOS"] {
@@ -79,6 +91,15 @@ struct RootView: View {
                 SetupView(server: server)
             }
 
+            // The TV's pairing prompt and the remote sheet: same-ZStack overlays, above
+            // the screen and below the player cover.
+            if server.isConnected, let beacon = tvLink.pendingBeacon {
+                PairingPrompt(beacon: beacon).zIndex(30)
+            }
+            if server.isConnected, tvLink.isSheetPresented {
+                TVRemoteSheet(onClose: { tvLink.isSheetPresented = false }).zIndex(31)
+            }
+
             // **The player cover hangs off this, not off the branch above.**
             // `server.isConnected` flips whenever stored credentials are
             // tried, fail, or later succeed, and each flip changes the
@@ -110,13 +131,30 @@ struct RootView: View {
         .environmentObject(theme)
         .environmentObject(server)
         .environmentObject(appState)
+        .environmentObject(tvLink)
         .preferredColorScheme(.dark)
+        .animation(.easeOut(duration: 0.25), value: tvLink.isSheetPresented)
+        .animation(.easeOut(duration: 0.25), value: tvLink.pendingBeacon)
+        .onChange(of: scenePhase) { _, phase in
+            tvLink.setForeground(phase == .active)
+        }
         .onAppear {
             // Nudges an already-connected scene to re-evaluate orientation
             // immediately (belt-and-suspenders alongside the static
             // Info.plist restriction and the AppDelegate override).
             OrientationLock.shared.applyToCurrentScene()
             raiseScreenshotFixtureIfRequested()
+            // Every play in the app asks the TV link first; with no TV up it says no
+            // and the play stays here.
+            appState.playbackRouter = { [weak tvLink] request in
+                tvLink?.route(request) ?? false
+            }
+            // Covers the signed-out case; `AppState.loadYsojCapabilities` re-seeds on
+            // every connect, since `configure()` clears the capabilities each time.
+            let env = ProcessInfo.processInfo.environment
+            if env["RT_SHOW_DISCOVER"] == "demo" || env["RT_SHOW_DOWNLOADS"] == "demo" {
+                appState.seedDemoCapabilities()
+            }
         }
         .onChange(of: appState.activePlaybackRequest) { _, request in
             guard let request else { return }
@@ -164,8 +202,20 @@ struct RootView: View {
                     await autoplayHook()
                 }
                 appState.startRefreshTimer()
+                tvLink.attach(appState, deviceId: server.deviceId)
+                // `RT_SHOW_REMOTE=bar|sheet|prompt` seeds the TV link from fixtures so the
+                // chrome can be iterated on without a paired Apple TV in the room.
+                if let mode = ProcessInfo.processInfo.environment["RT_SHOW_REMOTE"] {
+                    tvLink.seedDemo(mode)
+                }
             } else {
                 appState.stopRefreshTimer()
+                tvLink.detach()
+                // The store was built around the *previous* server's client — its shelves,
+                // jobs and token. Nothing of it may outlive the connection.
+                discoverStoreBox.store?.stopPolling()
+                discoverStoreBox.store = nil
+                appState.activeDownloadCount = 0
             }
         }
     }
@@ -190,6 +240,10 @@ struct RootView: View {
             .id(selection)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .tint(theme.accent)
+            // The TV bar stacks above the tab bar; the screens' bottom clearance grows
+            // by its height through the environment rather than thirteen edits.
+            .environment(\.phoneBottomBarInset,
+                         DeviceClass.current == .phone && tvLink.showsBar ? TVBar.phoneHeight : 0)
             // A plain `.overlay`, not a `.safeAreaInset` — every screen's own
             // content already calls `.ignoresSafeArea()` for its full-bleed
             // backdrop, which would swallow a safe-area inset added here the
@@ -197,17 +251,46 @@ struct RootView: View {
             // scrollable content carries its own bottom clearance instead.
             .overlay(alignment: .bottom) {
                 if DeviceClass.current == .phone {
-                    PhoneTabBar(
-                        destination: selection ?? .home,
-                        onSelect: handleRailSelection,
-                        onMore: { isMorePresented = true }
-                    )
+                    VStack(spacing: 0) {
+                        if let notice = tvLink.notice {
+                            TVNotice(text: notice).padding(.bottom, 10)
+                        }
+                        if tvLink.showsBar {
+                            TVBar(onOpen: { tvLink.isSheetPresented = true })
+                        }
+                        PhoneTabBar(
+                            destination: selection ?? .home,
+                            onSelect: handleRailSelection,
+                            onMore: { isMorePresented = true }
+                        )
+                    }
+                    .animation(.easeOut(duration: 0.25), value: tvLink.showsBar)
+                    .animation(.easeOut(duration: 0.25), value: tvLink.notice)
+                }
+            }
+            // The iPad has no tab bar to stack on: the TV bar floats as a card instead.
+            .overlay(alignment: .bottomTrailing) {
+                if DeviceClass.current != .phone {
+                    VStack(alignment: .trailing, spacing: 10) {
+                        if let notice = tvLink.notice {
+                            TVNotice(text: notice)
+                        }
+                        if tvLink.showsBar {
+                            TVBar(onOpen: { tvLink.isSheetPresented = true })
+                                .frame(width: 400)
+                        }
+                    }
+                    .padding(24)
+                    .animation(.easeOut(duration: 0.25), value: tvLink.showsBar)
+                    .animation(.easeOut(duration: 0.25), value: tvLink.notice)
                 }
             }
             .sheet(isPresented: $isMorePresented) {
                 PhoneMoreSheet(
                     libraries: appState.libraryUIItems(),
-                    onSelectSettings: { selection = .settings }
+                    onSelectSettings: { selection = .settings },
+                    onSelectDiscover: { selection = .discover },
+                    onSelectDownloads: { selection = .downloads }
                 )
                 .environmentObject(theme)
                 .environmentObject(appState)
@@ -243,7 +326,31 @@ struct RootView: View {
             isLibrariesOpen.toggle()
         case .settings: selection = .settings; isLibrariesOpen = false
         case .search: selection = .search; isLibrariesOpen = false
+        case .discover: selection = .discover; isLibrariesOpen = false
+        case .downloads: selection = .downloads; isLibrariesOpen = false
         }
+    }
+
+    /// One store for both Discover and the download centre, built the first time a
+    /// YSOJ-server is connected. It has to outlive the Discover screen: a job started
+    /// there keeps running after the user navigates away, and the rail's badge reads
+    /// its count.
+    @MainActor
+    private func discoverStore() -> DiscoverStore? {
+        if let existing = discoverStoreBox.store { return existing }
+        // `=demo` seeds fixture rows so Discover can be iterated on without a live
+        // YSOJ-server — see `DiscoverStore.demo()`. Inert unless the var is set.
+        let env = ProcessInfo.processInfo.environment
+        if env["RT_SHOW_DISCOVER"] == "demo" || env["RT_SHOW_DOWNLOADS"] == "demo" {
+            let demo = DiscoverStore.demo()
+            discoverStoreBox.store = demo
+            return demo
+        }
+        guard let client = appState.ysojClient else { return nil }
+        let created = DiscoverStore(client: client)
+        created.onActiveJobCountChange = { [weak appState] in appState?.activeDownloadCount = $0 }
+        discoverStoreBox.store = created
+        return created
     }
 
     @ViewBuilder
@@ -267,6 +374,23 @@ struct RootView: View {
             SettingsView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
         case .search:
             SearchLibraryView(isLibrariesOpen: isLibrariesOpen, onSelectRail: handleRailSelection)
+        case .discover:
+            if let store = discoverStore() {
+                DiscoverView(isLibrariesOpen: isLibrariesOpen,
+                             onSelectRail: handleRailSelection, store: store)
+            } else {
+                // Unreachable in practice — the rail icon that routes here only exists
+                // when the server offers Discover — but a destination with no store must
+                // still render something rather than trapping.
+                LibraryEmptyState(message: "Discover isn't available on this server.")
+            }
+        case .downloads:
+            if let store = discoverStore() {
+                DownloadCenterView(store: store, isLibrariesOpen: isLibrariesOpen,
+                                   onSelectRail: handleRailSelection)
+            } else {
+                LibraryEmptyState(message: "Discover isn't available on this server.")
+            }
         }
     }
 }

@@ -223,6 +223,28 @@ final class PlayerController {
         return min(max(0, seconds), max(0, duration - 1))
     }
 
+    // MARK: - Actions — a new queue
+
+    /// Replace what is playing with a new queue — a paired phone's *second* play.
+    ///
+    /// Not by re-presenting the cover: changing the presented request's identity while the
+    /// player is up made SwiftUI run the old view's `.onDisappear` (teardown: black picture,
+    /// paused glyph, title gone, a `Stopped` report that told the phone nothing was playing)
+    /// on a view that then stayed on screen with its engine already built, so the `.task`
+    /// never rebuilt it — a dead player, verified from the second play of the evening. The
+    /// engine already knows how to swap items mid-queue (auto-advance does it), so a new
+    /// queue takes that road: stop reported for the outgoing item, start for the new one.
+    func load(_ request: PlaybackRequest) async {
+        seekCommitTask?.cancel()
+        seekCommitTask = nil
+        pendingSeekTarget = nil
+        // A NEXT mashed a moment before this arrived must not gate the new queue's first
+        // advance.
+        queueCoalesceUntil = .distantPast
+        queueChangeInFlight = false
+        await engine.play(request)
+    }
+
     // MARK: - Actions — queue traversal
 
     @discardableResult

@@ -23,6 +23,14 @@ public final class Generation: @unchecked Sendable {
         return v
     }
 
+    /// The current token without advancing it — for an operation that wants to notice a
+    /// newer one starting *while it awaits*, without itself superseding anything.
+    public var latest: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return current
+    }
+
     public func isCancelled(_ token: Int) -> Bool {
         lock.lock()
         let c = current

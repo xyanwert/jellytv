@@ -81,6 +81,16 @@ enum Palette {
     static let panel = Color(red: 20 / 255, green: 22 / 255, blue: 30 / 255).opacity(0.96)
     static let textPrimary = Color(hex: "#F4F5F7")
     static let connected = Color(hex: "#6FD68F")
+    /// The page's flat base tone — what a scrim fades *to* when `background` (a
+    /// gradient) can't be the target.
+    static let pageBase = Color(hex: "#070A10")
+    /// A sheet or panel floated over a screen: the remote, the pairing prompt, the
+    /// download plan, the TV's remote panel.
+    static let sheet = Color(hex: "#0C1018")
+    /// The ink behind translucent chrome — the phone tab bar and the TV bar's material.
+    static let chromeInk = Color(hex: "#06080E")
+    /// The SCENES violet, on the player's tile and the remote's button alike.
+    static let scenesViolet = Color(OKLCH(l: 0.58, c: 0.19, h: 292))
 
     /// Translucent-white text tier, e.g. `Palette.text(0.55)`.
     static func text(_ opacity: Double) -> Color { .white.opacity(opacity) }

@@ -13,7 +13,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "15"
+    CURRENT_PROJECT_VERSION: "17"
     DEVELOPMENT_TEAM: "44RDME8NMM"
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
@@ -58,6 +58,10 @@ targets:
         NSLocalNetworkUsageDescription: "Why.So.Jelly? scans your local network to find your Jellyfin server automatically."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # A Discover trailer on tvOS is a deep link into the YouTube app (there is no
+        # browser here); `canOpenURL` answers false for any scheme not declared.
+        LSApplicationQueriesSchemes:
+          - youtube
 
   # ---------------- iPadOS companion (standalone client) ----------------
   Remote:

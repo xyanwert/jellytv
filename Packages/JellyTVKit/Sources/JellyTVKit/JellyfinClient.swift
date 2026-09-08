@@ -24,16 +24,22 @@ public struct JellyfinClient: Sendable {
     private let deviceId: String
     private let clientName: String
     private let clientVersion: String
+    /// What the server lists this session as (`DeviceName`) — "Living Room", "iPhone".
+    /// Falls back to the client name. Not part of the session key (that is client +
+    /// device id), so changing it never orphans a session.
+    private let deviceName: String
     private let session: URLSession
 
     public init(baseURL: URL, apiKey: String, deviceId: String,
                 clientName: String = "JellyTV", clientVersion: String = "1.0.0",
+                deviceName: String? = nil,
                 session: URLSession = .shared) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.deviceId = deviceId
         self.clientName = clientName
         self.clientVersion = clientVersion
+        self.deviceName = deviceName ?? clientName
         self.session = session
     }
 
@@ -41,7 +47,7 @@ public struct JellyfinClient: Sendable {
         JellyfinAPI.authorizationHeader(
             token: apiKey,
             client: clientName,
-            device: clientName,
+            device: deviceName,
             deviceId: deviceId,
             version: clientVersion
         )
@@ -550,6 +556,57 @@ public struct JellyfinClient: Sendable {
         ]
         let data = try JSONSerialization.data(withJSONObject: body)
         try await requestVoid(url: url, method: .post, bodyData: data)
+    }
+
+    // MARK: - Sessions (the sending half of remote control)
+
+    /// `GET /Sessions`, optionally one device's. The `deviceId` filter is exact — an
+    /// unknown id answers `[]` (verified live) — so this is how a phone asks whether its
+    /// paired TV is up: ~20 ms on the LAN, no handshake.
+    public func fetchSessions(deviceId: String? = nil) async throws -> [JellyfinAPI.SessionInfo] {
+        var query: [URLQueryItem] = []
+        if let deviceId { query.append(URLQueryItem(name: "deviceId", value: deviceId)) }
+        guard let url = buildURL(path: "/Sessions", query: query.isEmpty ? nil : query) else {
+            throw URLError(.badURL)
+        }
+        return try await request(url: url)
+    }
+
+    /// `POST /Sessions/{id}/Playing` — tell another session what to play. The TV turns
+    /// the ids back into a queue itself (`RemoteControl` → `AppState.playbackRequest`).
+    /// Never retried, on purpose: a duplicated Play starts the film twice.
+    public func sendPlay(
+        toSession sessionId: String, itemIds: [String], startIndex: Int = 0,
+        startPositionTicks: Int64? = nil
+    ) async throws {
+        var query = [
+            URLQueryItem(name: "playCommand", value: "PlayNow"),
+            URLQueryItem(name: "itemIds", value: itemIds.joined(separator: ",")),
+            URLQueryItem(name: "startIndex", value: String(startIndex)),
+        ]
+        if let startPositionTicks {
+            query.append(URLQueryItem(name: "startPositionTicks", value: String(startPositionTicks)))
+        }
+        guard let url = buildURL(path: "/Sessions/\(sessionId)/Playing", query: query) else {
+            throw URLError(.badURL)
+        }
+        try await requestVoid(url: url, method: .post)
+    }
+
+    /// `POST /Sessions/{id}/Playing/{command}` — pause, seek, next, stop… on another
+    /// session. `Seek` carries `seekPositionTicks`; the rest carry nothing.
+    public func sendPlaystate(
+        toSession sessionId: String, _ command: PlayStateCommand, seekPositionTicks: Int64? = nil
+    ) async throws {
+        var query: [URLQueryItem] = []
+        if let seekPositionTicks {
+            query.append(URLQueryItem(name: "seekPositionTicks", value: String(seekPositionTicks)))
+        }
+        guard let url = buildURL(path: "/Sessions/\(sessionId)/Playing/\(command.rawValue)",
+                                 query: query.isEmpty ? nil : query) else {
+            throw URLError(.badURL)
+        }
+        try await requestVoid(url: url, method: .post)
     }
 
     // MARK: - Transport (retry/backoff + decode)

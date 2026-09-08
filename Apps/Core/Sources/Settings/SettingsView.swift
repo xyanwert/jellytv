@@ -113,6 +113,7 @@ struct SettingsView: View {
         case .metadata: MetadataDetail()
         case .server: ServerDetail()
         case .account: AccountDetail()
+        case .remote: RemoteDetail()
         }
     }
 }

@@ -203,12 +203,23 @@ public enum JellyfinAPI {
     /// Builds the `MediaBrowser` authorization header value sent on every request.
     /// `token` is empty for the initial `AuthenticateByName` call and set to the
     /// access token (or API key) afterwards.
+    /// A value that can sit inside the quotes of a `MediaBrowser` header. `Device=` is a
+    /// name the owner typed on their Apple TV — "Salón", `Ana"s TV` — and a quote breaks
+    /// Jellyfin's parse (wrong session, silently) while non-ASCII bytes are not safe in a
+    /// header at all. Latin letters lose their accents, anything else is dropped.
+    public static func headerSafe(_ value: String) -> String {
+        let latin = value.applyingTransform(.toLatin, reverse: false)?
+            .applyingTransform(.stripDiacritics, reverse: false) ?? value
+        let kept = latin.unicodeScalars.filter { $0.isASCII && $0 != "\"" && $0 != "\\" && $0.value >= 32 }
+        return String(String.UnicodeScalarView(kept)).trimmingCharacters(in: .whitespaces)
+    }
+
     public static func authorizationHeader(token: String,
                                            client: String,
                                            device: String,
                                            deviceId: String,
                                            version: String) -> String {
-        "MediaBrowser Token=\"\(token)\", Client=\"\(client)\", Device=\"\(device)\", DeviceId=\"\(deviceId)\", Version=\"\(version)\""
+        "MediaBrowser Token=\"\(headerSafe(token))\", Client=\"\(headerSafe(client))\", Device=\"\(headerSafe(device))\", DeviceId=\"\(headerSafe(deviceId))\", Version=\"\(headerSafe(version))\""
     }
 
     /// Absolute URL for an item's image. Jellyfin serves images unauthenticated,

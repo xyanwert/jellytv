@@ -26,4 +26,15 @@ enum NavDestination: Hashable {
     /// The Late Night library screen (design 4c) — the `.hentai` meta-category
     /// (tvshows + anime + NSFW), reached the same way as `animeLibrary`.
     case lateNight
+    /// Discover — recommendations from public sources, and downloading them
+    /// into the library. Reachable **only** when the connected server is a
+    /// YSOJ-server that says it offers it (`AppState.offersDiscover`); on a
+    /// plain Jellyfin the rail icon does not exist and nothing can route
+    /// here. It is a first-class destination rather than a Libraries submenu
+    /// row because it is not a library — nothing in it is yours yet.
+    case discover
+    /// The download centre. Its own destination rather than a sheet over
+    /// Discover: a download outlives the browsing that started it, and the
+    /// rail badge that counts active jobs has to lead somewhere.
+    case downloads
 }

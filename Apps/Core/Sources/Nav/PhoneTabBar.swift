@@ -66,7 +66,12 @@ struct PhoneTabBar: View {
         case .search: return .search
         case .movies: return .movies
         case .tv: return .tv
-        case .settings, .animeLibrary, .lateNight, .videosLibrary: return .more
+        // Discover and the download centre live under More on a phone rather than
+        // taking one of the five tab slots. Five is the iOS ceiling before the system
+        // starts making its own More tab, and a feature that only exists against a YSOJ
+        // server must not push Search or TV off the bar for everyone who has neither.
+        case .settings, .animeLibrary, .lateNight, .videosLibrary,
+             .discover, .downloads: return .more
         }
     }
 
@@ -151,8 +156,13 @@ private struct PhoneTabButtonStyle: ButtonStyle {
 struct PhoneMoreSheet: View {
     let libraries: [Library]
     let onSelectSettings: () -> Void
+    /// Discover and its download centre — only drawn when the server offers them, the
+    /// same gate the rail uses. Without these rows a phone had no way into either.
+    var onSelectDiscover: (() -> Void)? = nil
+    var onSelectDownloads: (() -> Void)? = nil
 
     @EnvironmentObject private var theme: Theme
+    @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -162,29 +172,27 @@ struct PhoneMoreSheet: View {
                     ForEach(libraries) { library in
                         LibraryRow(library: library)
                     }
-                    Button {
+                    if appState.offersDiscover {
+                        if let onSelectDiscover {
+                            moreRow("Discover", systemImage: "safari.fill") {
+                                dismiss()
+                                onSelectDiscover()
+                            }
+                            .padding(.top, 8)
+                        }
+                        if let onSelectDownloads {
+                            moreRow("Downloads", systemImage: "arrow.down.circle.fill",
+                                    badge: appState.activeDownloadCount) {
+                                dismiss()
+                                onSelectDownloads()
+                            }
+                        }
+                    }
+                    moreRow("Settings", systemImage: "gearshape.fill") {
                         dismiss()
                         onSelectSettings()
-                    } label: {
-                        HStack(spacing: 16) {
-                            Image(systemName: "gearshape.fill")
-                                .font(.system(size: 19, weight: .medium))
-                                .foregroundStyle(Palette.text(0.7))
-                                .frame(width: 44, height: 44)
-                                .background(Palette.text(0.06), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                            Text("Settings")
-                                .font(Typography.font(21, .bold))
-                                .foregroundStyle(Palette.textPrimary)
-                            Spacer(minLength: 8)
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 16)
-                        .background(Palette.text(0.03), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.07), lineWidth: 1))
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .padding(.top, 8)
+                    .padding(.top, appState.offersDiscover ? 0 : 8)
                 }
                 .padding(20)
             }
@@ -199,6 +207,37 @@ struct PhoneMoreSheet: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// One non-library row: a tile, a name, and a count when there is something to count.
+    private func moreRow(_ label: String, systemImage: String, badge: Int = 0,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(Palette.text(0.7))
+                    .frame(width: 44, height: 44)
+                    .background(Palette.text(0.06), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                Text(label)
+                    .font(Typography.font(21, .bold))
+                    .foregroundStyle(Palette.textPrimary)
+                Spacer(minLength: 8)
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(Mono.font(12, .bold))
+                        .foregroundStyle(Color.black)
+                        .frame(minWidth: 22, minHeight: 22)
+                        .background(Circle().fill(theme.accent))
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .background(Palette.text(0.03), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.07), lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 #endif

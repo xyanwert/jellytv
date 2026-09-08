@@ -33,7 +33,7 @@ extension View {
     /// above it the same way, so the clearance has to be real bottom padding
     /// on the scrollable content itself, not a layout-system inset.
     func phoneTabBarClearance() -> some View {
-        padding(.bottom, DeviceClass.current == .phone ? 74 : 0)
+        modifier(PhoneTabBarClearance())
     }
 
     /// Every browsing screen's `HStack(rail; content)` ignores the safe area
@@ -108,4 +108,26 @@ final class Theme: ObservableObject {
     /// text-field focus borders) that shouldn't compete with primary actions
     /// but should still track the chosen theme color.
     var secondaryAccent: Color { accent.complementary }
+}
+
+/// Extra height stacked above the phone tab bar right now — the TV bar, while a paired
+/// Apple TV is up. Screens never learn about it: `phoneTabBarClearance()` reads it, so
+/// the thirteen call sites keep working when the bar comes and goes.
+private struct PhoneBottomBarInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var phoneBottomBarInset: CGFloat {
+        get { self[PhoneBottomBarInsetKey.self] }
+        set { self[PhoneBottomBarInsetKey.self] = newValue }
+    }
+}
+
+private struct PhoneTabBarClearance: ViewModifier {
+    @Environment(\.phoneBottomBarInset) private var extra
+
+    func body(content: Content) -> some View {
+        content.padding(.bottom, DeviceClass.current == .phone ? 74 + extra : 0)
+    }
 }

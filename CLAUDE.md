@@ -212,6 +212,135 @@ edit metadata" and is expected to diverge. Since an API key can't identify a use
 selected (`SetupView.ysojSignInHint`) — a hint, not a requirement; an API key + typed username
 still resolves via the same preference order above.
 
+## LAN remote — the phone drives the TV
+
+**A pairing is a record, not a connection.** The phone (`Apps/Remote`, iPhone and iPad) is a
+remote for the Apple TV the way YouTube's is: you press play on the phone and the *TV* plays
+it, because the phone told it what to play. Nothing is streamed from the phone, and the two
+devices never talk to each other — the TV keeps the Jellyfin websocket it already holds
+(`RemoteControl`), the phone posts to Jellyfin's own `/Sessions/{id}/Playing…` through the
+server, and Jellyfin relays. That is the whole reason the link is "ready the moment the app
+opens" and never says *reconnecting*: there is no session between the two to lose. The Apple
+TV Remote's reconnect dance is a peer-link problem, and this has no peer link. The pairing
+itself (`YsojAPI.RemotePairing`: TV device id, phone device id, names) lives on the YSOJ server
+and is mirrored in each device's `UserDefaults` (`jelly:remote.pairings`) so the bar draws
+before any network answers.
+
+**"Is the TV up?" is one `GET /Sessions?deviceId=`** (`JellyfinClient.fetchSessions`, `TVPresence`
+in the kit). The `deviceId` filter is exact (an unknown id answers `[]`, ~20 ms). The flag that
+matters is **`SupportsRemoteControl`**, which Jellyfin computes as "capabilities say media
+control *and* a websocket is open right now". `IsActive` alone lies: a session created by plain
+HTTP requests has no socket controller and reports `IsActive: true` forever. `LastActivityDate`
+and `activeWithinSeconds=` are useless too — an idle socket never refreshes them (a session
+two hours quiet failed `activeWithinSeconds=30` with its socket open). When the TV app is
+killed its session disappears entirely. The phone polls every 10 s while the TV is up, 5 s
+while waiting for it, 1.5 s while the remote sheet is open, nothing in the background, and
+in a short burst after it sends a play (1.5/2/2/3 s): the TV's *first* progress report lands
+before playback begins and says paused, and one look at 1.5 s read exactly that and the
+ten-second loop left the bar wrong.
+
+**Every play in the app goes through `AppState.requestPlayback(_:)`** — all 23 callers, verified —
+so "send it to the TV instead" is the one `playbackRouter` hook the phone's `TVLink` installs,
+not 23 edits. While the TV is up and *Send plays to the TV* is on (default on after pairing,
+`jelly:remote.sendToTV`), a hero Resume, a poster, an episode row, Random and Continue Watching
+all become `POST /Sessions/{tv}/Playing` with item ids (`RemoteDispatch.playCommand`, tested):
+a single id goes alone so the TV expands an episode into the rest of its show itself, a queue
+is sent from its start item on and capped at 150 ids (Kestrel's 8 KB request line, the same
+ceiling the server's `ids=` injection chunks at), and the start item's resume position rides
+along. The TV rebuilds the queue through `AppState.playbackRequest(forItemIds:)` as it always
+did for "Play On". Verified live through the proxy: Continue Watching tap on the iPhone →
+Archer S1·E4 playing on the TV at its resume position; Pause/Unpause (Jellyfin stamped
+`LastPausedDate`), ↻30 (`FastForward`, the TV's own coalesced jump), Stop.
+
+**A second Play while the TV's player is up goes to the live player, never to the cover.**
+`RemoteControl` hands it to `PlayerController.load(_:)` (→ `PlayerEngine.play(request)`, the
+same road auto-advance takes) when `activePlayerController` exists. Re-presenting by changing
+`activePlaybackRequest` while the cover is up made SwiftUI run the old `PlayerView`'s
+`.onDisappear` (teardown: black picture, paused glyph, title gone, a `Stopped` report that
+told the phone nothing was playing) on a view that then *stayed on screen* with its engine
+already built, so `.task` never rebuilt it — a dead player, found on the second play of the
+first evening. `PlayerView`'s `.task` is keyed on `request.id` now (with a `loadedRequestId`
+guard so a re-appear does nothing), so a request that ever changes under a live player loads
+into it instead of being ignored.
+
+**The TV reports at once on pause, resume and seek** (`PlayerEngine.reportNow` →
+`ProgressReporter.reportNow`, outside the ten-second throttle) — but **only in the `.ready`
+phase**, and the periodic observer skips reporting until then too. The resume seek runs before
+the first `play()`, and reporting it said "paused" milliseconds ahead of the "playing" behind
+it; the observer's first tick does the same. The reporter also serialises its posts
+(`enqueue`): two in flight at once land in either order, and a remote reads whichever the
+server got last. Without all three a paired phone showed a play glyph over "Playing on…" for
+the ten seconds until the next periodic report. Between reports the phone's `RemoteClock`
+counts forward from the *last change* — it re-bases only when the ticks or the paused flag
+actually change, because polling sees the same report for ten seconds and re-basing on every
+poll made the readout jump backwards.
+
+**Pairing starts on the TV.** The top bar's remote button now opens `RemotePanel` (the receiver
+switch, *Pair a remote*, who is paired) instead of flipping the switch blind; `Settings → Remote`
+(`RemoteDetail`) reaches the same. *Pair a remote* switches the receiver on (a paired remote is
+exactly the sanctioned case its off-by-default guards against) and posts a two-minute beacon
+(`YsojClient.openRemoteBeacon`, `RemotePairingHost`); the phone polls `fetchRemoteBeacons`
+(3 s for two minutes after foregrounding, then 10 s) and shows `PairingPrompt` — *Not now* /
+*Pair*; the server judges "same Wi‑Fi" from the two source addresses and refuses across
+networks with a sentence the prompt shows verbatim. The TV never re-posts the beacon while
+waiting: a re-post after a phone had just answered would open a *new* beacon and the poll
+would miss the pairing, so it lets the two minutes run out and says "No remote found" instead.
+Both apps are one bundle id, so `DeviceIdentity.name` is what tells them apart in a prompt —
+the Apple TV's own name on tvOS, "iPhone"/"iPad" on iOS (iOS 16+ hides the user's device
+name without an entitlement). `Device=` in the auth header carries it now instead of "JellyTV";
+the session key is client + device id, so that changed nothing server-side.
+
+**Two simulators must not share one login token.** The iPad simulator was signed in and the
+TV simulator was not, and copying the iPad's `jelly:auth.apiKey` across made Jellyfin key the
+TV's *socket* under the token's device record (which every request flips to its own
+`DeviceId`), so the socket landed in a ghost session and the TV read as `SupportsRemoteControl:
+false`. Each simulator needs its own token, and you can mint one without the password through
+Quick Connect: `POST /QuickConnect/Initiate` with the new device's header → `POST
+/QuickConnect/Authorize?code=` with the iPad's token → `POST /Users/AuthenticateWithQuickConnect
+{Secret}` → write the returned token into that simulator's `jelly:auth.apiKey` with
+`xcrun simctl spawn <udid> defaults write net.graficx.jellytv …` (never `jelly:device.id`,
+which must differ). Two more things `/Sessions` showed: through the relay every TV socket
+arrives from the YSOJ box itself (`RemoteEndPoint` = the server), so "same network" is only
+ever judged from what reached `:8097` directly; and the server's `/Users/Me` profile lookup
+sends the token alone, so Jellyfin files a phantom session for the token's device on each
+cache miss — harmless, noted for the server side.
+
+**The remote sheet is transport, PREV · STOP · NEXT, SCENES, Forget.** The *Send plays to the
+TV* switch was in it and went — "what else would it do?" — it lives in Settings → Remote only,
+defaulting on. **SCENES** (`RemoteScenes`) swaps the transport for one trickplay frame a minute
+apart: swipe for the next or previous minute (a `.page` `TabView`, nothing else to press),
+tap the frame and the TV goes there (`TVLink.seek(to:)` → `Seek` with ticks, uncoalesced),
+the X brings the circles back. It opens on the minute the TV is in, not the opening shot,
+and the frames are the same sprite sheets the TV's own scenes panel cuts from
+(`AppState.cardTrickplay`, geometry off the session's `NowPlayingItem.Trickplay` — no
+per-frame request). Verified live: swipe 10:00 → 11:00, tap, TV at 11:11 a beat later.
+
+**What the review after the first evening changed, so it stays changed.** The TV bar is two
+sibling buttons, never a button inside a button — SwiftUI does not say which nested button
+a tap belongs to, and the pause circle is the one control pressed most. Every session post
+on the TV (`ProgressReporter`: start, progress, stop) goes through one serial chain, so a
+late progress cannot overtake a stop and resurrect a stopped session's "now playing".
+`Device=` in the auth header is user-typed on an Apple TV, so `JellyfinAPI.headerSafe`
+strips quotes, backslashes and non-ASCII before it goes in (a `"` broke Jellyfin's parse
+silently). The phone's pairing prompt dies with its beacon (`expiresAt`), the TV's search
+survives a failed poll and ends only on the beacon's own expiry, and a cancelled request
+surfaces as `URLError.cancelled` — not `CancellationError` — so both are treated as the
+user's own cancel. `RemoteClock` carries the item id (a new item's first report is often
+`0 / playing`, exactly the old one's), and a transport press is believed over the server
+for two seconds (`optimisticUntil`) so a poll carrying the pre-press state cannot bounce
+the glyph. Shared, not copied: `RemotePairingStore` (both sides' local mirror),
+`RemoteCopy` (the sentences), `ServerMessage` (the server's `detail` sentence, kit,
+tested), `JellyfinItem.episodeLine` ("S2 · E4 — Title", kit, tested — it had five
+spellings), and `Palette.sheet` / `.chromeInk` / `.pageBase` / `.scenesViolet` for the
+surfaces that were hex literals in seven places.
+
+**Screenshot hooks:** `JT_SHOW_REMOTE_PANEL=1` (tvOS) opens the panel at launch;
+`RT_SHOW_REMOTE=bar|sheet|prompt` (iOS) seeds `TVLink` from fixtures and stops its polls.
+The phone tab bar's clearance (`phoneTabBarClearance()`) now reads `\.phoneBottomBarInset`
+from the environment, which `RootView` sets to `TVBar.phoneHeight` while the bar is up —
+thirteen call sites untouched. On the iPad the bar is a floating card bottom-trailing, since
+there is no tab bar to stack on.
+
 ## Home on tvOS
 
 **Every control on Home does something, or it isn't there.** The hero's Details button was an
@@ -248,7 +377,7 @@ grids do; the same page's own "+" became the heart that iPhone's quick action al
 it. Switched on, this session posts `/Sessions/Capabilities/Full` (`SupportsMediaControl`,
 `PlayableMediaTypes: Video`, and only the `GeneralCommandType` names it handles — an unknown one
 fails the whole call) and holds `/socket?api_key&deviceId` open, so every other Jellyfin client on
-the server lists it as "JellyTV" under Play On / Cast. `Play` becomes the same request a tap here
+the server lists it under Play On / Cast by its own name (`DeviceIdentity.name`). `Play` becomes the same request a tap here
 would build (`AppState.playbackRequest(forItemIds:…)` → `resumeRequest` for one item, so an
 episode still queues the rest of its show; `PlayQueue.playableItem` for a list); `Playstate` goes
 to `AppState.activePlayerController`, registered by `PlayerView` for as long as it is up; `Stop` /

@@ -5,10 +5,16 @@ struct RootView: View {
     @StateObject private var theme = Theme()
     @StateObject private var server = ServerConnection()
     @StateObject private var appState = AppState()
+    /// A plain box rather than `@StateObject`: the store cannot be built until a server
+    /// is connected, and `@StateObject` has to be initialised at view-init time.
+    @StateObject private var discoverStoreBox = DiscoverStoreBox()
     /// "Play On" from other Jellyfin apps — attached to `appState` once the
     /// server connection is up; its own object so the Home top bar can
     /// observe just it.
     @StateObject private var remote = RemoteControl()
+    /// *Pair a remote*: the TV's side of pairing a phone, and the panel over Home the
+    /// top bar's remote button opens.
+    @StateObject private var pairingHost = RemotePairingHost()
     @State private var destination: NavDestination = {
         let env = ProcessInfo.processInfo.environment
         if env["JT_SHOW_SETTINGS"] == "1" { return .settings }
@@ -49,7 +55,19 @@ struct RootView: View {
     var body: some View {
         Group {
             if server.isConnected {
-                mainContent
+                ZStack {
+                    // `.disabled`, not just covered: the screen's controls have to leave
+                    // the focus pool while the panel is up, or Menu and the arrows keep
+                    // reaching them through it.
+                    mainContent
+                        .disabled(pairingHost.isPanelOpen)
+                    if pairingHost.isPanelOpen {
+                        RemotePanel()
+                            .zIndex(5)
+                            .transition(.opacity)
+                    }
+                }
+                .animation(.easeOut(duration: 0.25), value: pairingHost.isPanelOpen)
             } else if case .connecting = server.status {
                 SetupView(server: server)
             } else {
@@ -60,6 +78,7 @@ struct RootView: View {
         .environmentObject(server)
         .environmentObject(appState)
         .environmentObject(remote)
+        .environmentObject(pairingHost)
         .preferredColorScheme(.dark)
         .onChange(of: appState.activePlaybackRequest) { _, request in
             if let request {
@@ -141,9 +160,21 @@ struct RootView: View {
                 Task { await appState.refresh() }
                 appState.startRefreshTimer()
                 remote.attach(appState)
+                pairingHost.attach(appState, remote: remote, deviceId: server.deviceId)
+                // `JT_SHOW_REMOTE_PANEL=1` lands on the pairing panel for screenshots.
+                // Inert unless set, like every other hook here.
+                if ProcessInfo.processInfo.environment["JT_SHOW_REMOTE_PANEL"] == "1" {
+                    pairingHost.isPanelOpen = true
+                }
             } else {
                 appState.stopRefreshTimer()
                 remote.detach()
+                pairingHost.detach()
+                // The store was built around the *previous* server's client — its shelves,
+                // jobs and token. Nothing of it may outlive the connection.
+                discoverStoreBox.store?.stopPolling()
+                discoverStoreBox.store = nil
+                appState.activeDownloadCount = 0
             }
         }
     }
@@ -172,7 +203,41 @@ struct RootView: View {
         case .videosLibrary(let category):
             VideosLibraryView(category: category, isLibrariesOpen: isLibrariesOpen,
                               onSelectRail: handleRailSelection)
+        case .discover:
+            if let store = discoverStore() {
+                DiscoverView(isLibrariesOpen: isLibrariesOpen,
+                             onSelectRail: handleRailSelection, store: store)
+            } else {
+                // Unreachable in practice: the rail icon that routes here only exists
+                // when the server offers Discover.
+                LibraryEmptyState(message: "Discover isn't available on this server.")
+            }
+        case .downloads:
+            if let store = discoverStore() {
+                DownloadCenterView(store: store, isLibrariesOpen: isLibrariesOpen,
+                                   onSelectRail: handleRailSelection)
+            } else {
+                LibraryEmptyState(message: "Discover isn't available on this server.")
+            }
         }
+    }
+
+    /// One store for both Discover and the download centre — a job started in one keeps
+    /// running while the user is in the other, and the rail badge reads its count.
+    @MainActor
+    private func discoverStore() -> DiscoverStore? {
+        if let existing = discoverStoreBox.store { return existing }
+        let env = ProcessInfo.processInfo.environment
+        if env["JT_SHOW_DISCOVER"] == "demo" || env["JT_SHOW_DOWNLOADS"] == "demo" {
+            let demo = DiscoverStore.demo()
+            discoverStoreBox.store = demo
+            return demo
+        }
+        guard let client = appState.ysojClient else { return nil }
+        let created = DiscoverStore(client: client)
+        created.onActiveJobCountChange = { [weak appState] in appState?.activeDownloadCount = $0 }
+        discoverStoreBox.store = created
+        return created
     }
 
     private func handleRailSelection(_ target: RailTarget) {
@@ -196,6 +261,12 @@ struct RootView: View {
             // Opens the submenu over whatever screen is already showing —
             // never forces a navigation to Home first.
             isLibrariesOpen.toggle()
+        case .discover:
+            isLibrariesOpen = false
+            destination = .discover
+        case .downloads:
+            isLibrariesOpen = false
+            destination = .downloads
         case .animeLibrary, .lateNight:
             // Unreachable here — tvOS only reaches these via a Libraries
             // submenu row (`LibrariesSubmenu`), never this rail directly.

@@ -10,6 +10,9 @@ import JellyTVKit
 enum RailTarget: Hashable {
     case home, search, movies, tv, libraries, settings
     case animeLibrary, lateNight
+    /// Only rendered when `AppState.offersDiscover` — see `NavDestination.discover`.
+    case discover
+    case downloads
 }
 
 /// The persistent 118pt-wide left navigation rail, present on Home and Settings:
@@ -25,11 +28,39 @@ struct NavRail: View {
     var accentOverride: Color? = nil
 
     @EnvironmentObject private var theme: Theme
-    #if os(iOS)
+    /// Both platforms now: the rail asks whether this server offers Discover at all.
     @EnvironmentObject private var appState: AppState
-    #endif
 
     private var effectiveAccent: Color { accentOverride ?? theme.accent }
+
+    /// Discover and the download centre exist only against a YSOJ-server that says it
+    /// offers them. On a plain Jellyfin these two icons are not drawn, so there is no
+    /// route to a screen that would have nothing to show.
+    private var offersDiscover: Bool { appState.offersDiscover }
+
+    /// A count of running downloads, so the rail can say something is happening while
+    /// the user is somewhere else. Absent when nothing is running — a permanent "0" is
+    /// noise, and this sits on the one screen people leave on for hours.
+    @ViewBuilder
+    private var downloadBadge: some View {
+        if appState.activeDownloadCount > 0 {
+            Text("\(appState.activeDownloadCount)")
+                .font(Mono.font(badgeFontSize, .bold))
+                .foregroundStyle(Color.black)
+                .frame(minWidth: badgeSize, minHeight: badgeSize)
+                .background(Circle().fill(effectiveAccent))
+                .offset(x: 6, y: -4)
+                .accessibilityLabel("\(appState.activeDownloadCount) downloads in progress")
+        }
+    }
+
+    #if os(tvOS)
+    private var badgeSize: CGFloat { 26 }
+    private var badgeFontSize: CGFloat { 15 }
+    #else
+    private var badgeSize: CGFloat { 20 }
+    private var badgeFontSize: CGFloat { 12 }
+    #endif
 
     #if os(iOS)
     /// The Libraries icon only appears when there is something to list —
@@ -50,6 +81,8 @@ struct NavRail: View {
         // Libraries icon itself lights up instead (design 4b: "RAIL (libraries
         // active — Anime is a library)").
         case .animeLibrary, .lateNight, .videosLibrary: return .libraries
+        case .discover: return .discover
+        case .downloads: return .downloads
         }
     }
 
@@ -99,6 +132,11 @@ struct NavRail: View {
             // is what keeps that true rather than something to remember to
             // keep in sync by hand.
             iosRailButton(.home) { NavIcons.home(color: $0) }
+            if appState.offersDiscover {
+                iosRailButton(.discover) { NavIcons.discover(color: $0) }
+                iosRailButton(.downloads) { NavIcons.downloads(color: $0) }
+                    .overlay(alignment: .topTrailing) { downloadBadge }
+            }
             iosRailButton(.movies) { NavIcons.movies(color: $0) }
             iosRailButton(.tv) { NavIcons.tv(color: $0) }
             iosRailButton(.search) { NavIcons.search(color: $0) }
@@ -131,6 +169,11 @@ struct NavRail: View {
             Spacer(minLength: 36)
             VStack(spacing: 14) {
                 railButton(.home) { NavIcons.home(color: $0) }
+                if offersDiscover {
+                    railButton(.discover) { NavIcons.discover(color: $0) }
+                    railButton(.downloads) { NavIcons.downloads(color: $0) }
+                        .overlay(alignment: .topTrailing) { downloadBadge }
+                }
                 railButton(.movies) { NavIcons.movies(color: $0) }
                 railButton(.tv) { NavIcons.tv(color: $0) }
                 railButton(.search) { NavIcons.search(color: $0) }
@@ -174,6 +217,8 @@ struct NavRail: View {
         case .animeLibrary, .lateNight, .videosLibrary: return .libraries
         case .settings: return .settings
         case .search: return .search
+        case .discover: return .discover
+        case .downloads: return .downloads
         }
     }
 

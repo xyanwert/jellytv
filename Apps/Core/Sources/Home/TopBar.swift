@@ -153,6 +153,7 @@ struct TopBarClock: View {
 /// caption that stayed would be one more label on a screen that has enough.
 struct RemoteControlButton: View {
     @EnvironmentObject private var remote: RemoteControl
+    @EnvironmentObject private var pairing: RemotePairingHost
     @EnvironmentObject private var theme: Theme
 
     private var isOn: Bool { remote.status == .on }
@@ -166,7 +167,10 @@ struct RemoteControlButton: View {
                     .lineLimit(1)
                     .transition(.opacity)
             }
-            Button(action: remote.toggle) {
+            // Opens the remote panel — the switch, *Pair a remote*, and who is paired —
+            // rather than flipping the switch blind: the one press used to be the whole
+            // feature, and now there is a second thing to do from here.
+            Button(action: { pairing.isPanelOpen = true }) {
                 ZStack {
                     if remote.status == .connecting {
                         ProgressView()
@@ -185,7 +189,7 @@ struct RemoteControlButton: View {
             }
             .buttonStyle(FocusScaleStyle(scale: 1.1, cornerRadius: 999))
             .accessibilityLabel(isOn ? "Remote control on" : "Remote control off")
-            .accessibilityHint("Lets Jellyfin apps on other devices play to this TV")
+            .accessibilityHint("Opens remote control settings and pairing")
         }
         .animation(.easeOut(duration: 0.25), value: remote.notice)
         .animation(.easeOut(duration: 0.25), value: remote.status)

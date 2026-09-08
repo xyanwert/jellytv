@@ -843,31 +843,61 @@ enum LibraryBackdrop {
 struct LibraryEmptyState: View {
     let message: String
     var hint: String? = nil
+    /// An SF Symbol above the message, for a state that is about something — a source
+    /// that is down, a title that would not load — rather than a list with nothing in it.
+    var systemImage: String? = nil
+    /// A verbatim technical line under the hint, in the readout voice: the server's own
+    /// reason, shown rather than paraphrased.
+    var detail: String? = nil
+    /// Centred in its container instead of sitting a fixed way down a page — for a
+    /// state that fills a panel, like a detail page that failed to load.
+    var centered: Bool = false
 
     #if os(tvOS)
     private static let messageSize: CGFloat = 26
     private static let hintSize: CGFloat = 18
+    private static let iconSize: CGFloat = 54
+    private static let detailSize: CGFloat = 14
     private static let topPadding: CGFloat = 140
     #else
     private static let messageSize: CGFloat = 20
     private static let hintSize: CGFloat = 14
+    private static let iconSize: CGFloat = 40
+    private static let detailSize: CGFloat = 12
     private static let topPadding: CGFloat = 120
     #endif
 
     var body: some View {
         VStack(spacing: 10) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: Self.iconSize, weight: .light))
+                    .foregroundStyle(Palette.text(0.35))
+                    .padding(.bottom, 4)
+            }
             Text(message)
                 .font(Typography.font(Self.messageSize, .semibold))
                 .foregroundStyle(Palette.text(0.55))
+                .multilineTextAlignment(.center)
             if let hint {
                 Text(hint)
                     .font(Typography.font(Self.hintSize, .medium))
                     .foregroundStyle(Palette.text(0.38))
                     .multilineTextAlignment(.center)
+                    .frame(maxWidth: 560)
+            }
+            if let detail {
+                Text(detail)
+                    .font(Mono.font(Self.detailSize, .regular))
+                    .foregroundStyle(Palette.text(0.28))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 620)
+                    .padding(.top, 2)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, Self.topPadding)
+        .frame(maxHeight: centered ? .infinity : nil)
+        .padding(.top, centered ? 0 : Self.topPadding)
     }
 }
 

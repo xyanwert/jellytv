@@ -98,6 +98,7 @@ public enum SampleCatalog {
         .init(kind: .metadata, label: "Metadata", description: "External ratings & awards (OMDb)"),
         .init(kind: .server, label: "Server", description: "Connection, sync"),
         .init(kind: .account, label: "Account", description: "Profile, sign out"),
+        .init(kind: .remote, label: "Remote", description: "Play to a TV, pair a remote"),
     ]
 
     /// Playback category: streaming-quality options (last is the sample default).

@@ -755,7 +755,7 @@ public struct ServerStatus: Equatable, Sendable, Hashable {
 /// A category row in the Settings screen's category list.
 public struct SettingsCategory: Equatable, Sendable, Hashable, Identifiable {
     public enum Kind: String, Sendable, CaseIterable {
-        case playback, libraries, home, appearance, metadata, server, account
+        case playback, libraries, home, appearance, metadata, server, account, remote
     }
 
     public var kind: Kind

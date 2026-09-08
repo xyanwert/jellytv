@@ -57,6 +57,38 @@ enum NavIcons {
         }
     }
 
+    /// Discover — a compass rose. Deliberately *not* the magnifier: Search looks
+    /// through what you already own, Discover looks outward at what you don't, and two
+    /// glyphs that both mean "find" would make the rail ambiguous at a glance.
+    static func discover(color: Color) -> some View {
+        IconCanvas(color: color) { path in
+            path.addEllipse(in: CGRect(x: 2.5, y: 2.5, width: 19, height: 19))
+            // The needle: two triangles meeting at the centre, drawn as one closed kite
+            // so it reads at rail size instead of turning to mush.
+            path.move(to: CGPoint(x: 15.4, y: 8.6))
+            path.addLine(to: CGPoint(x: 13.1, y: 13.1))
+            path.addLine(to: CGPoint(x: 8.6, y: 15.4))
+            path.addLine(to: CGPoint(x: 10.9, y: 10.9))
+            path.closeSubpath()
+        }
+    }
+
+    /// Downloads — an arrow into a tray. The tray matters: a bare down-arrow is the
+    /// universal "scroll down" and would read as a rail affordance rather than a place.
+    static func downloads(color: Color) -> some View {
+        IconCanvas(color: color) { path in
+            path.move(to: CGPoint(x: 12, y: 3))
+            path.addLine(to: CGPoint(x: 12, y: 14.5))
+            path.move(to: CGPoint(x: 7.5, y: 10.5))
+            path.addLine(to: CGPoint(x: 12, y: 15))
+            path.addLine(to: CGPoint(x: 16.5, y: 10.5))
+            path.move(to: CGPoint(x: 4, y: 17))
+            path.addLine(to: CGPoint(x: 4, y: 20))
+            path.addLine(to: CGPoint(x: 20, y: 20))
+            path.addLine(to: CGPoint(x: 20, y: 17))
+        }
+    }
+
     static func cog(color: Color) -> some View {
         Image(systemName: "gearshape")
             .font(.system(size: 24, weight: .medium))

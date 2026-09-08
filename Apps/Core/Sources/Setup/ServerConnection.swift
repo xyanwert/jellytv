@@ -429,6 +429,20 @@ final class ServerConnection: ObservableObject {
         userDefaults.removeObject(forKey: kindKey)
         userDefaults.removeObject(forKey: apiKeyKey)
         userDefaults.removeObject(forKey: userIdKey)
+        // **The in-memory fields have to go too, not just the stored ones.**
+        // Leaving them behind meant the form came back pre-filled with the old
+        // `host` and `port` — and a non-empty port is honoured *exactly* by
+        // `resolveEndpoint`, by design ("someone who types :8096 means it").
+        // So signing out of a Jellyfin on 8096 and back in silently pinned the
+        // next connect to 8096, defeating the 8097-first probe that exists to
+        // find a YSOJ-server — even when the user had just tapped a discovered
+        // row labelled `:8097`. It presents as "I signed in correctly and the
+        // extended features aren't there", with nothing on screen to explain it.
+        // Blank is what makes the scan's auto-select repopulate both fields
+        // from whatever actually answered.
+        host = ""
+        port = ""
+        selectedServerKind = nil
         apiKey = ""
         username = ""
         password = ""
@@ -587,7 +601,7 @@ final class ServerConnection: ObservableObject {
     private func mediaBrowserHeader(apiKey: String) -> String {
         JellyfinAPI.authorizationHeader(token: apiKey,
                                         client: deviceName,
-                                        device: deviceName,
+                                        device: DeviceIdentity.name,
                                         deviceId: deviceId,
                                         version: "1.0.0")
     }
@@ -595,6 +609,7 @@ final class ServerConnection: ObservableObject {
     /// Header for calls made before we have a token (`AuthenticateByName`) —
     /// no `Token` attribute at all, rather than an empty one.
     private func preAuthHeader() -> String {
-        "MediaBrowser Client=\"\(deviceName)\", Device=\"\(deviceName)\", DeviceId=\"\(deviceId)\", Version=\"1.0.0\""
+        JellyfinAPI.authorizationHeader(token: "", client: deviceName, device: DeviceIdentity.name,
+                                        deviceId: deviceId, version: "1.0.0")
     }
 }
