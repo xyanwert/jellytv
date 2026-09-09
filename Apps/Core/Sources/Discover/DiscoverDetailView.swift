@@ -37,6 +37,8 @@ struct DiscoverDetailView: View {
     @State private var selectedSeason: Int?
     /// nil = the whole show. Only meaningful for a series.
     @State private var wantsWholeSeries = false
+    /// nil = the whole selected season. The third granularity: one episode.
+    @State private var selectedEpisode: Int?
     @State private var plan: YsojAPI.DownloadPlan?
     @State private var isPlanning = false
     @State private var tint: Color = .clear
@@ -44,21 +46,31 @@ struct DiscoverDetailView: View {
 
     #if os(tvOS)
     @FocusState private var focus: Field?
-    private enum Field: Hashable { case download, trailer, season(Int), whole }
+    private enum Field: Hashable {
+        case download, trailer, season(Int), whole, allEpisodes, episode(Int), step(Int)
+    }
     #endif
+
+    /// Up to this many episodes get a chip each; past it, a long-runner (an anime with
+    /// hundreds) gets a number to step instead of a row that scrolls for a minute.
+    private static let episodeChipLimit = 60
 
     var body: some View {
         ZStack {
             PosterBloom(image: detail?.posterURLString, artwork: artwork, tint: effectiveTint)
-            HStack(spacing: 0) {
-                DetailSpine(genreLabel: genreLabel,
-                            markerTop: markerTop,
-                            markerBottom: "GET",
-                            onBack: onClose,
-                            accent: effectiveTint)
-                content
+            Group {
+                #if os(iOS)
+                // **The phone gets its own layout, not the one-sheet in a narrow
+                // column.** The spine alone is 118pt of a 393pt screen and the text
+                // column is held to a 340pt minimum, so side-by-side overflowed the
+                // screen by about half a poster: the facts rail wrapped mid-word and the
+                // download panel's numbers were cut off at the right edge. Stacked and
+                // scrolling is the phone's answer.
+                if isPhoneLayout { phoneBody } else { oneSheet }
+                #else
+                oneSheet
+                #endif
             }
-            .ignoresSafeArea()
             // Off the focus pool while a sheet is up, or the plan's Start sits
             // focus-adjacent to the season chips beneath it.
             .disabled(plan != nil || showingTrailer)
@@ -88,9 +100,14 @@ struct DiscoverDetailView: View {
             plan = nil
             showingTrailer = false
             wantsWholeSeries = false
+            selectedEpisode = nil
             detail = await store.loadDetail(ref: ref)
             detailFailed = detail == nil
             selectedSeason = detail?.downloadableSeasons.first?.seasonNumber
+            // A download started here earlier — or from another device — shows in the
+            // bar's place the moment the page opens, and keeps moving while it is up.
+            await store.refreshDownloads()
+            syncPolling()
             // Focus before the tint: the tint downloads the whole poster, and until it
             // returned nothing on the page was focused, so the remote drove the screen
             // underneath.
@@ -99,10 +116,161 @@ struct DiscoverDetailView: View {
             #endif
             await loadTint()
         }
+        .onChange(of: store.jobs) { _, _ in syncPolling() }
+        .onDisappear { store.stopPolling() }
         #if os(tvOS)
         .onExitCommand { plan == nil ? onClose() : (plan = nil) }
         #endif
     }
+
+    /// The one-sheet: the spine, the poster and the text column side by side. Every
+    /// device but the phone.
+    private var oneSheet: some View {
+        HStack(spacing: 0) {
+            DetailSpine(genreLabel: genreLabel,
+                        markerTop: markerTop,
+                        markerBottom: "GET",
+                        onBack: onClose,
+                        accent: effectiveTint)
+            content
+        }
+        .ignoresSafeArea()
+    }
+
+    /// The phone is the only device that cannot carry the one-sheet.
+    private var isPhoneLayout: Bool {
+        #if os(iOS)
+        DeviceClass.current == .phone
+        #else
+        false
+        #endif
+    }
+
+    #if os(iOS)
+    // MARK: - The phone
+
+    @ViewBuilder
+    private var phoneBody: some View {
+        if let detail {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    phoneHeader(detail)
+                    if !detail.overview.isEmpty {
+                        Text(detail.overview)
+                            .font(Typography.font(15, .regular))
+                            .foregroundStyle(Palette.text(0.74))
+                            .lineSpacing(5)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if detail.isSeries { seasonPicker(detail) }
+                    downloadBar(detail)
+                    if !detail.cast.isEmpty { CastBand(cast: castMembers(detail)) }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
+                .padding(.bottom, 28)
+                // **Pin the column to the screen's width.** A vertical `ScrollView`
+                // proposes no width to its content, so every horizontal strip inside it
+                // — the cast band, the season and episode chips — takes its *content's*
+                // width instead of scrolling. With a full TMDB cast that made the page
+                // half a screen wider than the phone: the poster was pushed off the left
+                // edge and the synopsis started mid-word. Verified live, not theorised.
+                .containerRelativeFrame(.horizontal, alignment: .leading)
+                .phoneTabBarClearance()
+            }
+            .safeAreaInset(edge: .top, spacing: 0) { phoneTopBar }
+        } else if detailFailed {
+            LibraryEmptyState(
+                message: "Couldn't load this title",
+                hint: "Its source didn't answer. Go back and try another, or try again in a moment.",
+                systemImage: "exclamationmark.triangle",
+                centered: true
+            )
+            .safeAreaInset(edge: .top, spacing: 0) { phoneTopBar }
+        } else {
+            ProgressView().controlSize(.large).tint(theme.accent)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .safeAreaInset(edge: .top, spacing: 0) { phoneTopBar }
+        }
+    }
+
+    /// Back where a thumb expects it. The spine's rotated genre label and GET marker are
+    /// decoration for a big screen; on a phone that space is the content's.
+    private var phoneTopBar: some View {
+        HStack(spacing: 12) {
+            Button(action: onClose) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Palette.text(0.85))
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(Palette.text(0.1)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to Discover")
+            Text(markerTop)
+                .font(Mono.font(12, .bold)).tracking(2.6)
+                .foregroundStyle(effectiveTint)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+    }
+
+    /// Poster beside the title and its facts — one glance, then everything else is a
+    /// full-width column beneath it.
+    private func phoneHeader(_ detail: YsojAPI.DiscoverDetail) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            OneSheetPoster(image: detail.posterURLString, artwork: artwork, height: 178)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Text(detail.sourceName.uppercased())
+                        .font(Typography.font(11, .heavy)).tracking(2.4)
+                        .foregroundStyle(effectiveTint)
+                    if detail.alreadyOwned {
+                        Label("OWNED", systemImage: "checkmark.circle.fill")
+                            .font(Typography.font(11, .heavy)).tracking(1.4)
+                            .foregroundStyle(Color(hex: "#58D399"))
+                    }
+                }
+                .lineLimit(1)
+
+                Text(detail.title)
+                    .font(Typography.font(27, .black))
+                    .foregroundStyle(Palette.textPrimary)
+                    .lineLimit(3).minimumScaleFactor(0.6)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // The rail's four cells as one wrapping line — a four-column rule in
+                // 190pt gave each cell about 40pt, which cut "86 min" in half.
+                Text(phoneFacts(detail))
+                    .font(Mono.font(12, .medium))
+                    .foregroundStyle(Palette.text(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let trailer, TrailerAvailability.canOpen(trailer) {
+                    Button { showingTrailer = true } label: {
+                        Label("Trailer", systemImage: "play.rectangle.fill")
+                            .font(Typography.font(13, .bold))
+                            .foregroundStyle(effectiveTint)
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            .background(Capsule().fill(effectiveTint.opacity(0.16)))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func phoneFacts(_ detail: YsojAPI.DiscoverDetail) -> String {
+        [ratingText.map { "★ \($0)" }, lengthText, detail.year.map(String.init),
+         detail.genres.first]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+    #endif
 
     // MARK: - The one-sheet
 
@@ -221,6 +389,7 @@ struct DiscoverDetailView: View {
                                 isOn: !wantsWholeSeries && selectedSeason == season.seasonNumber,
                                 action: {
                                     wantsWholeSeries = false
+                                    if selectedSeason != season.seasonNumber { selectedEpisode = nil }
                                     selectedSeason = season.seasonNumber
                                 },
                                 accent: effectiveTint
@@ -233,7 +402,7 @@ struct DiscoverDetailView: View {
                             LibraryFilterChip(
                                 label: "Whole show",
                                 isOn: wantsWholeSeries,
-                                action: { wantsWholeSeries = true },
+                                action: { wantsWholeSeries = true; selectedEpisode = nil },
                                 accent: effectiveTint
                             )
                             #if os(tvOS)
@@ -249,8 +418,93 @@ struct DiscoverDetailView: View {
                 // the focus engine search the whole screen and jump somewhere unrelated.
                 .focusSection()
                 #endif
+
+                if !wantsWholeSeries,
+                   let season = seasons.first(where: { $0.seasonNumber == selectedSeason }),
+                   season.episodeCount > 0 {
+                    episodePicker(season)
+                }
             }
             .padding(.bottom, 14)
+        }
+    }
+
+    /// One episode, or the whole season — the finest of the three granularities.
+    @ViewBuilder
+    private func episodePicker(_ season: YsojAPI.DiscoverSeason) -> some View {
+        if season.episodeCount <= Self.episodeChipLimit {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    LibraryFilterChip(
+                        label: "All episodes",
+                        isOn: selectedEpisode == nil,
+                        action: { selectedEpisode = nil },
+                        accent: effectiveTint
+                    )
+                    #if os(tvOS)
+                    .focused($focus, equals: .allEpisodes)
+                    #endif
+                    ForEach(1...season.episodeCount, id: \.self) { number in
+                        LibraryFilterChip(
+                            label: "E\(number)",
+                            isOn: selectedEpisode == number,
+                            action: { selectedEpisode = number },
+                            accent: effectiveTint
+                        )
+                        #if os(tvOS)
+                        .focused($focus, equals: .episode(number))
+                        #endif
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .horizontalEdgeFade()
+            #if os(tvOS)
+            .focusSection()
+            #endif
+        } else {
+            // Hundreds of episodes: step to the one wanted, ten at a time then one.
+            HStack(spacing: 8) {
+                LibraryFilterChip(
+                    label: "All episodes",
+                    isOn: selectedEpisode == nil,
+                    action: { selectedEpisode = nil },
+                    accent: effectiveTint
+                )
+                #if os(tvOS)
+                .focused($focus, equals: .allEpisodes)
+                #endif
+                ForEach([-10, -1, 1, 10], id: \.self) { step in
+                    Button {
+                        let current = selectedEpisode ?? 0
+                        selectedEpisode = min(season.episodeCount, max(1, current + step))
+                    } label: {
+                        Text(step > 0 ? "+\(step)" : "\(step)")
+                            .font(Mono.font(stepSize, .bold))
+                            .foregroundStyle(Palette.text(0.85))
+                            .frame(width: stepWidth, height: stepHeight)
+                            .background(Capsule().fill(Palette.text(0.1)))
+                    }
+                    .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: stepHeight / 2))
+                    .accessibilityLabel(step > 0 ? "Forward \(step)" : "Back \(-step)")
+                    #if os(tvOS)
+                    .focused($focus, equals: .step(step))
+                    #endif
+                    if step == -1 {
+                        Text(selectedEpisode.map { "E\($0)" } ?? "E–")
+                            .font(Mono.font(stepSize + 2, .bold))
+                            .foregroundStyle(selectedEpisode == nil ? Palette.text(0.4) : effectiveTint)
+                            .frame(minWidth: stepWidth + 16)
+                    }
+                }
+                Text("of \(season.episodeCount)")
+                    .font(Mono.font(stepSize - 2, .medium))
+                    .foregroundStyle(Palette.text(0.4))
+            }
+            .padding(.vertical, 4)
+            #if os(tvOS)
+            .focusSection()
+            #endif
         }
     }
 
@@ -259,7 +513,15 @@ struct DiscoverDetailView: View {
     /// its readout carries what the press is about to cost.
     @ViewBuilder
     private func downloadBar(_ detail: YsojAPI.DiscoverDetail) -> some View {
-        if !appState.canStartDownloads {
+        if let job = store.jobToShow(for: ref) {
+            // The download, where the bar was. This page asked for it, so this page
+            // watches it — and finds it still moving on the way back in.
+            DownloadProgressPanel(
+                job: job, tint: effectiveTint,
+                onCancel: { Task { await store.remove(jobId: job.id) } },
+                onDismiss: { store.dismiss(job) }
+            )
+        } else if !appState.canStartDownloads {
             Text("Only the owner of this server can add to the library.")
                 .font(Typography.font(synopsisSize, .semibold))
                 .foregroundStyle(Palette.text(0.5))
@@ -334,7 +596,9 @@ struct DiscoverDetailView: View {
             .disabled(isPlanning)
             .layoutPriority(1)
 
-            if let trailer, TrailerAvailability.canOpen(trailer) {
+            // Not on the phone: its header already carries a labelled Trailer button,
+            // and two controls for one link is one too many.
+            if !isPhoneLayout, let trailer, TrailerAvailability.canOpen(trailer) {
                 Button { showingTrailer = true } label: {
                     // Icon-only, and narrow. With a label it crowded the bar enough to
                     // wrap "Download" onto two lines — and the bar is the primary action
@@ -382,6 +646,9 @@ struct DiscoverDetailView: View {
         guard let number = selectedSeason,
               let season = detail.downloadableSeasons.first(where: { $0.seasonNumber == number })
         else { return "Choose a season" }
+        if let selectedEpisode {
+            return "\(season.name) · Episode \(selectedEpisode)"
+        }
         return season.episodeCount > 0
             ? "\(season.name) · \(season.episodeCount) episodes"
             : season.name
@@ -391,6 +658,9 @@ struct DiscoverDetailView: View {
         guard detail.isSeries else { return .movie }
         if wantsWholeSeries { return .wholeSeries }
         guard let selectedSeason else { return nil }
+        if let selectedEpisode {
+            return .episode(season: selectedSeason, number: selectedEpisode)
+        }
         return .season(selectedSeason)
     }
 
@@ -410,8 +680,25 @@ struct DiscoverDetailView: View {
         let started = await store.confirm(planId: plan.planId)
         self.plan = nil
         guard started else { return }
-        await store.refreshDownloads()
-        onClose()
+        // Stay here. The job just made takes the bar's place, and the poll keeps it
+        // moving for as long as the page is up. It used to close the page and leave the
+        // person to find the download centre — the opposite of "show me it working".
+        syncPolling()
+    }
+
+    /// Poll only while this title has a job running and this page is up. A request
+    /// every two seconds is for a download somebody is watching, not for browsing.
+    private func syncPolling() {
+        let wants = store.hasActiveJob(for: ref)
+        if wants, !store.isPolling {
+            store.startPolling(every: pollSeconds)
+        } else if !wants, store.isPolling {
+            store.stopPolling()
+        }
+    }
+
+    private var pollSeconds: Int {
+        appState.ysojCapabilities?.features.downloads?.pollSeconds ?? 2
     }
 
     // MARK: - Trimmings
@@ -477,6 +764,9 @@ struct DiscoverDetailView: View {
     // MARK: - Sizing
 
     #if os(tvOS)
+    private var stepSize: CGFloat { 18 }
+    private var stepWidth: CGFloat { 64 }
+    private var stepHeight: CGFloat { 44 }
     private var pagePadding: EdgeInsets { .init(top: 56, leading: 72, bottom: 48, trailing: 72) }
     private var spineAllowance: CGFloat { 150 }
     private var columnGap: CGFloat { 64 }
@@ -488,6 +778,9 @@ struct DiscoverDetailView: View {
     private var railSize: CGFloat { 22 }
     #else
     private var isPhone: Bool { DeviceClass.current == .phone }
+    private var stepSize: CGFloat { isPhone ? 12 : 14 }
+    private var stepWidth: CGFloat { isPhone ? 40 : 48 }
+    private var stepHeight: CGFloat { isPhone ? 30 : 34 }
     private var pagePadding: EdgeInsets {
         isPhone ? .init(top: 20, leading: 18, bottom: 24, trailing: 18)
                 : .init(top: 44, leading: 64, bottom: 40, trailing: 64)

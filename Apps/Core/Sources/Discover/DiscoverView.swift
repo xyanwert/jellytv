@@ -29,7 +29,14 @@ struct DiscoverView: View {
     @ObservedObject var store: DiscoverStore
 
     /// Opened when a poster is selected — the detail page and its download decision.
-    @State private var presentedRef: String?
+    /// `RT_SHOW_DISCOVER=detail` / `JT_SHOW_DISCOVER=detail` opens straight onto the
+    /// fixture title whose download is mid-flight (`DiscoverStore.demo`), so the
+    /// progress panel can be looked at without a live server. Inert unless set.
+    @State private var presentedRef: String? = {
+        let env = ProcessInfo.processInfo.environment
+        let mode = env["RT_SHOW_DISCOVER"] ?? env["JT_SHOW_DISCOVER"]
+        return mode == "detail" ? DiscoverStore.demoDetailRef : nil
+    }()
 
     #if os(tvOS)
     @FocusState private var focused: Focus?

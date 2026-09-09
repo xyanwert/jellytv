@@ -109,6 +109,9 @@ struct DownloadCenterView: View {
                 }
             }
             .padding(.bottom, 60)
+            // The phone's tab bar and TV bar float over the list; without this the last
+            // row sits under them and a tap on it opens the remote instead.
+            .phoneTabBarClearance()
         }
     }
 
@@ -243,29 +246,8 @@ struct DownloadJobRow: View {
         .accessibilityLabel(label)
     }
 
-    private var stateLabel: String {
-        switch job.state {
-        case .searching: return "Searching"
-        case .queued: return "Queued"
-        case .downloading: return "Downloading"
-        case .paused: return "Paused"
-        case .importing: return "Adding"
-        case .landed: return "Done"
-        case .failed: return "Failed"
-        case .cancelled: return "Cancelled"
-        case .unknown: return "Working"
-        }
-    }
-
-    private var stateColor: Color {
-        switch job.state {
-        case .landed: return Color(hex: "#58D399")
-        case .failed: return Color(hex: "#E8544A")
-        case .cancelled: return Palette.text(0.45)
-        case .paused: return Color(hex: "#E8B44A")
-        default: return accent
-        }
-    }
+    private var stateLabel: String { job.state.label }
+    private var stateColor: Color { job.state.color(accent: accent) }
 
     #if os(tvOS)
     private var posterWidth: CGFloat { 76 }

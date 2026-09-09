@@ -313,6 +313,37 @@ final class DiscoverStore: ObservableObject {
 
     var activeJobCount: Int { jobs.filter(\.isActive).count }
 
+    var isPolling: Bool { pollTask != nil }
+
+    // MARK: - Jobs by title
+
+    /// Finished jobs read on a title's page and put away. The download centre still
+    /// lists them — putting away is about the page, not the job.
+    @Published var dismissedJobIds: Set<String> = []
+
+    /// How long a finished job stays on its title's page unprompted. A landing from
+    /// last week is the centre's business, not a banner on the film.
+    private static let finishedJobShelfLife: TimeInterval = 24 * 3600
+
+    /// The job this title's page shows in place of its Download bar: the running one
+    /// if there is one, else the most recent finished one not yet put away.
+    func jobToShow(for ref: String) -> YsojAPI.DownloadJob? {
+        let mine = jobs.filter { $0.ref == ref }
+        if let active = mine.first(where: \.isActive) { return active }
+        let cutoff = Date().timeIntervalSince1970 - Self.finishedJobShelfLife
+        return mine.first { job in
+            !dismissedJobIds.contains(job.id) && (job.finishedAt ?? job.updatedAt) > cutoff
+        }
+    }
+
+    func hasActiveJob(for ref: String) -> Bool {
+        jobs.contains { $0.ref == ref && $0.isActive }
+    }
+
+    func dismiss(_ job: YsojAPI.DownloadJob) {
+        dismissedJobIds.insert(job.id)
+    }
+
     // MARK: - Errors
 
     /// The server writes its refusals for a person to read — "Season 9 isn't listed
@@ -368,6 +399,9 @@ extension DiscoverStore {
     /// they carry no public inits to call; and this way the fixture exercises the real
     /// decoder, which means a payload shape that drifts breaks the screenshot hook
     /// instead of quietly diverging from what the server sends.
+    /// The fixture title whose season is mid-download (`Fixture.jobs`' `job_a`).
+    static let demoDetailRef = "tmdb:series:1396"
+
     @MainActor
     static func demo() -> DiscoverStore {
         let store = DiscoverStore(
@@ -381,6 +415,8 @@ extension DiscoverStore {
         store.sources = decode([YsojAPI.Capabilities.Source].self, Fixture.sources)
         store.items = decode([YsojAPI.DiscoverItem].self, Fixture.items)
         store.jobs = decode([YsojAPI.DownloadJob].self, Fixture.jobs)
+        // The title `job_a` is fetching, so `=detail` can open on a page mid-download.
+        store.details[demoDetailRef] = decode(YsojAPI.DiscoverDetail.self, Fixture.detail)
         store.selectedCategoryId = "tmdb:trending_movies"
         store.shelfState = .loaded
         store.hasLoadedCategories = true
@@ -396,6 +432,24 @@ extension DiscoverStore {
     }
 
     private enum Fixture {
+        /// The series `job_a` is downloading season 2 of — three seasons, so the season
+        /// and episode pickers have something to show.
+        static let detail = """
+        {"ref":"tmdb:series:1396","title":"Copper Season","type":"series","year":2025,
+         "overview":"A river town's last smelter changes hands the week the water turns green, and the three families who own the bank, the mine and the newspaper each decide the others did it.",
+         "genres":["Drama","Mystery"],"runtimeMinutes":52,"rating":8.4,"certification":"TV-MA",
+         "posterURL":null,"backdropURL":null,
+         "cast":[{"name":"Ines Marlow","role":"Ada Kell","imageURL":null},
+                 {"name":"Tobias Wren","role":"Sheriff Dunmore","imageURL":null},
+                 {"name":"Priya Anand","role":"Lena Voss","imageURL":null}],
+         "seasons":[{"seasonNumber":1,"name":"Season 1","episodeCount":10,"year":2024,"overview":"","posterURL":null},
+                    {"seasonNumber":2,"name":"Season 2","episodeCount":13,"year":2025,"overview":"","posterURL":null},
+                    {"seasonNumber":3,"name":"Season 3","episodeCount":8,"year":2026,"overview":"","posterURL":null}],
+         "episodeCount":31,"status":"Returning Series","sourceId":"tmdb","sourceName":"TMDB",
+         "sourceURL":"https://www.themoviedb.org/tv/1396","externalIds":{"imdb":"tt0000000"},
+         "inLibrary":{"present":false,"jellyfinItemId":null,"known":true},"trailers":[]}
+        """
+
         static let categories = """
         [{"id":"tmdb:trending_movies","title":"Trending Films","kind":"movie","sourceId":"tmdb"},
          {"id":"tmdb:popular_tv","title":"Popular TV","kind":"series","sourceId":"tmdb"},

@@ -370,6 +370,52 @@ from the environment, which `RootView` sets to `TVBar.phoneHeight` while the bar
 thirteen call sites untouched. On the iPad the bar is a floating card bottom-trailing, since
 there is no tab bar to stack on.
 
+## Downloads — a title's page watches its own download
+
+**The client never picks a torrent.** The owner finds a title in Discover, chooses what
+to get — the film; a season, one episode (`selectedEpisode`, chips up to 60 episodes and
+a ±10/±1 stepper past that, for the anime long-runners), or the whole show; anime titles
+are the same shapes — and the page asks the server for it (`plan` → confirm sheet →
+`confirm`, `YsojAPI.DownloadScope`). Finding a source, ranking it and fetching it are the
+server's (`media-downloader`'s job model and URL/AI resolution, its Phase 4 T4.4/T4.5 —
+its own `/ui/downloads` page searches trackers, and a client-side "find a release" screen
+with magnets was built once and withdrawn the same day: not what the owner wants on a
+sofa). Home videos have no page and no source, so nothing of this applies to them.
+
+**The download shows on the page that started it, in the bar's own slot**
+(`DownloadProgressPanel`, `DiscoverDetailView.downloadBar`): the state chip in the user's
+words (`DownloadJob.State.label/glyph/color`, shared with the centre's rows), the scope,
+the bar only once a percentage means something (`showsProgress` — "searching" has no
+denominator, so it gets a spinner and the server's own sentence), bytes / speed / ETA /
+seeds, and a SIMULATED tag whenever `engine == "stub"`, because a bar reaching 100% with
+no file behind it is the one thing nobody may misread. Confirm no longer closes the page
+(it used to, dumping the person on the shelf to go find the centre). Leaving and coming
+back finds it still moving: `DiscoverStore.jobToShow(for:)` — the running job for that
+ref, else the newest finished one from the last 24 h not yet put away (`dismiss(_:)`,
+which hides it on the page only; the centre keeps every job) — and the page refreshes the
+jobs once on open. **Polling is per page and only while that title has a running job**
+(`syncPolling()` on open, after confirm and on every `jobs` change; `stopPolling` on
+disappear; `store.isPolling` guards the re-entry, or each poll's own update would restart
+the loop). The centre remains the overview and polls on its own terms. Screenshot hook:
+`RT_SHOW_DISCOVER=detail` / `JT_SHOW_DISCOVER=detail` opens on the fixture series whose
+season 2 is 42% downloaded (`DiscoverStore.demoDetailRef`, `Fixture.detail`), and tvOS
+now lands on Discover / the centre for `JT_SHOW_DISCOVER` / `JT_SHOW_DOWNLOADS` at all
+(it never did).
+
+**The Discover title page has a real phone layout now** (`DiscoverDetailView.phoneBody`),
+because the one-sheet cannot be narrowed: the spine is a fixed 118pt of a 393pt screen
+and the text column has a 340pt floor, so side by side it overflowed by half a poster —
+the facts rail wrapped "86 min" mid-word and the download panel's numbers were cut off.
+The phone stacks instead: a back chevron and marker in a top bar, poster beside title and
+one facts line, then synopsis, what-to-get, the download bar or panel, and the cast, all
+full width in one scroll. **A vertical `ScrollView` proposes no width to its content**, so
+every horizontal strip inside one (the cast band, the season and episode chips) takes its
+*content's* width and drags the whole page wider than the screen — with a full TMDB cast
+the poster was pushed off the left edge. `.containerRelativeFrame(.horizontal)` on the
+column is what pins it; the strips then scroll as intended. The panel itself has a narrow
+mode: the scope moves to its own line and the five numbers become two rows, since
+"7.12 GB of…" truncated is worse than two lines.
+
 ## Home on tvOS
 
 **Every control on Home does something, or it isn't there.** The hero's Details button was an
