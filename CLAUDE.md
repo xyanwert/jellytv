@@ -370,40 +370,6 @@ from the environment, which `RootView` sets to `TVBar.phoneHeight` while the bar
 thirteen call sites untouched. On the iPad the bar is a floating card bottom-trailing, since
 there is no tab bar to stack on.
 
-## Downloads — the release search ("Find a release")
-
-**The download centre searches the trackers; nothing in the app downloads a result yet.**
-The server's `media-downloader` (Phase 4) has search and no job model, so the centre's
-field + category chips (`DownloadCenterView.releaseBar`, owner only: `Capabilities.
-offersReleaseSearch` = `owner && downloads.search`) call `GET /ysoj/downloads/search?q=&
-category=` (`YsojClient.searchReleases`, kit types under `YsojAPI.Release*`) and show ranked
-rows — quality chip, size, seeders in three colour bands at the server's own thresholds
-(50 / 5), leechers, files (a count guessed from the release name is rendered `≈13 files`,
-never as a fact — only one tracker reports a real one), provider, category. A query is a
-*mode*, like Discover's search: it replaces the jobs list until cleared. The results block
-says three things before the rows: **search only** (no Download button — a button that
-simulated would be worse than none, the same rule the server's own `/ui/downloads` page
-follows), "already in your library" (checked once on the query, never per row), and which
-tracker didn't answer (`sources[].ok == false`, with the failure's class name). Select on a
-row opens its facts; **on iOS that is where "Copy magnet link" lives** (`UIPasteboard`,
-verified: the simulator's pasteboard held the magnet), and on tvOS the open row says the
-app can't download it yet and where a magnet can be copied — there is nowhere to paste on
-a TV. When the job model lands, the Download button goes on the open row and nothing else
-here moves.
-
-Two things that are the server's, learned building this: the endpoint is **registered
-before `/downloads/{job_id}`**, or FastAPI reads "search" as a job id and every query 404s
-"No such job" (it did); and a satellite that isn't running is a **503 with a sentence**
-("The server's download service isn't running. Start media-downloader on the server…")
-that the client shows verbatim (`DiscoverStore.ReleaseState.failed`), never a 500. The
-kit's client neither retries a release search (a tracker search is slow by nature and
-answers "down" honestly) nor times it out at the usual 20 s (45 s — the server itself
-waits 30 s on the trackers). The search debounce is 700 ms, longer than Discover's 300:
-a keystroke must not be two or three upstream tracker requests; Return searches at once.
-Screenshot hook: `RT_SHOW_DOWNLOADS=search` / `JT_SHOW_DOWNLOADS=search` seeds a finished
-search from `DiscoverStore.demo(releases:)` — five rows in every state worth looking at,
-one tracker down, the title already owned.
-
 ## Home on tvOS
 
 **Every control on Home does something, or it isn't there.** The hero's Details button was an

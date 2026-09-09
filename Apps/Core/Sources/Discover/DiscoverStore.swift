@@ -68,28 +68,6 @@ final class DiscoverStore: ObservableObject {
     /// own message is shown — it is written for a person and says what to do.
     @Published var actionError: String?
 
-    // MARK: Release search (the trackers)
-
-    /// Whether the download centre shows the release search at all. The live answer is
-    /// the capabilities document's (`offersReleaseSearch`: the owner, on a server that
-    /// has the endpoint); this flag is what the screenshot fixture sets.
-    @Published var offersReleaseSearch = false
-    @Published var releaseQuery: String = ""
-    @Published var releaseCategory: YsojAPI.ReleaseCategory = .all
-    @Published fileprivate(set) var releaseSearch: YsojAPI.ReleaseSearch?
-    @Published fileprivate(set) var releaseState: ReleaseState = .idle
-
-    enum ReleaseState: Equatable {
-        case idle
-        case searching
-        case loaded
-        case failed(String)
-    }
-
-    /// A mode, like Discover's search: while there is a query the centre shows releases
-    /// instead of jobs, and clearing it brings the jobs back.
-    var isReleaseMode: Bool { !trimmedReleaseQuery.isEmpty }
-
     // MARK: - Private
 
     private let client: YsojClient
@@ -103,11 +81,6 @@ final class DiscoverStore: ObservableObject {
     private var shelfCache: [String: [YsojAPI.DiscoverItem]] = [:]
 
     private static let searchDebounce: Duration = .milliseconds(300)
-    private var releaseTask: Task<Void, Never>?
-    /// Longer than Discover's: a tracker search is two or three upstream requests, the
-    /// slow ones take seconds, and the server caches the exact question — so a keystroke
-    /// must not be a search, and Return searches at once.
-    private static let releaseDebounce: Duration = .milliseconds(700)
 
     init(client: YsojClient) {
         self.client = client
@@ -117,7 +90,6 @@ final class DiscoverStore: ObservableObject {
         searchTask?.cancel()
         shelfTask?.cancel()
         pollTask?.cancel()
-        releaseTask?.cancel()
     }
 
     // MARK: - Shelves
@@ -341,71 +313,6 @@ final class DiscoverStore: ObservableObject {
 
     var activeJobCount: Int { jobs.filter(\.isActive).count }
 
-    // MARK: - Release search
-
-    /// Debounced. A cleared field ends the mode at once: the jobs come back and any
-    /// search still in flight is dropped rather than landing over them.
-    func releaseQueryChanged() {
-        releaseTask?.cancel()
-        let query = trimmedReleaseQuery
-        guard !query.isEmpty else {
-            releaseSearch = nil
-            releaseState = .idle
-            return
-        }
-        releaseState = .searching
-        releaseTask = Task {
-            try? await Task.sleep(for: Self.releaseDebounce)
-            guard !Task.isCancelled else { return }
-            await runReleaseSearch(query)
-        }
-    }
-
-    /// Return pressed: search now, without waiting out the debounce.
-    func searchReleasesNow() {
-        releaseTask?.cancel()
-        let query = trimmedReleaseQuery
-        guard !query.isEmpty else { return }
-        releaseState = .searching
-        releaseTask = Task { await runReleaseSearch(query) }
-    }
-
-    func selectReleaseCategory(_ category: YsojAPI.ReleaseCategory) {
-        guard releaseCategory != category else { return }
-        releaseCategory = category
-        if isReleaseMode { searchReleasesNow() }
-    }
-
-    func clearReleaseSearch() {
-        releaseTask?.cancel()
-        releaseQuery = ""
-        releaseSearch = nil
-        releaseState = .idle
-    }
-
-    private var trimmedReleaseQuery: String {
-        releaseQuery.trimmingCharacters(in: .whitespaces)
-    }
-
-    private func runReleaseSearch(_ query: String) async {
-        let category = releaseCategory
-        do {
-            let found = try await client.searchReleases(query: query, category: category)
-            // The question may have changed while the trackers were thinking; an answer
-            // to the old one must not land on the new one.
-            guard !Task.isCancelled, trimmedReleaseQuery == query,
-                  releaseCategory == category else { return }
-            releaseSearch = found
-            releaseState = .loaded
-        } catch {
-            guard !Task.isCancelled, trimmedReleaseQuery == query else { return }
-            releaseSearch = nil
-            // 503 carries the server's own sentence — "the download service isn't
-            // running" — and that is what the screen shows.
-            releaseState = .failed(Self.message(for: error))
-        }
-    }
-
     // MARK: - Errors
 
     /// The server writes its refusals for a person to read — "Season 9 isn't listed
@@ -461,12 +368,8 @@ extension DiscoverStore {
     /// they carry no public inits to call; and this way the fixture exercises the real
     /// decoder, which means a payload shape that drifts breaks the screenshot hook
     /// instead of quietly diverging from what the server sends.
-    ///
-    /// `releases: true` (`RT_SHOW_DOWNLOADS=search` / `JT_SHOW_DOWNLOADS=search`) opens
-    /// the centre on a finished release search — every row state worth looking at, one
-    /// tracker down, and the title already in the library.
     @MainActor
-    static func demo(releases: Bool = false) -> DiscoverStore {
+    static func demo() -> DiscoverStore {
         let store = DiscoverStore(
             client: YsojClient(baseURL: URL(string: "http://demo.invalid")!,
                                apiKey: "demo", deviceId: "demo")
@@ -483,13 +386,6 @@ extension DiscoverStore {
         store.hasLoadedCategories = true
         store.canManageDownloads = true
         store.downloadsAreSimulated = true
-        store.offersReleaseSearch = true
-        if releases {
-            store.releaseQuery = "the matrix"
-            store.releaseCategory = .movies
-            store.releaseSearch = decode(YsojAPI.ReleaseSearch.self, Fixture.releases)
-            store.releaseState = .loaded
-        }
         return store
     }
 
@@ -500,36 +396,6 @@ extension DiscoverStore {
     }
 
     private enum Fixture {
-        /// The server's own payload shape: apibay answered, nyaa timed out, one row's
-        /// file count is a guess from its name, and the film is already owned.
-        static let releases = """
-        {"query":"the matrix","normalized":"the matrix","category":"movies",
-         "results":[
-          {"name":"The Matrix 1999 2160p UHD BluRay x265 HDR TrueHD Atmos 7.1","infoHash":"A1B2C3D4E5F60718293A4B5C6D7E8F9012345678",
-           "magnet":"magnet:?xt=urn:btih:A1B2C3D4E5F60718293A4B5C6D7E8F9012345678","sizeBytes":24696061952,
-           "seeders":412,"leechers":37,"fileCount":2,"fileCountExact":true,"quality":"2160p",
-           "qualityTier":3,"category":"HD Movies","provider":"TPB","sourceId":"1","score":[5,3,412]},
-          {"name":"The Matrix 1999 1080p WEB-DL DDP5.1 H.264","infoHash":"B2C3D4E5F60718293A4B5C6D7E8F901234567890",
-           "magnet":"magnet:?xt=urn:btih:B2C3D4E5F60718293A4B5C6D7E8F901234567890","sizeBytes":8482560000,
-           "seeders":96,"leechers":8,"fileCount":3,"fileCountExact":true,"quality":"1080p",
-           "qualityTier":2,"category":"HD Movies","provider":"TPB","sourceId":"2","score":[4,3,96]},
-          {"name":"The Matrix (1999) 1080p BluRay x264","infoHash":"C3D4E5F60718293A4B5C6D7E8F90123456789012",
-           "magnet":"magnet:?xt=urn:btih:C3D4E5F60718293A4B5C6D7E8F90123456789012","sizeBytes":2254857830,
-           "seeders":38,"leechers":4,"fileCount":1,"fileCountExact":true,"quality":"1080p",
-           "qualityTier":2,"category":"HD Movies","provider":"TPB","sourceId":"3","score":[4,2,38]},
-          {"name":"[Nyaa] The Matrix Trilogy 01-03 [720p][Dual Audio]","infoHash":"D4E5F60718293A4B5C6D7E8F9012345678901234",
-           "magnet":"magnet:?xt=urn:btih:D4E5F60718293A4B5C6D7E8F9012345678901234","sizeBytes":6120328397,
-           "seeders":7,"leechers":21,"fileCount":3,"fileCountExact":false,"quality":"720p",
-           "qualityTier":1,"category":"Anime/Eng","provider":"nyaa","sourceId":"4","score":[3,1,7]},
-          {"name":"The Matrix 1999 REMUX 1080p AVC DTS-HD MA 5.1","infoHash":"E5F60718293A4B5C6D7E8F901234567890123456",
-           "magnet":"magnet:?xt=urn:btih:E5F60718293A4B5C6D7E8F901234567890123456","sizeBytes":33822867456,
-           "seeders":2,"leechers":0,"fileCount":0,"fileCountExact":false,"quality":"1080p",
-           "qualityTier":2,"category":"Movies","provider":"torrents-csv","sourceId":"5","score":[4,1,2]}],
-         "sources":[{"id":"apibay","ok":true,"rows":100,"tookMs":312},
-                    {"id":"nyaa","ok":false,"rows":0,"tookMs":10004,"detail":"ReadTimeout"}],
-         "cached":false,"tookMs":10360,"inLibrary":{"present":true,"jellyfinItemId":"jf-matrix"}}
-        """
-
         static let categories = """
         [{"id":"tmdb:trending_movies","title":"Trending Films","kind":"movie","sourceId":"tmdb"},
          {"id":"tmdb:popular_tv","title":"Popular TV","kind":"series","sourceId":"tmdb"},

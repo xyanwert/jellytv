@@ -18,28 +18,10 @@ struct DownloadCenterView: View {
     var onSelectRail: (RailTarget) -> Void = { _ in }
     @EnvironmentObject private var theme: Theme
     @EnvironmentObject private var appState: AppState
-    @FocusState private var focus: Focus?
-
-    enum Focus: Hashable {
-        case search
-        case chip(YsojAPI.ReleaseCategory)
-    }
 
     private var pollSeconds: Int {
         appState.ysojCapabilities?.features.downloads?.pollSeconds ?? 2
     }
-
-    /// The live answer is the capabilities document's — the owner, on a server with the
-    /// endpoint. The store's own flag is what the screenshot fixture sets.
-    private var offersReleaseSearch: Bool {
-        appState.ysojCapabilities?.offersReleaseSearch ?? store.offersReleaseSearch
-    }
-
-    private var releaseCategories: [YsojAPI.ReleaseCategory] {
-        appState.ysojCapabilities?.releaseCategories ?? YsojAPI.ReleaseCategory.allCases
-    }
-
-    private var isPhone: Bool { DeviceClass.current == .phone }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -59,128 +41,8 @@ struct DownloadCenterView: View {
                 eyebrow: "DOWNLOADS", title: "Download centre",
                 count: store.activeJobCount > 0 ? "\(store.activeJobCount) running" : nil
             )
-            if offersReleaseSearch { releaseBar }
-            if store.isReleaseMode {
-                // A query is a mode: the trackers' answer stands in for the jobs until
-                // the field is cleared, the same way Discover's search replaces its shelf.
-                ReleaseResultsView(store: store)
-            } else {
-                jobsBody
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, DiscoverMetrics.pagePadding)
-        .padding(.top, DiscoverMetrics.topPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Find a release
-
-    /// The field and the category chips. Side by side where there is room; stacked on
-    /// the phone, where a field beside four chips leaves neither usable.
-    @ViewBuilder
-    private var releaseBar: some View {
-        if isPhone {
-            VStack(alignment: .leading, spacing: 10) {
-                releaseField
-                categoryRow
-            }
-        } else {
-            HStack(spacing: 18) {
-                releaseField
-                categoryRow
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var releaseField: some View {
-        #if os(tvOS)
-        AppTextField(
-            placeholder: "Find a release on the trackers",
-            text: $store.releaseQuery,
-            systemImage: "magnifyingglass",
-            width: 640,
-            accent: theme.secondaryAccent,
-            field: Focus.search,
-            focus: $focus,
-            onSubmit: { store.searchReleasesNow() }
-        )
-        .onChange(of: store.releaseQuery) { _, _ in store.releaseQueryChanged() }
-        #else
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: isPhone ? 14 : 16, weight: .semibold))
-                .foregroundStyle(Palette.text(0.45))
-            // Bound to the store, not mirrored: the store outlives this view.
-            TextField("Find a release on the trackers", text: $store.releaseQuery)
-                .textFieldStyle(.plain)
-                .font(Typography.font(isPhone ? 16 : 18, .semibold))
-                .foregroundStyle(Palette.text(0.9))
-                .focused($focus, equals: .search)
-                .submitLabel(.search)
-                .autocorrectionDisabled()
-                .onSubmit { store.searchReleasesNow() }
-                .onChange(of: store.releaseQuery) { _, _ in store.releaseQueryChanged() }
-            if store.isReleaseMode {
-                Button {
-                    store.clearReleaseSearch()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Palette.text(0.4))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear the search")
-            }
-        }
-        .padding(.horizontal, 16)
-        .frame(height: isPhone ? 44 : 48)
-        .frame(maxWidth: isPhone ? .infinity : 520)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Palette.text(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(theme.secondaryAccent.opacity(focus == .search ? 0.8 : 0.4),
-                                lineWidth: 1.5)
-                )
-        )
-        #endif
-    }
-
-    private var categoryRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(releaseCategories, id: \.self) { category in
-                    LibraryFilterChip(
-                        label: category.label,
-                        isOn: store.releaseCategory == category,
-                        action: { store.selectReleaseCategory(category) },
-                        accent: theme.accent
-                    )
-                    #if os(tvOS)
-                    .focused($focus, equals: .chip(category))
-                    #endif
-                }
-            }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 2)
-        }
-        .horizontalEdgeFade()
-        #if os(tvOS)
-        // Left/Right at the row's edge must stay in the row, never wander the screen.
-        .focusSection()
-        #endif
-    }
-
-    // MARK: - Jobs
-
-    @ViewBuilder
-    private var jobsBody: some View {
-        if store.downloadsAreSimulated { simulatedBanner }
-        if store.jobs.isEmpty {
+            if store.downloadsAreSimulated { simulatedBanner }
+            if store.jobs.isEmpty {
                 // Empty and unreachable must not look the same: "nothing downloading" is
                 // only true once the server has said so.
                 switch store.downloadsState {
@@ -192,14 +54,17 @@ struct DownloadCenterView: View {
                 case .loaded:
                     LibraryEmptyState(
                         message: "Nothing downloading",
-                        hint: offersReleaseSearch
-                            ? "Pick something in Discover, or search the trackers above."
-                            : "Pick something in Discover and it'll show up here."
+                        hint: "Pick something in Discover and it'll show up here."
                     )
                 }
-        } else {
-            jobList
+            } else {
+                jobList
+            }
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, DiscoverMetrics.pagePadding)
+        .padding(.top, DiscoverMetrics.topPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The one thing this screen must never let anyone misread: with the stub engine
@@ -244,7 +109,6 @@ struct DownloadCenterView: View {
                 }
             }
             .padding(.bottom, 60)
-            .phoneTabBarClearance()
         }
     }
 
