@@ -492,9 +492,32 @@ public enum YsojAPI {
         let overrides: [LibraryOverride]
     }
 
+    /// Where a download should be put, chosen by the person asking for it.
+    ///
+    /// **The client picks the library; the server does not guess it.** Guessing meant
+    /// mapping a title's media kind onto a library, which is wrong the moment somebody
+    /// keeps their films in two places, or wants this one in "Late Night" rather than
+    /// "Movies". The id is a real Jellyfin library id (`/UserViews`), so the server can
+    /// resolve it to that library's own folder; the name travels with it so the server
+    /// can say "added to Movies" without a second lookup.
+    public struct DownloadTarget: Codable, Sendable, Equatable, Hashable, Identifiable {
+        public let libraryId: String
+        public let libraryName: String
+
+        public var id: String { libraryId }
+
+        public init(libraryId: String, libraryName: String) {
+            self.libraryId = libraryId
+            self.libraryName = libraryName
+        }
+    }
+
     struct PlanRequest: Encodable, Sendable {
         let ref: String
         let scope: DownloadScope
+        /// Omitted entirely on a server that has no libraries to offer, so the payload
+        /// stays exactly what it was before this existed.
+        let target: DownloadTarget?
     }
 
     struct ConfirmRequest: Encodable, Sendable {

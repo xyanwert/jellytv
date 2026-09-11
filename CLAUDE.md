@@ -435,6 +435,26 @@ fixed 500pt on a 402pt screen. The phone also **has a Discover search field now*
 Rated, so without it no specific film could be reached at all, which is most of what the
 screen is for.
 
+**"Download to", and the app says which library.** The bar is not `Download`; it is
+`Download to` with the library leading the line beneath it (`WHERE IT GOES` chips above
+`WHAT TO GET`, `DiscoverDetailView.libraryPicker`). The chips are the real `/UserViews`
+list filtered to what can hold a video — movies, tvshows, homevideos, musicvideos, plus
+any mixed-content library — and the choice rides on the plan request as
+`YsojAPI.DownloadTarget {libraryId, libraryName}`. **The server does not map a media kind
+onto a folder**, because that rule is wrong the moment somebody keeps films in two places
+or wants this one under Late Night; it was tried on the server side first and withdrawn.
+The default is a default, not a decision: whatever was chosen last for that kind
+(`jelly:downloads.lastLibrary`), else the *plain* library of the right type — the app's
+own `MetaCategory` is what keeps "Anime", which sorts first alphabetically among this
+server's `tvshows` libraries, from being where a drama silently goes. Three details
+learned by looking: the libraries arrive from `/UserViews` *after* the page opens, so the
+selection is filled in on `libraries` changing and not only in `.task`; a selection that
+is no longer in the list is replaced rather than kept (which is what a fixture-seeded
+library looks like the moment the real list lands); and the chosen chip is scrolled into
+view, because six libraries do not fit a phone and the answer was reliably the chip off
+the right edge. The library name is in the bar's *readout*, never its label —
+"Download to TV shows" wrapped the title onto two lines on the TV.
+
 **The page offers only what the engine can fetch.** `capabilities.features.downloads.
 granularity` is the engine's own list now, not a constant the API could express: a
 downloader that resolves one link to one release can do films long before "season 2,

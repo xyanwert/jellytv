@@ -346,7 +346,8 @@ struct RootView: View {
                 landed: env["RT_SHOW_DISCOVER"] == DiscoverFixture.landed
                     || env["RT_SHOW_DOWNLOADS"] == DiscoverFixture.landed,
                 owned: env["RT_SHOW_DISCOVER"] == DiscoverFixture.owned,
-                filmOnly: env["RT_SHOW_DISCOVER"] == DiscoverFixture.filmOnly,
+                idle: [DiscoverFixture.filmOnly, DiscoverFixture.download]
+                    .contains(env["RT_SHOW_DISCOVER"] ?? ""),
                 failed: env["RT_SHOW_DISCOVER"] == DiscoverFixture.failed)
             discoverStoreBox.store = demo
             return demo

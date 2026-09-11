@@ -133,11 +133,13 @@ public struct YsojClient: Sendable {
 
     /// Step one of plan → confirm → apply. Costs the request and returns what *would*
     /// happen; nothing is started.
-    public func planDownload(ref: String, scope: YsojAPI.DownloadScope) async throws -> YsojAPI.DownloadPlan {
+    public func planDownload(ref: String, scope: YsojAPI.DownloadScope,
+                             target: YsojAPI.DownloadTarget? = nil) async throws -> YsojAPI.DownloadPlan {
         guard let url = buildURL(path: "/ysoj/downloads/plan", query: nil) else {
             throw JellyfinRequestError.invalidURL
         }
-        let body = try JSONEncoder().encode(YsojAPI.PlanRequest(ref: ref, scope: scope))
+        let body = try JSONEncoder().encode(
+            YsojAPI.PlanRequest(ref: ref, scope: scope, target: target))
         return try await request(url: url, method: .post, bodyData: body)
     }
 

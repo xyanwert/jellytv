@@ -39,6 +39,10 @@ struct DiscoverDetailView: View {
     @State private var wantsWholeSeries = false
     /// nil = the whole selected season. The third granularity: one episode.
     @State private var selectedEpisode: Int?
+    /// Which library this lands in. **Chosen here, never guessed by the server**: a rule
+    /// that maps a title's kind onto a library is wrong the moment somebody keeps films
+    /// in two places, or wants this one filed under Late Night rather than Movies.
+    @State private var library: JellyfinAPI.JellyfinUserView?
     /// The landed job whose arrival already triggered a detail re-fetch.
     @State private var refreshedForJobId: String?
     @State private var plan: YsojAPI.DownloadPlan?
@@ -50,6 +54,7 @@ struct DiscoverDetailView: View {
     @FocusState private var focus: Field?
     private enum Field: Hashable {
         case download, watch, trailer, season(Int), whole, allEpisodes, episode(Int), step(Int)
+        case library(String)
     }
     #endif
 
@@ -138,6 +143,7 @@ struct DiscoverDetailView: View {
             detail = await store.loadDetail(ref: ref)
             detailFailed = detail == nil
             selectedSeason = detail?.downloadableSeasons.first?.seasonNumber
+            library = appState.defaultDownloadLibrary(isSeries: detail?.isSeries ?? false)
             // A server that can only take "the whole show" opens on it, or the bar
             // would sit disabled with no chip able to satisfy it.
             wantsWholeSeries = !offersSeasonChips && offersWholeShow
@@ -158,6 +164,19 @@ struct DiscoverDetailView: View {
         .onChange(of: store.jobs) { _, _ in
             syncPolling()
             Task { await refreshDetailIfJustLanded() }
+        }
+        // The libraries arrive from `/UserViews` after this page opens, so the first pass
+        // through `.task` usually has none to choose from and the bar would sit on a bare
+        // "Download" with no chip lit. Only fills a blank — a choice already made here is
+        // never overwritten.
+        .onChange(of: appState.libraries) { _, _ in
+            // Also replaces a selection that is no longer *in* the list — which is what a
+            // fixture-seeded library looks like the moment the real `/UserViews` lands,
+            // and what a library removed on the server looks like later.
+            let stillThere = appState.downloadLibraries.contains { $0.id == library?.id }
+            if !stillThere {
+                library = appState.defaultDownloadLibrary(isSeries: detail?.isSeries ?? false)
+            }
         }
         .onDisappear { store.stopPolling() }
         #if os(tvOS)
@@ -204,6 +223,7 @@ struct DiscoverDetailView: View {
                             .lineSpacing(5)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    libraryPicker(detail)
                     if detail.isSeries { seasonPicker(detail) }
                     downloadBar(detail)
                     if !detail.cast.isEmpty { CastBand(cast: castMembers(detail)) }
@@ -400,10 +420,63 @@ struct DiscoverDetailView: View {
 
             Spacer(minLength: 20)
 
+            libraryPicker(detail)
             if detail.isSeries { seasonPicker(detail) }
             downloadBar(detail)
         }
         .frame(width: width, height: height, alignment: .topLeading)
+    }
+
+    // MARK: - Where it goes
+
+    /// One chip per library that can hold a video. Sits above "what to get" because it is
+    /// the question asked first: which shelf, then how much of it.
+    ///
+    /// Hidden when there is only one place to put things, or none — a chip row with a
+    /// single chip is a label pretending to be a choice.
+    @ViewBuilder
+    private func libraryPicker(_ detail: YsojAPI.DiscoverDetail) -> some View {
+        let choices = appState.downloadLibraries
+        if choices.count > 1, !cannotGet(detail) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("WHERE IT GOES")
+                    .font(Mono.font(eyebrowSize - 2, .bold)).tracking(2.6)
+                    .foregroundStyle(Palette.text(0.45))
+                ScrollViewReader { chips in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(choices) { choice in
+                                LibraryFilterChip(
+                                    label: choice.name,
+                                    isOn: library?.id == choice.id,
+                                    action: { library = choice },
+                                    accent: effectiveTint
+                                )
+                                .id(choice.id)
+                                #if os(tvOS)
+                                .focused($focus, equals: .library(choice.id))
+                                #endif
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    // Six libraries do not fit a phone, and the chosen one was reliably
+                    // the one off the right edge — a picker whose answer you cannot see.
+                    .onChange(of: library?.id) { _, id in
+                        guard let id else { return }
+                        withAnimation(.easeOut(duration: 0.2)) { chips.scrollTo(id, anchor: .center) }
+                    }
+                    .onAppear {
+                        if let id = library?.id { chips.scrollTo(id, anchor: .center) }
+                    }
+                }
+                .horizontalEdgeFade()
+                #if os(tvOS)
+                .focusSection()
+                #endif
+            }
+            .padding(.bottom, 14)
+        }
     }
 
     // MARK: - What to get
@@ -735,13 +808,16 @@ struct DiscoverDetailView: View {
         HStack(spacing: 18) {
             TVNeonPlayBar(
                 icon: isPlanning ? "hourglass" : "arrow.down.circle.fill",
-                label: isPlanning ? "Checking…" : "Download",
+                label: isPlanning ? "Checking…" : downloadLabel,
                 sub: scopeSubtitle(detail),
                 progress: 0,
                 tint: effectiveTint,
                 action: { Task { await makePlan(detail) } }
             )
-            .frame(maxWidth: 420)
+                // Wider than the Play bar it borrows from: this one's readout carries the
+                // library as well as the scope, and at 420 "Anime · Season 1 · 10
+                // episodes" wrapped onto a second line.
+                .frame(maxWidth: 540)
             .disabled(isPlanning)
             .focused($focus, equals: .download)
 
@@ -757,7 +833,7 @@ struct DiscoverDetailView: View {
         HStack(spacing: 14) {
         NeonTransportBar(
             icon: isPlanning ? "hourglass" : "arrow.down.circle.fill",
-            label: isPlanning ? "Checking…" : "Download",
+            label: isPlanning ? "Checking…" : downloadLabel,
             sub: scopeSubtitle(detail),
             progress: 0,
             tint: effectiveTint,
@@ -852,7 +928,14 @@ struct DiscoverDetailView: View {
 
     /// What the bar is about to fetch, in words — this is the only place the chosen scope
     /// is stated before the confirm sheet repeats it.
+    /// What the press will do: where it goes, then how much of it.
     private func scopeSubtitle(_ detail: YsojAPI.DiscoverDetail) -> String {
+        let scope = scopeWords(detail)
+        guard let library else { return scope }
+        return scope.isEmpty ? library.name : "\(library.name) · \(scope)"
+    }
+
+    private func scopeWords(_ detail: YsojAPI.DiscoverDetail) -> String {
         guard detail.isSeries else {
             return [detail.year.map(String.init), detail.runtimeMinutes.map { "\($0) min" }]
                 .compactMap { $0 }.joined(separator: " · ")
@@ -878,6 +961,20 @@ struct DiscoverDetailView: View {
     /// The scope the chips currently describe — or nil, which disables the bar. Every
     /// branch is checked against what the engine can do, so a stale chip (the capability
     /// narrowed while this page was open) cannot start a job the server would botch.
+    /// "Download to", with the library leading the line beneath it.
+    ///
+    /// The name lived in the label first — "Download to TV shows" — and wrapped the bar's
+    /// title onto two lines on the TV, which pushed the readout down and made the tallest
+    /// control on the page taller still. The line below it already carries what the press
+    /// will do; the library belongs at the front of that.
+    private var downloadLabel: String {
+        library == nil ? "Download" : "Download to"
+    }
+
+    private var downloadTarget: YsojAPI.DownloadTarget? {
+        library.map { YsojAPI.DownloadTarget(libraryId: $0.id, libraryName: $0.name) }
+    }
+
     private func currentScope(_ detail: YsojAPI.DiscoverDetail) -> YsojAPI.DownloadScope? {
         guard detail.isSeries else { return canGet(.movie) ? .movie : nil }
         if wantsWholeSeries { return canGet(.series) ? .wholeSeries : nil }
@@ -895,9 +992,10 @@ struct DiscoverDetailView: View {
             store.actionError = "Choose which season to download."
             return
         }
+        if let library { appState.rememberDownloadLibrary(library, isSeries: detail.isSeries) }
         isPlanning = true
         defer { isPlanning = false }
-        plan = await store.plan(ref: ref, scope: scope)
+        plan = await store.plan(ref: ref, scope: scope, target: downloadTarget)
     }
 
     /// Put the failed panel away and ask for the same thing again — through the plan

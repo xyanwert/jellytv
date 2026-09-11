@@ -273,6 +273,18 @@ final class AppState: ObservableObject {
             YsojAPI.Capabilities.self, from: Data(json.utf8)
         )
         activeDownloadCount = 2
+        // The download page asks which library to put it in, and that list is the real
+        // `/UserViews` — which a signed-out simulator has none of. Seeded only when
+        // empty, so this can never stand in front of a real server's libraries.
+        if libraries.isEmpty {
+            libraries = [
+                .init(id: "lib-movies", name: "Movies", collectionType: "movies"),
+                .init(id: "lib-tv", name: "TV shows", collectionType: "tvshows"),
+                .init(id: "lib-anime", name: "Anime", collectionType: "tvshows"),
+                .init(id: "lib-late", name: "Late Night", collectionType: "movies"),
+                .init(id: "lib-music", name: "Music", collectionType: "music"),
+            ]
+        }
     }
 
     private func loadYsojCapabilities() async {
@@ -587,6 +599,60 @@ final class AppState: ObservableObject {
         guard let collectionType = library.collectionType else { return nil }
         let flags = classificationFlags(for: library)
         return MetaCategory.resolve(collectionType: collectionType, isNSFW: flags.isNSFW, isAnime: flags.isAnime)
+    }
+
+    // MARK: - Where a download goes
+
+    /// Collection types that can hold a video file. Music, books and photo libraries are
+    /// real libraries and real answers to "which one" — just never the right one here.
+    private static let downloadableCollectionTypes: Set<String> = [
+        "movies", "tvshows", "homevideos", "musicvideos",
+    ]
+
+    /// The libraries a download may be sent to, in the order the server lists them.
+    ///
+    /// A library with no `CollectionType` is Jellyfin's "mixed content", which holds
+    /// anything — so it is offered rather than filtered out.
+    var downloadLibraries: [JellyfinAPI.JellyfinUserView] {
+        libraries.filter { library in
+            guard let type = library.collectionType else { return true }
+            return Self.downloadableCollectionTypes.contains(type)
+        }
+    }
+
+    private static let lastDownloadLibraryKey = "jelly:downloads.lastLibrary"
+
+    /// What to preselect: whatever was chosen last for this kind of title, else the first
+    /// library whose type matches it, else the first that could hold it at all.
+    ///
+    /// A default, not a decision — the picker is right there, and the point of this
+    /// feature is that the person choosing knows better than any rule here.
+    func defaultDownloadLibrary(isSeries: Bool) -> JellyfinAPI.JellyfinUserView? {
+        let choices = downloadLibraries
+        let remembered = UserDefaults.standard
+            .dictionary(forKey: Self.lastDownloadLibraryKey) as? [String: String] ?? [:]
+        let key = isSeries ? "tvshows" : "movies"
+        if let id = remembered[key], let match = choices.first(where: { $0.id == id }) {
+            return match
+        }
+        // Of the libraries of the right type, prefer the plain one. The app already
+        // classifies them (`MetaCategory`), and on this server the first `tvshows`
+        // library alphabetically is "Anime" — a fine place for a download, and the wrong
+        // guess for a drama. Anime and adult libraries are a deliberate choice, never a
+        // default somebody arrives at by not looking.
+        let ofType = choices.filter { $0.collectionType == key }
+        let plain = ofType.first { library in
+            guard let category = metaCategory(for: library) else { return true }
+            return !category.isAnime && !category.isNSFW
+        }
+        return plain ?? ofType.first ?? choices.first
+    }
+
+    func rememberDownloadLibrary(_ library: JellyfinAPI.JellyfinUserView, isSeries: Bool) {
+        var remembered = UserDefaults.standard
+            .dictionary(forKey: Self.lastDownloadLibraryKey) as? [String: String] ?? [:]
+        remembered[isSeries ? "tvshows" : "movies"] = library.id
+        UserDefaults.standard.set(remembered, forKey: Self.lastDownloadLibraryKey)
     }
 
     func setLibraryClassification(libraryId: String, isNSFW: Bool, isAnime: Bool) {

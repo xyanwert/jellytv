@@ -24,14 +24,17 @@ enum DiscoverFixture {
     static let filmOnly = "filmonly"
     /// The download that could not be made — the server's reason, and Try again.
     static let failed = "failed"
+    /// A title with nothing downloading: the "Download to <library>" bar and the chips
+    /// that choose where it goes.
+    static let download = "download"
 
     /// Every mode that wants the fixture store and the fixture capabilities.
-    static let modes = [demo, detail, landed, owned, filmOnly, failed]
+    static let modes = [demo, detail, landed, owned, filmOnly, failed, download]
 
     static func uses(_ mode: String?) -> Bool { modes.contains(mode ?? "") }
 
     /// Whether this value opens the fixture title's page rather than the shelves.
     static func opensDetail(_ mode: String?) -> Bool {
-        [detail, landed, owned, filmOnly, failed].contains(mode ?? "")
+        [detail, landed, owned, filmOnly, failed, download].contains(mode ?? "")
     }
 }

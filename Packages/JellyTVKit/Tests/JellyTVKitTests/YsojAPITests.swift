@@ -359,4 +359,41 @@ final class YsojAPITests: XCTestCase {
         XCTAssertEqual(YsojAPI.DownloadScope.Kind.season.label, "seasons")
         XCTAssertEqual(YsojAPI.DownloadScope.Kind.movie.label, "films")
     }
+
+    // MARK: - Where a download goes
+
+    /// The client picks the library and sends it; the server does not map a media kind
+    /// onto a folder. A rule like that is wrong the moment somebody keeps films in two
+    /// places, or wants this one under Late Night.
+    func testAPlanRequestCarriesTheChosenLibrary() throws {
+        let body = try JSONEncoder().encode(YsojAPI.PlanRequest(
+            ref: "tmdb:movie:27205",
+            scope: .movie,
+            target: YsojAPI.DownloadTarget(libraryId: "f137a2dd", libraryName: "Movies")))
+        let sent = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+        XCTAssertEqual(sent["ref"] as? String, "tmdb:movie:27205")
+        let target = try XCTUnwrap(sent["target"] as? [String: Any])
+        XCTAssertEqual(target["libraryId"] as? String, "f137a2dd")
+        XCTAssertEqual(target["libraryName"] as? String, "Movies")
+    }
+
+    /// No library to offer means the payload is exactly what it was before this existed,
+    /// so a server that has never heard of a target sees nothing new.
+    func testAPlanRequestWithoutALibraryOmitsTheKeyEntirely() throws {
+        let body = try JSONEncoder().encode(YsojAPI.PlanRequest(
+            ref: "tmdb:movie:27205", scope: .movie, target: nil))
+        let sent = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNil(sent["target"], "an absent target is absent, not null")
+        XCTAssertEqual(Set(sent.keys), ["ref", "scope"])
+    }
+
+    func testADownloadTargetRoundTrips() throws {
+        let target = YsojAPI.DownloadTarget(libraryId: "abc", libraryName: "Late Night")
+        let decoded = try JSONDecoder().decode(
+            YsojAPI.DownloadTarget.self, from: JSONEncoder().encode(target))
+        XCTAssertEqual(decoded, target)
+        XCTAssertEqual(decoded.id, "abc", "the library id is the identity")
+    }
 }

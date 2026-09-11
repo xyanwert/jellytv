@@ -244,9 +244,10 @@ final class DiscoverStore: ObservableObject {
 
     // MARK: - Downloads
 
-    func plan(ref: String, scope: YsojAPI.DownloadScope) async -> YsojAPI.DownloadPlan? {
+    func plan(ref: String, scope: YsojAPI.DownloadScope,
+              target: YsojAPI.DownloadTarget? = nil) async -> YsojAPI.DownloadPlan? {
         do {
-            return try await client.planDownload(ref: ref, scope: scope)
+            return try await client.planDownload(ref: ref, scope: scope, target: target)
         } catch {
             actionError = Self.message(for: error)
             return nil
@@ -426,7 +427,7 @@ extension DiscoverStore {
     ///   at all, where Play replaces Download as the bar.
     @MainActor
     static func demo(landed: Bool = false, owned: Bool = false,
-                     filmOnly: Bool = false, failed: Bool = false) -> DiscoverStore {
+                     idle: Bool = false, failed: Bool = false) -> DiscoverStore {
         let store = DiscoverStore(
             client: YsojClient(baseURL: URL(string: "http://demo.invalid")!,
                                apiKey: "demo", deviceId: "demo")
@@ -440,7 +441,7 @@ extension DiscoverStore {
         // A server that can only fetch films has no job for a *show* — the fixture must
         // not contradict the capabilities it is shown with.
         let jobsJSON: String
-        if owned || filmOnly {
+        if owned || idle {
             jobsJSON = "[]"
         } else if failed {
             jobsJSON = Fixture.failedJob
