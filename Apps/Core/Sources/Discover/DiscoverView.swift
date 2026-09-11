@@ -35,7 +35,7 @@ struct DiscoverView: View {
     @State private var presentedRef: String? = {
         let env = ProcessInfo.processInfo.environment
         let mode = env["RT_SHOW_DISCOVER"] ?? env["JT_SHOW_DISCOVER"]
-        return mode == "detail" ? DiscoverStore.demoDetailRef : nil
+        return ["detail", "landed", "owned"].contains(mode ?? "") ? DiscoverStore.demoDetailRef : nil
     }()
 
     #if os(tvOS)
@@ -54,12 +54,20 @@ struct DiscoverView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            backdropLayer
             HStack(spacing: 0) {
                 NavRail(destination: .discover, isLibrariesOpen: isLibrariesOpen,
                         onSelect: onSelectRail)
                 content
             }
+            // **The backdrop is a background, not a ZStack sibling.** An image set to
+            // `.fill` inside a fixed height has an *ideal width* of that height times
+            // its own aspect ratio — 675pt for a 16:9 still at 380 — and a ZStack takes
+            // the width of its widest child. So on a 402pt phone the backdrop made the
+            // entire screen 675pt wide: the header, the chip row and half the tab bar
+            // sat off both edges, measured rather than guessed (`axe describe-ui` put
+            // the content at x = -119). A background is sized by the view it sits
+            // behind and cannot do that, and it draws in the same place.
+            .background(alignment: .top) { backdropLayer }
             // Off the focus pool while the detail is up — `.allowsHitTesting(false)` alone
             // leaves the grid and chips reachable to the tvOS focus engine under it.
             .disabled(presentedRef != nil)
@@ -82,6 +90,12 @@ struct DiscoverView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: DeviceClass.current == .phone ? 16 : 22) {
             header
+            // `LibraryHeaderLayout` drops the search field on a phone, where a title and
+            // a field cannot share a row — but **Discover without search is unusable
+            // there**: its shelves are Trending, Popular and Top Rated, so a specific
+            // film simply cannot be reached, and finding a specific film is the whole
+            // point of the screen. It gets its own row under the header instead.
+            if DeviceClass.current == .phone { searchField }
             if !appState.hasMovieSource { noFilmsNote }
             categoryRow
             grid
@@ -249,6 +263,9 @@ struct DiscoverView: View {
             }
             .padding(.vertical, 12)
             .padding(.bottom, 60)
+            // The phone's tab bar and TV bar float over the grid; without this the last
+            // row of posters sits under them and a tap on one opens the remote.
+            .phoneTabBarClearance()
         }
     }
 
@@ -281,7 +298,9 @@ struct DiscoverView: View {
             .overlay(
                 LinearGradient(colors: [Palette.pageBase, .clear],
                                startPoint: .leading, endPoint: .trailing)
-                .frame(width: 500), alignment: .leading
+                // `maxWidth`, not a fixed 500: on a 393pt phone a 500pt scrim is wider
+                // than the screen it is darkening.
+                .frame(maxWidth: 500), alignment: .leading
             )
             .ignoresSafeArea()
             .allowsHitTesting(false)
@@ -324,9 +343,20 @@ struct DiscoverView: View {
     #else
     private var backdropHeight: CGFloat { DeviceClass.current == .phone ? 380 : 560 }
     private var rowSpacing: CGFloat { DeviceClass.current == .phone ? 18 : 26 }
+    /// **Adaptive, not a fixed count of `.flexible()` columns**, which is what the five
+    /// library screens use and the reason theirs lay out correctly on a phone.
+    ///
+    /// A `.flexible()` grid's *ideal* width is the sum of its children's ideal widths,
+    /// and a poster card's ideal width is its caption on one line — so a shelf of
+    /// long titles ("Spider-Man: Brand New Day") made the grid wider than the phone,
+    /// which made the whole screen wider, which pushed the header and half the tab bar
+    /// off both edges. An adaptive column's ideal is its `minimum`, so the grid asks
+    /// for what it can fit rather than what its contents would like.
     private var columns: [GridItem] {
-        let count = DeviceClass.current == .phone ? 3 : 5
-        return Array(repeating: GridItem(.flexible(), spacing: count == 3 ? 12 : 22), count: count)
+        let phone = DeviceClass.current == .phone
+        return [GridItem(.adaptive(minimum: phone ? 104 : 150,
+                                   maximum: phone ? 170 : 220),
+                         spacing: phone ? 12 : 22)]
     }
     #endif
 }

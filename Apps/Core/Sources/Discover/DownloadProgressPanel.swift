@@ -22,8 +22,17 @@ struct DownloadProgressPanel: View {
     let onCancel: () -> Void
     /// Put the Download bar back once a finished job has been read.
     let onDismiss: () -> Void
+    /// Watch what just landed, without leaving this page. Nil when there is
+    /// nothing to play — a stub job (which lands no file), a failure, or a
+    /// server that reported `landed` without saying what it became.
+    var onPlay: (() -> Void)? = nil
 
-    @FocusState private var actionFocused: Bool
+    /// Which button the remote is on. Two controls share this row once a job
+    /// lands, so a single `Bool` would leave tvOS with two views claiming one
+    /// focus binding.
+    @FocusState private var focused: Action?
+
+    private enum Action: Hashable { case primary, secondary }
 
     private static let amber = Color(hex: "#E8B44A")
 
@@ -97,11 +106,20 @@ struct DownloadProgressPanel: View {
             HStack(spacing: 12) {
                 if job.isActive {
                     action("Cancel download", systemImage: "stop.fill", prominent: false,
-                           perform: onCancel)
+                           slot: .primary, perform: onCancel)
+                } else if let onPlay {
+                    // **The point of the whole feature, one press from the end of it.**
+                    // It landed in the library, so the next thing anyone wants is to
+                    // watch it — not to go and find it somewhere else.
+                    action("Play", systemImage: "play.fill", prominent: true,
+                           slot: .primary, perform: onPlay)
+                    action("OK", systemImage: "checkmark", prominent: false,
+                           slot: .secondary, perform: onDismiss)
                 } else {
                     // Read, understood, put away — the page's Download bar comes back.
                     // The job itself stays in the download centre.
-                    action("OK", systemImage: "checkmark", prominent: true, perform: onDismiss)
+                    action("OK", systemImage: "checkmark", prominent: true,
+                           slot: .primary, perform: onDismiss)
                 }
             }
             .padding(.top, 2)
@@ -118,8 +136,9 @@ struct DownloadProgressPanel: View {
         )
         // Focus lands on the one control here the moment the panel replaces the bar —
         // the bar had it, and a page with nothing focused eats the Menu button.
-        .onAppear { actionFocused = true }
-        .onChange(of: job.isActive) { _, _ in actionFocused = true }
+        .onAppear { focused = .primary }
+        .onChange(of: job.isActive) { _, _ in focused = .primary }
+        .onChange(of: job.state) { _, _ in focused = .primary }
     }
 
     private var progressBar: some View {
@@ -181,7 +200,7 @@ struct DownloadProgressPanel: View {
     }
 
     private func action(_ title: String, systemImage: String, prominent: Bool,
-                        perform: @escaping () -> Void) -> some View {
+                        slot: Action, perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
             Label(title, systemImage: systemImage)
                 .font(Typography.font(bodySize + 1, .bold))
@@ -194,7 +213,7 @@ struct DownloadProgressPanel: View {
                 )
         }
         .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 12))
-        .focused($actionFocused)
+        .focused($focused, equals: slot)
     }
 
     private var stateColor: Color { job.state.color(accent: tint) }

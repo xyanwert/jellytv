@@ -244,8 +244,10 @@ struct RootView: View {
     private func discoverStore() -> DiscoverStore? {
         if let existing = discoverStoreBox.store { return existing }
         let env = ProcessInfo.processInfo.environment
-        if ["demo", "detail"].contains(env["JT_SHOW_DISCOVER"] ?? "") || env["JT_SHOW_DOWNLOADS"] == "demo" {
-            let demo = DiscoverStore.demo()
+        if ["demo", "detail", "landed", "owned"].contains(env["JT_SHOW_DISCOVER"] ?? "") || ["demo", "landed"].contains(env["JT_SHOW_DOWNLOADS"] ?? "") {
+            let demo = DiscoverStore.demo(landed: env["JT_SHOW_DISCOVER"] == "landed"
+                                              || env["JT_SHOW_DOWNLOADS"] == "landed",
+                                         owned: env["JT_SHOW_DISCOVER"] == "owned")
             discoverStoreBox.store = demo
             return demo
         }

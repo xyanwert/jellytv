@@ -188,4 +188,63 @@ final class PlayQueueTests: XCTestCase {
         XCTAssertEqual(item.resumePositionTicks, 120_000_000)
         XCTAssertTrue(item.isFavorite)
     }
+
+    // MARK: - Where a whole series starts
+
+    /// Broadcast order, the way the server returns it: specials first, then
+    /// season 1. `resumeStartIndex` runs over exactly this.
+    private func run(_ marks: [(season: Int, watched: Bool, ticks: Int64)]) -> [JellyfinAPI.JellyfinItem] {
+        marks.enumerated().map { index, mark in
+            episode(id: "e\(index)", season: mark.season, number: index,
+                    userData: JellyfinAPI.JellyfinUserData(
+                        playbackPositionTicks: mark.ticks, played: mark.watched))
+        }
+    }
+
+    func testAFreshShowStartsAtItsFirstRealEpisodeNotASpecial() {
+        // Season 0 sorts ahead of season 1, so "the first unwatched row" would
+        // open a never-watched show on a behind-the-scenes reel.
+        let rows = run([(0, false, 0), (0, false, 0), (1, false, 0), (1, false, 0)])
+        XCTAssertEqual(PlayQueue.resumeStartIndex(in: rows), 2)
+    }
+
+    func testAnEpisodeInProgressWinsOverEverything() {
+        let rows = run([(1, true, 0), (1, false, 5_000_000), (1, false, 0)])
+        XCTAssertEqual(PlayQueue.resumeStartIndex(in: rows), 1)
+    }
+
+    /// Half-way through a special is a deliberate choice, so it is honoured —
+    /// unlike an *unstarted* special, which rule 2 skips.
+    func testASpecialInProgressIsHonoured() {
+        let rows = run([(0, false, 900_000), (1, false, 0)])
+        XCTAssertEqual(PlayQueue.resumeStartIndex(in: rows), 0)
+    }
+
+    func testItCarriesOnFromTheFirstUnwatchedEpisode() {
+        let rows = run([(1, true, 0), (1, true, 0), (1, false, 0), (1, false, 0)])
+        XCTAssertEqual(PlayQueue.resumeStartIndex(in: rows), 2)
+    }
+
+    /// A watched show is not a dead button: Play starts it again from the top,
+    /// and still not on a special.
+    func testAFinishedShowStartsOverAtTheFirstRealEpisode() {
+        let rows = run([(0, true, 0), (1, true, 0), (2, true, 0)])
+        XCTAssertEqual(PlayQueue.resumeStartIndex(in: rows), 1)
+    }
+
+    func testAShowOfNothingButSpecialsIsStillWatchable() {
+        let rows = run([(0, false, 0), (0, false, 0)])
+        XCTAssertEqual(PlayQueue.resumeStartIndex(in: rows), 0)
+    }
+
+    /// A row with no season number is treated as an ordinary episode —
+    /// guessing "special" would hide it behind every other rule.
+    func testAnEpisodeWithNoSeasonNumberCountsAsOrdinary() {
+        let rows = [episode(id: "a", season: nil, number: 1)]
+        XCTAssertEqual(PlayQueue.resumeStartIndex(in: rows), 0)
+    }
+
+    func testNothingToPlayHasNoStart() {
+        XCTAssertNil(PlayQueue.resumeStartIndex(in: []))
+    }
 }

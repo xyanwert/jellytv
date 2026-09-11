@@ -39,6 +39,8 @@ struct DiscoverDetailView: View {
     @State private var wantsWholeSeries = false
     /// nil = the whole selected season. The third granularity: one episode.
     @State private var selectedEpisode: Int?
+    /// The landed job whose arrival already triggered a detail re-fetch.
+    @State private var refreshedForJobId: String?
     @State private var plan: YsojAPI.DownloadPlan?
     @State private var isPlanning = false
     @State private var tint: Color = .clear
@@ -47,7 +49,7 @@ struct DiscoverDetailView: View {
     #if os(tvOS)
     @FocusState private var focus: Field?
     private enum Field: Hashable {
-        case download, trailer, season(Int), whole, allEpisodes, episode(Int), step(Int)
+        case download, watch, trailer, season(Int), whole, allEpisodes, episode(Int), step(Int)
     }
     #endif
 
@@ -101,6 +103,7 @@ struct DiscoverDetailView: View {
             showingTrailer = false
             wantsWholeSeries = false
             selectedEpisode = nil
+            refreshedForJobId = nil
             detail = await store.loadDetail(ref: ref)
             detailFailed = detail == nil
             selectedSeason = detail?.downloadableSeasons.first?.seasonNumber
@@ -110,13 +113,18 @@ struct DiscoverDetailView: View {
             syncPolling()
             // Focus before the tint: the tint downloads the whole poster, and until it
             // returned nothing on the page was focused, so the remote drove the screen
-            // underneath.
+            // underneath. Seed whichever bar is actually there — a `.download` that no
+            // longer exists (because the title is owned, or a job is running) resolves
+            // to nothing, and a page with nothing focused eats the Menu button.
             #if os(tvOS)
-            focus = .download
+            focus = detail.map { watchNowIds($0) == nil ? Field.download : .watch } ?? .download
             #endif
             await loadTint()
         }
-        .onChange(of: store.jobs) { _, _ in syncPolling() }
+        .onChange(of: store.jobs) { _, _ in
+            syncPolling()
+            Task { await refreshDetailIfJustLanded() }
+        }
         .onDisappear { store.stopPolling() }
         #if os(tvOS)
         .onExitCommand { plan == nil ? onClose() : (plan = nil) }
@@ -519,95 +527,265 @@ struct DiscoverDetailView: View {
             DownloadProgressPanel(
                 job: job, tint: effectiveTint,
                 onCancel: { Task { await store.remove(jobId: job.id) } },
-                onDismiss: { store.dismiss(job) }
+                onDismiss: { store.dismiss(job) },
+                onPlay: landedPlayIds.map { ids in { play(ids) } }
             )
+        } else if let ids = watchNowIds(detail) {
+            watchBar(detail, ids: ids)
         } else if !appState.canStartDownloads {
             Text("Only the owner of this server can add to the library.")
                 .font(Typography.font(synopsisSize, .semibold))
                 .foregroundStyle(Palette.text(0.5))
         } else {
-            #if os(tvOS)
-            // tvOS has no readout on this bar, on purpose: the iPad's TRAILER / AUDIO /
-            // SUBS items aren't settings this app has, and unlit glass nobody can select
-            // reads as broken from across a room. So the bar is the one control here.
-            HStack(spacing: 18) {
-                TVNeonPlayBar(
-                    icon: isPlanning ? "hourglass" : "arrow.down.circle.fill",
-                    label: isPlanning ? "Checking…" : "Download",
-                    sub: scopeSubtitle(detail),
-                    progress: 0,
-                    tint: effectiveTint,
-                    action: { Task { await makePlan(detail) } }
-                )
-                .frame(maxWidth: 420)
-                .disabled(isPlanning)
-                .focused($focus, equals: .download)
+            downloadControls(detail)
+        }
+    }
 
-                // The YouTube app, or nothing: tvOS has no browser, so the control only
-                // exists when that app is installed to claim the link.
-                if let trailer, TrailerAvailability.canOpen(trailer) {
-                    Button { TrailerAvailability.open(trailer) } label: {
-                        Image(systemName: "play.rectangle.fill")
-                            .font(.system(size: 30, weight: .semibold))
-                            .foregroundStyle(effectiveTint)
-                            .frame(width: 84, height: 84)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(effectiveTint.opacity(0.14))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                            .stroke(effectiveTint.opacity(0.45), lineWidth: 1.5)
-                                    )
-                            )
-                    }
-                    .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 16))
-                    .focused($focus, equals: .trailer)
-                    .accessibilityLabel("Play trailer in YouTube")
+    // MARK: - Watching what you already have
+
+    /// Ids Play should start when **watching is the main thing to do with this
+    /// title here** — which is the case for a film already in the library
+    /// (asking for it again would only duplicate it), and for anyone who cannot
+    /// download at all but owns it.
+    ///
+    /// An owned *series* is deliberately excluded: owning season 1 is no reason
+    /// to hide the way to get season 2, so a show keeps Download as its bar and
+    /// gets Play beside it instead.
+    private func watchNowIds(_ detail: YsojAPI.DiscoverDetail) -> [String]? {
+        guard let id = ownedLibraryId(detail) else { return nil }
+        guard !detail.isSeries || !appState.canStartDownloads else { return nil }
+        return [id]
+    }
+
+    private func ownedLibraryId(_ detail: YsojAPI.DiscoverDetail) -> String? {
+        detail.alreadyOwned ? detail.inLibrary?.jellyfinItemId : nil
+    }
+
+    /// What a finished download can play: exactly what it landed, else — for a
+    /// server that says `landed` without naming what it became — whatever this
+    /// title now is in the library. Nil means no Play button, which is the right
+    /// answer for a stub job (it lands no file), a failure, or a cancel.
+    private var landedPlayIds: [String]? {
+        guard let job = store.jobToShow(for: ref), job.state == .landed else { return nil }
+        if !job.landedItemIds.isEmpty { return job.landedItemIds }
+        if let owned = detail.flatMap(ownedLibraryId) { return [owned] }
+        return nil
+    }
+
+    /// Start it. One id goes through the generic library path, which is the only
+    /// one that can play a *series* (it picks up where the show was left off);
+    /// several — a landed season — play in the order the server sent them.
+    ///
+    /// The page stays up behind the player on purpose, so finishing the film
+    /// comes back to the title rather than to a shelf. On a phone paired to a TV
+    /// this is routed to the TV like every other play in the app, which is
+    /// exactly what someone holding the phone means by it.
+    private func play(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        Task {
+            let request = ids.count == 1
+                ? await appState.libraryPlaybackRequest(forItemId: ids[0])
+                : await appState.playbackRequest(forItemIds: ids, startIndex: 0,
+                                                 startPositionTicks: nil)
+            guard let request else {
+                store.actionError = "That's in your library, but the server wouldn't hand it over to play."
+                return
+            }
+            appState.requestPlayback(request)
+        }
+    }
+
+    /// The same lit bar as Download, doing the other thing. Not a smaller,
+    /// quieter control: on a title you already own, watching it *is* the primary
+    /// action, and the bar is what this page's layout is built around.
+    @ViewBuilder
+    private func watchBar(_ detail: YsojAPI.DiscoverDetail, ids: [String]) -> some View {
+        #if os(tvOS)
+        HStack(spacing: 18) {
+            TVNeonPlayBar(
+                icon: "play.fill",
+                label: "Play",
+                sub: watchSubtitle(detail),
+                progress: 0,
+                tint: effectiveTint,
+                action: { play(ids) }
+            )
+            .frame(maxWidth: 420)
+            .focused($focus, equals: .watch)
+
+            trailerButtonTV
+        }
+        #else
+        HStack(spacing: 14) {
+            NeonTransportBar(
+                icon: "play.fill",
+                label: "Play",
+                sub: watchSubtitle(detail),
+                progress: 0,
+                tint: effectiveTint,
+                action: { play(ids) }
+            ) {
+                HStack(spacing: 9) {
+                    SpecChip(text: "IN YOUR LIBRARY", tint: Color(hex: "#58D399"), filled: true)
                 }
             }
+            .layoutPriority(1)
+
+            trailerButtonPhoneAndPad
+        }
+        #endif
+    }
+
+    private func watchSubtitle(_ detail: YsojAPI.DiscoverDetail) -> String {
+        detail.isSeries ? "In your library" : scopeSubtitle(detail)
+    }
+
+    /// Play beside Download, for an owned show: both are real answers there —
+    /// watch what you have, or get the season you don't.
+    @ViewBuilder
+    private func watchAlongsideButton(_ detail: YsojAPI.DiscoverDetail) -> some View {
+        if let id = ownedLibraryId(detail), detail.isSeries {
+            Button { play([id]) } label: {
+                Image(systemName: "play.fill")
+                    #if os(tvOS)
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Color(hex: "#58D399"))
+                    .frame(width: 84, height: 84)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(hex: "#58D399").opacity(0.16))
+                            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color(hex: "#58D399").opacity(0.45), lineWidth: 1.5))
+                    )
+                    #else
+                    .font(.system(size: isPhone ? 20 : 24, weight: .semibold))
+                    .foregroundStyle(Color(hex: "#58D399"))
+                    .frame(width: isPhone ? 54 : 64, height: isPhone ? 58 : 78)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color(hex: "#58D399").opacity(0.16))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color(hex: "#58D399").opacity(0.45), lineWidth: 1.5))
+                    )
+                    #endif
+            }
+            #if os(tvOS)
+            .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 16))
+            .focused($focus, equals: .watch)
             #else
-            // **The trailer is a button, not a readout item.** It lived in the bar's
-            // readout first, which was wrong: that row is a *status* display — it lights
-            // what is switched on — so an action with no value to light rendered as dim
-            // grey text nobody could tell was pressable. Same failure as unlit glass on
-            // tvOS, which is why both platforms now put it beside the bar instead.
-            HStack(spacing: 14) {
-            NeonTransportBar(
+            .buttonStyle(.plain)
+            #endif
+            .accessibilityLabel("Play what you already have")
+        }
+    }
+
+    // MARK: - Asking for it
+
+    @ViewBuilder
+    private func downloadControls(_ detail: YsojAPI.DiscoverDetail) -> some View {
+        #if os(tvOS)
+        // tvOS has no readout on this bar, on purpose: the iPad's TRAILER / AUDIO /
+        // SUBS items aren't settings this app has, and unlit glass nobody can select
+        // reads as broken from across a room. So the bar is the one control here.
+        HStack(spacing: 18) {
+            TVNeonPlayBar(
                 icon: isPlanning ? "hourglass" : "arrow.down.circle.fill",
                 label: isPlanning ? "Checking…" : "Download",
                 sub: scopeSubtitle(detail),
                 progress: 0,
                 tint: effectiveTint,
                 action: { Task { await makePlan(detail) } }
-            ) {
-                // The values alone, as chips. `NeonReadoutItem`'s label/value pair is
-                // right for a *setting* whose name you need in order to read its state
-                // ("AUDIO — EN 5.1"); here the values name themselves. "SOURCE TMDB"
-                // said TMDB twice, and the labels were the loudest thing in the row.
-                // No quality chip here: nothing has promised a quality until the plan
-                // exists, and a chip saying "1080p" before then was an invented fact.
-                HStack(spacing: 9) {
-                    SpecChip(text: detail.sourceName, tint: effectiveTint)
-                    if detail.alreadyOwned {
-                        SpecChip(text: "OWNED", tint: Color(hex: "#58D399"), filled: true)
-                    }
+            )
+            .frame(maxWidth: 420)
+            .disabled(isPlanning)
+            .focused($focus, equals: .download)
+
+            watchAlongsideButton(detail)
+            trailerButtonTV
+        }
+        #else
+        // **The trailer is a button, not a readout item.** It lived in the bar's
+        // readout first, which was wrong: that row is a *status* display — it lights
+        // what is switched on — so an action with no value to light rendered as dim
+        // grey text nobody could tell was pressable. Same failure as unlit glass on
+        // tvOS, which is why both platforms now put it beside the bar instead.
+        HStack(spacing: 14) {
+        NeonTransportBar(
+            icon: isPlanning ? "hourglass" : "arrow.down.circle.fill",
+            label: isPlanning ? "Checking…" : "Download",
+            sub: scopeSubtitle(detail),
+            progress: 0,
+            tint: effectiveTint,
+            action: { Task { await makePlan(detail) } }
+        ) {
+            // The values alone, as chips. `NeonReadoutItem`'s label/value pair is
+            // right for a *setting* whose name you need in order to read its state
+            // ("AUDIO — EN 5.1"); here the values name themselves. "SOURCE TMDB"
+            // said TMDB twice, and the labels were the loudest thing in the row.
+            // No quality chip here: nothing has promised a quality until the plan
+            // exists, and a chip saying "1080p" before then was an invented fact.
+            HStack(spacing: 9) {
+                SpecChip(text: detail.sourceName, tint: effectiveTint)
+                if detail.alreadyOwned {
+                    SpecChip(text: "OWNED", tint: Color(hex: "#58D399"), filled: true)
                 }
             }
-            .disabled(isPlanning)
-            .layoutPriority(1)
+        }
+        .disabled(isPlanning)
+        .layoutPriority(1)
 
-            // Not on the phone: its header already carries a labelled Trailer button,
-            // and two controls for one link is one too many.
-            if !isPhoneLayout, let trailer, TrailerAvailability.canOpen(trailer) {
-                Button { showingTrailer = true } label: {
-                    // Icon-only, and narrow. With a label it crowded the bar enough to
-                    // wrap "Download" onto two lines — and the bar is the primary action
-                    // on this page, so it wins the space. The glyph plus its
-                    // accessibility label carries the meaning.
-                    Image(systemName: "play.rectangle.fill")
-                        .font(.system(size: isPhone ? 20 : 24, weight: .semibold))
-                        .foregroundStyle(effectiveTint)
-                        .frame(width: isPhone ? 54 : 64, height: isPhone ? 58 : 78)
+        watchAlongsideButton(detail)
+        trailerButtonPhoneAndPad
+        }
+        #endif
+    }
+
+    #if os(tvOS)
+    /// The YouTube app, or nothing: tvOS has no browser, so the control only exists
+    /// when that app is installed to claim the link.
+    @ViewBuilder
+    private var trailerButtonTV: some View {
+        if let trailer, TrailerAvailability.canOpen(trailer) {
+            Button { TrailerAvailability.open(trailer) } label: {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(effectiveTint)
+                    .frame(width: 84, height: 84)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(effectiveTint.opacity(0.14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(effectiveTint.opacity(0.45), lineWidth: 1.5)
+                            )
+                    )
+            }
+            .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 16))
+            .focused($focus, equals: .trailer)
+            .accessibilityLabel("Play trailer in YouTube")
+        }
+    }
+    #else
+    /// **The trailer is a button, not a readout item.** It lived in the bar's readout
+    /// first, which was wrong: that row is a *status* display — it lights what is
+    /// switched on — so an action with no value to light rendered as dim grey text
+    /// nobody could tell was pressable. Same failure as unlit glass on tvOS, which is
+    /// why both platforms put it beside the bar instead.
+    ///
+    /// Not on the phone: its header already carries a labelled Trailer button, and two
+    /// controls for one link is one too many.
+    @ViewBuilder
+    private var trailerButtonPhoneAndPad: some View {
+        if !isPhoneLayout, let trailer, TrailerAvailability.canOpen(trailer) {
+            Button { showingTrailer = true } label: {
+                // Icon-only, and narrow. With a label it crowded the bar enough to wrap
+                // "Download" onto two lines — and the bar is the primary action on this
+                // page, so it wins the space. The glyph plus its accessibility label
+                // carries the meaning.
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: isPhone ? 20 : 24, weight: .semibold))
+                    .foregroundStyle(effectiveTint)
+                    .frame(width: isPhone ? 54 : 64, height: isPhone ? 58 : 78)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(effectiveTint.opacity(0.14))
@@ -616,14 +794,12 @@ struct DiscoverDetailView: View {
                                     .stroke(effectiveTint.opacity(0.45), lineWidth: 1.5)
                             )
                     )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Play trailer")
             }
-            }
-            #endif
+            .buttonStyle(.plain)
+            .accessibilityLabel("Play trailer")
         }
     }
+    #endif
 
     /// The one trailer worth offering, if the source carried one and this device can open
     /// it. Nil on a server that doesn't send the field, so the control isn't drawn at all.
@@ -684,6 +860,20 @@ struct DiscoverDetailView: View {
         // moving for as long as the page is up. It used to close the page and leave the
         // person to find the download centre — the opposite of "show me it working".
         syncPolling()
+    }
+
+    /// A download of this title has finished: ask the server for the title again, so
+    /// "is it in your library?" stops being the answer it gave before the file existed.
+    ///
+    /// Without this the page that just finished downloading a film goes on offering to
+    /// download it — the cached detail is up to a day old — which reads as the download
+    /// having achieved nothing. Once per landed job, tracked by id, or every poll would
+    /// re-fetch the same title for as long as the page stays open.
+    private func refreshDetailIfJustLanded() async {
+        guard let job = store.jobToShow(for: ref), job.state == .landed,
+              refreshedForJobId != job.id else { return }
+        refreshedForJobId = job.id
+        if let fresh = await store.reloadDetail(ref: ref) { detail = fresh }
     }
 
     /// Poll only while this title has a job running and this page is up. A request

@@ -94,6 +94,24 @@ struct DownloadCenterView: View {
         )
     }
 
+    /// Watch something the centre finished. Same rule as the title page: one id goes
+    /// through the generic library path (which is the only one that can start a
+    /// *series*), several play in the order the server sent them.
+    private func play(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        Task {
+            let request = ids.count == 1
+                ? await appState.libraryPlaybackRequest(forItemId: ids[0])
+                : await appState.playbackRequest(forItemIds: ids, startIndex: 0,
+                                                 startPositionTicks: nil)
+            guard let request else {
+                store.actionError = "That finished, but the server wouldn't hand it over to play."
+                return
+            }
+            appState.requestPlayback(request)
+        }
+    }
+
     private var jobList: some View {
         ScrollView {
             LazyVStack(spacing: 14) {
@@ -104,7 +122,11 @@ struct DownloadCenterView: View {
                         accent: theme.accent,
                         onPause: { Task { await store.pause(jobId: job.id) } },
                         onResume: { Task { await store.resume(jobId: job.id) } },
-                        onRemove: { Task { await store.remove(jobId: job.id) } }
+                        onRemove: { Task { await store.remove(jobId: job.id) } },
+                        // Only what the server says it landed. A row with no ids behind
+                        // it — a stub job, a failure — gets no Play button rather than
+                        // one that apologises when pressed.
+                        onPlay: job.landedItemIds.isEmpty ? nil : { play(job.landedItemIds) }
                     )
                 }
             }
@@ -129,6 +151,8 @@ struct DownloadJobRow: View {
     let onPause: () -> Void
     let onResume: () -> Void
     let onRemove: () -> Void
+    /// Watch what this job landed. Nil when there is nothing to play.
+    var onPlay: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -141,7 +165,7 @@ struct DownloadJobRow: View {
                         .lineLimit(1)
                     stateChip
                     Spacer(minLength: 0)
-                    if canManage { controls }
+                    controls
                 }
                 if let subtitle = job.subtitle {
                     Text(subtitle)
@@ -191,7 +215,9 @@ struct DownloadJobRow: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Palette.text(0.12))
-                    Capsule().fill(accent)
+                    // The state's own colour, like the title page's panel: a green DONE
+                    // chip over an accent-red bar read as two different verdicts.
+                    Capsule().fill(job.state.color(accent: accent))
                         .frame(width: max(0, min(1, job.progress)) * geo.size.width)
                 }
             }
@@ -218,6 +244,18 @@ struct DownloadJobRow: View {
     @ViewBuilder
     private var controls: some View {
         HStack(spacing: 8) {
+            // Playing what landed is not managing the queue — a member who may not
+            // start or cancel a download may certainly watch what is in the library.
+            if let onPlay {
+                iconButton("play.fill", action: onPlay, label: "Play")
+            }
+            if canManage { manageControls }
+        }
+    }
+
+    @ViewBuilder
+    private var manageControls: some View {
+        Group {
             if job.canPause {
                 iconButton("pause.fill", action: onPause, label: "Pause")
             } else if job.canResume {

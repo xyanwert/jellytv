@@ -402,6 +402,39 @@ season 2 is 42% downloaded (`DiscoverStore.demoDetailRef`, `Fixture.detail`), an
 now lands on Discover / the centre for `JT_SHOW_DISCOVER` / `JT_SHOW_DOWNLOADS` at all
 (it never did).
 
+**A download you can watch, and a title you already own.** `landed` means the file is
+in the library, so the panel's last state is not a receipt: with `landedItemIds` it
+offers **Play** beside OK (`DownloadProgressPanel.onPlay`), and the download centre's
+rows do the same — playing what landed is not managing a queue, so a member who may not
+start or cancel a download still gets that button. When a job for the open title lands,
+the page re-fetches its own detail (`DiscoverStore.reloadDetail`, once per job id) so
+"already in your library" stops being the answer the server gave before the file
+existed. **Owning a title changes the bar**: a film you have shows **Play** where
+Download was (asking again would only duplicate it), while a show keeps Download and
+gets Play *beside* it — owning season 1 is no reason to hide the way to get season 2.
+One id goes through `AppState.libraryPlaybackRequest(forItemId:)`, which is also the
+only path that can start a *series* (`playbackRequest(forItemIds:)` answers nil for one,
+a series row being unplayable): it fetches the episodes in broadcast order and
+`PlayQueue.resumeStartIndex` picks where to start — what is in progress, else the first
+unwatched **non-special**, since season 0 sorts first and a fresh show must not open on
+a behind-the-scenes reel. Verified live on all three: an owned show played from the iPad,
+an owned film pressed on the iPhone went to the paired Apple TV, and both landed states
+render on tvOS with focus on Play.
+
+**Discover itself was the bug on the phone, not the detail page.** The screen was ~270pt
+wider than the device — header, chips and half the tab bar off both edges — and the cause
+was measured (`axe describe-ui`: content at x = -119), not guessed: **the backdrop was a
+ZStack sibling**, and an image set to `.fill` inside a fixed height has an *ideal width*
+of that height times its aspect ratio (675pt for a 16:9 still at 380), which a ZStack
+adopts as its own. It is a `.background` now, which is sized by the view it sits behind
+and cannot do that. Two more of the same family went with it: the grid's `.flexible()`
+columns took their ideal width from the cards' captions, so it uses `.adaptive` like the
+five library screens, whose ideal is the column minimum; and the left-darken scrim was a
+fixed 500pt on a 402pt screen. The phone also **has a Discover search field now** —
+`LibraryHeaderLayout` drops it there, and Discover's shelves are Trending/Popular/Top
+Rated, so without it no specific film could be reached at all, which is most of what the
+screen is for.
+
 **The Discover title page has a real phone layout now** (`DiscoverDetailView.phoneBody`),
 because the one-sheet cannot be narrowed: the spine is a fixed 118pt of a 393pt screen
 and the text column has a 340pt floor, so side by side it overflowed by half a poster —

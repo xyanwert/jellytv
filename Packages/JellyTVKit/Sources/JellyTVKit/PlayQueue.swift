@@ -103,6 +103,44 @@ public enum PlayQueue {
         )
     }
 
+    /// Where a whole series should start when someone presses Play on the show
+    /// itself rather than on an episode — "carry on watching this", the answer
+    /// a Continue Watching row would give if the show were in one.
+    ///
+    /// Rows must already be in broadcast order (`ParentIndexNumber,IndexNumber`)
+    /// and should already be filtered to playable ones, so the chosen start can
+    /// never be a fileless row.
+    ///
+    /// The order of the rules is the whole content of this function:
+    ///
+    /// 1. **An episode in progress wins**, whichever season it is in — including
+    ///    a special, because someone half-way through one chose it deliberately.
+    /// 2. Else the first unwatched episode **that is not a special**. Season 0
+    ///    sorts ahead of season 1, so without this a fresh show would open on a
+    ///    behind-the-scenes reel instead of its first episode.
+    /// 3. Else the first unwatched at all — a show that is nothing but specials
+    ///    is still watchable.
+    /// 4. Else (every episode seen) the first non-special, else the first row:
+    ///    pressing Play on a finished show starts it again from the top.
+    ///
+    /// Returns nil only for an empty list.
+    public static func resumeStartIndex(in rows: [JellyfinAPI.JellyfinItem]) -> Int? {
+        guard !rows.isEmpty else { return nil }
+
+        func isWatched(_ item: JellyfinAPI.JellyfinItem) -> Bool { item.userData?.played == true }
+        func isInProgress(_ item: JellyfinAPI.JellyfinItem) -> Bool {
+            !isWatched(item) && (item.userData?.playbackPositionTicks ?? 0) > 0
+        }
+        // An episode's season number. Absent is treated as a normal episode:
+        // guessing "special" would hide it behind every other rule.
+        func isSpecial(_ item: JellyfinAPI.JellyfinItem) -> Bool { (item.parentIndexNumber ?? 1) == 0 }
+
+        if let index = rows.firstIndex(where: isInProgress) { return index }
+        if let index = rows.firstIndex(where: { !isWatched($0) && !isSpecial($0) }) { return index }
+        if let index = rows.firstIndex(where: { !isWatched($0) }) { return index }
+        return rows.firstIndex(where: { !isSpecial($0) }) ?? 0
+    }
+
     /// Merge what several libraries returned into one queue.
     ///
     /// A screen's catalogue is rarely one library — the Shows page draws on

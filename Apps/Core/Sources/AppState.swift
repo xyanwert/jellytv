@@ -1422,6 +1422,52 @@ final class AppState: ObservableObject {
     }
 
 
+    /// Play something that is **already in the library**, from an id alone —
+    /// what Discover's page needs once a title is owned, and what a finished
+    /// download needs so it is watched from the page that fetched it.
+    ///
+    /// A movie plays; an episode plays and queues the rest of its show (the
+    /// same `resumeRequest` every other caller uses). A **series** is the one
+    /// that had no path before: `playbackRequest(forItemIds:)` answers nil for
+    /// one, because a series row is not itself playable. So the show's episodes
+    /// are fetched in broadcast order and `PlayQueue.resumeStartIndex` picks
+    /// where to start — carry on from what is in progress, else the first
+    /// unwatched real episode, never a special just because season 0 sorts
+    /// first.
+    ///
+    /// Returns nil when the item is gone or has nothing playable under it, so
+    /// a caller can hide its Play control rather than offer a dead one.
+    func libraryPlaybackRequest(forItemId id: String) async -> PlaybackRequest? {
+        guard let client, let raw = await detailItem(for: id) else { return nil }
+
+        guard raw.type == "Series" else {
+            return await resumeRequest(id: raw.id, itemType: raw.type, seriesId: raw.seriesId,
+                                       fallbackTitle: raw.name ?? "")
+        }
+
+        let identity = await seriesIdentity(for: id)
+        guard let rows = try? await client.fetchPlayQueueItems(
+            userId: userId, parentId: id, includeItemTypes: "Episode",
+            sortBy: "ParentIndexNumber,IndexNumber", limit: PlayQueue.seriesLimit
+        ) else { return nil }
+
+        // The start is chosen among *playable* rows only, so a fileless
+        // special can never be the episode Play lands on; the id is then
+        // looked up in the converted queue rather than trusting the two
+        // collections to stay index-aligned.
+        let playable = rows.filter { PlayQueue.isPlayable($0) }
+        let items = playable.compactMap {
+            PlayQueue.playableItem(from: $0, seriesIdentity: [id: identity],
+                                   imageBaseURL: imageBaseURL)
+        }
+        guard !items.isEmpty, let startRow = PlayQueue.resumeStartIndex(in: playable) else {
+            return nil
+        }
+        let startId = playable[startRow].id
+        let startIndex = items.firstIndex { $0.id == startId } ?? 0
+        return .queue(items, startIndex: startIndex)
+    }
+
     /// What a library screen's Random button shuffles over.
     ///
     /// Each case names the same library set that screen's *list* loader uses,

@@ -228,6 +228,20 @@ final class DiscoverStore: ObservableObject {
         return fetched
     }
 
+    /// Fetch a title's detail again, ignoring the cache.
+    ///
+    /// Exists for one moment: a download of this title has just landed, so the
+    /// server's answer to "is it in your library?" has changed and the cached
+    /// one says no. Without this the page that just finished downloading a film
+    /// goes on offering to download it, which reads as the download having done
+    /// nothing.
+    @discardableResult
+    func reloadDetail(ref: String) async -> YsojAPI.DiscoverDetail? {
+        guard let fetched = try? await client.fetchDetail(ref: ref) else { return nil }
+        details[ref] = fetched
+        return fetched
+    }
+
     // MARK: - Downloads
 
     func plan(ref: String, scope: YsojAPI.DownloadScope) async -> YsojAPI.DownloadPlan? {
@@ -402,8 +416,16 @@ extension DiscoverStore {
     /// The fixture title whose season is mid-download (`Fixture.jobs`' `job_a`).
     static let demoDetailRef = "tmdb:series:1396"
 
+    /// Two more states the download flow ends in, neither reachable from a stub server:
+    ///
+    /// - `landed` (`…_SHOW_DISCOVER=landed`) — the season finished, carrying the item
+    ///   ids a real engine reports, so the panel offers **Play**. It marks the title
+    ///   owned as well, because that is what landing *means*; a job that landed while
+    ///   the library still says "not yours" is a state that cannot happen.
+    /// - `owned` (`…_SHOW_DISCOVER=owned`) — a film already in the library and no job
+    ///   at all, where Play replaces Download as the bar.
     @MainActor
-    static func demo() -> DiscoverStore {
+    static func demo(landed: Bool = false, owned: Bool = false) -> DiscoverStore {
         let store = DiscoverStore(
             client: YsojClient(baseURL: URL(string: "http://demo.invalid")!,
                                apiKey: "demo", deviceId: "demo")
@@ -414,14 +436,19 @@ extension DiscoverStore {
         // unavailable state is the one most worth being able to look at.
         store.sources = decode([YsojAPI.Capabilities.Source].self, Fixture.sources)
         store.items = decode([YsojAPI.DiscoverItem].self, Fixture.items)
-        store.jobs = decode([YsojAPI.DownloadJob].self, Fixture.jobs)
+        store.jobs = decode([YsojAPI.DownloadJob].self,
+                            owned ? "[]" : (landed ? Fixture.landedJobs : Fixture.jobs))
         // The title `job_a` is fetching, so `=detail` can open on a page mid-download.
-        store.details[demoDetailRef] = decode(YsojAPI.DiscoverDetail.self, Fixture.detail)
+        store.details[demoDetailRef] = decode(
+            YsojAPI.DiscoverDetail.self,
+            owned ? Fixture.ownedFilm : (landed ? Fixture.landedDetail : Fixture.detail))
         store.selectedCategoryId = "tmdb:trending_movies"
         store.shelfState = .loaded
         store.hasLoadedCategories = true
         store.canManageDownloads = true
-        store.downloadsAreSimulated = true
+        // A landed job carries a real engine name, so the stub banner must not be over
+        // it — the fixture would otherwise show a contradiction the server cannot send.
+        store.downloadsAreSimulated = !landed
         return store
     }
 
@@ -432,6 +459,33 @@ extension DiscoverStore {
     }
 
     private enum Fixture {
+        /// The same season, finished and in the library — `engine` is not "stub" and
+        /// `landedItemIds` names what it became, which is exactly what a real engine
+        /// must send for the Play button to appear. Written out rather than patched
+        /// from `jobs` with a string replace: a replacement that stops matching fails
+        /// silently, and a fixture that quietly shows the wrong state is worse than no
+        /// fixture at all.
+        ///
+        /// **Its clock is relative to now, unlike every other fixture here.** A finished
+        /// job only stands on a title's page for a day (`jobToShow(for:)`), so a literal
+        /// timestamp makes this fixture work on the afternoon it is written and silently
+        /// show the Download bar every day after.
+        static var landedJobs: String {
+            let finished = Date().timeIntervalSince1970 - 120
+            return """
+            [{"id":"job_a","ref":"tmdb:series:1396","title":"Copper Season",
+              "subtitle":"Season 2 · 13 episodes","posterURL":null,
+              "scope":{"kind":"season","seasonNumber":2,"episodeNumbers":null},
+              "state":"landed","progress":1.0,"bytesTotal":18200000000,
+              "bytesDownloaded":18200000000,"speedBytesPerSecond":0,"etaSeconds":null,
+              "seeds":null,"peers":null,"message":"13 episodes added to your library.",
+              "engine":"qbittorrent","landedItemIds":["jf-ep-1","jf-ep-2","jf-ep-3"],
+              "createdAt":\(finished - 900),"updatedAt":\(finished),"finishedAt":\(finished),
+              "isActive":false}]
+            """
+        }
+
+
         /// The series `job_a` is downloading season 2 of — three seasons, so the season
         /// and episode pickers have something to show.
         static let detail = """
@@ -448,6 +502,25 @@ extension DiscoverStore {
          "episodeCount":31,"status":"Returning Series","sourceId":"tmdb","sourceName":"TMDB",
          "sourceURL":"https://www.themoviedb.org/tv/1396","externalIds":{"imdb":"tt0000000"},
          "inLibrary":{"present":false,"jellyfinItemId":null,"known":true},"trailers":[]}
+        """
+
+        /// The same series once its season has landed: in the library, as it must be.
+        static let landedDetail = detail.replacingOccurrences(
+            of: #""inLibrary":{"present":false,"jellyfinItemId":null,"known":true}"#,
+            with: #""inLibrary":{"present":true,"jellyfinItemId":"jf-copper","known":true}"#)
+
+        /// A film already in the library — where Play *is* the bar, since asking for a
+        /// film you own again would only duplicate it.
+        static let ownedFilm = """
+        {"ref":"tmdb:series:1396","title":"The Long Static","type":"movie","year":2025,
+         "overview":"A night-shift radio operator starts answering a frequency that should be empty, and the voice on it knows the town better than she does.",
+         "genres":["Thriller","Mystery"],"runtimeMinutes":104,"rating":7.6,"certification":"R",
+         "posterURL":null,"backdropURL":null,
+         "cast":[{"name":"Ines Marlow","role":"Wren Halliday","imageURL":null},
+                 {"name":"Tobias Wren","role":"Cal","imageURL":null}],
+         "seasons":[],"episodeCount":null,"status":"Released","sourceId":"tmdb","sourceName":"TMDB",
+         "sourceURL":"https://www.themoviedb.org/movie/1396","externalIds":{"imdb":"tt0000001"},
+         "inLibrary":{"present":true,"jellyfinItemId":"jf-long-static","known":true},"trailers":[]}
         """
 
         static let categories = """

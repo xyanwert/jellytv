@@ -152,7 +152,7 @@ struct RootView: View {
             // Covers the signed-out case; `AppState.loadYsojCapabilities` re-seeds on
             // every connect, since `configure()` clears the capabilities each time.
             let env = ProcessInfo.processInfo.environment
-            if ["demo", "detail"].contains(env["RT_SHOW_DISCOVER"] ?? "") || env["RT_SHOW_DOWNLOADS"] == "demo" {
+            if ["demo", "detail", "landed", "owned"].contains(env["RT_SHOW_DISCOVER"] ?? "") || ["demo", "landed"].contains(env["RT_SHOW_DOWNLOADS"] ?? "") {
                 appState.seedDemoCapabilities()
             }
         }
@@ -341,8 +341,10 @@ struct RootView: View {
         // `=demo` seeds fixture rows so Discover can be iterated on without a live
         // YSOJ-server — see `DiscoverStore.demo()`. Inert unless the var is set.
         let env = ProcessInfo.processInfo.environment
-        if ["demo", "detail"].contains(env["RT_SHOW_DISCOVER"] ?? "") || env["RT_SHOW_DOWNLOADS"] == "demo" {
-            let demo = DiscoverStore.demo()
+        if ["demo", "detail", "landed", "owned"].contains(env["RT_SHOW_DISCOVER"] ?? "") || ["demo", "landed"].contains(env["RT_SHOW_DOWNLOADS"] ?? "") {
+            let demo = DiscoverStore.demo(landed: env["RT_SHOW_DISCOVER"] == "landed"
+                                              || env["RT_SHOW_DOWNLOADS"] == "landed",
+                                         owned: env["RT_SHOW_DISCOVER"] == "owned")
             discoverStoreBox.store = demo
             return demo
         }
