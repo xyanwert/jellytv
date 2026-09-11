@@ -252,13 +252,21 @@ final class AppState: ObservableObject {
     /// but not the nav entry that leads to them, which is half of what there is to look
     /// at. Same env-gated, inert-unless-set convention as the rest of the hooks.
     func seedDemoCapabilities() {
+        // Which fixture mode is set decides what this server claims it can fetch, so
+        // both callers — the root views on sign-out, and `loadYsojCapabilities` on
+        // connect — agree without either having to know.
+        let env = ProcessInfo.processInfo.environment
+        let filmOnly = [env["RT_SHOW_DISCOVER"], env["JT_SHOW_DISCOVER"],
+                        env["RT_SHOW_DOWNLOADS"], env["JT_SHOW_DOWNLOADS"]]
+            .contains(DiscoverFixture.filmOnly)
+        let granularity = filmOnly ? #"["movie"]"# : #"["movie","episode","season","series"]"#
         let json = """
         {"ysojVersion":"0.2.0","serverName":"xyan-media (YSOJ)","owner":true,
          "features":{"discover":{"enabled":true,"search":true,
            "sources":[{"id":"tmdb","name":"TMDB"},{"id":"tvmaze","name":"TVmaze"}],
            "hasMovieSource":true},
           "downloads":{"enabled":true,"engine":"stub","simulated":true,
-           "granularity":["movie","episode","season","series"],"pollSeconds":2},
+           "granularity":\(granularity),"pollSeconds":2},
           "libraryOverrides":{"enabled":true},"remote":{"enabled":false}}}
         """
         ysojCapabilities = try? JSONDecoder().decode(
@@ -272,8 +280,8 @@ final class AppState: ObservableObject {
         // capabilities and re-runs this on every (re)connect — seeding anywhere else
         // gets wiped the moment stored credentials resolve.
         let env = ProcessInfo.processInfo.environment
-        if env["RT_SHOW_DISCOVER"] == "demo" || env["RT_SHOW_DOWNLOADS"] == "demo"
-            || env["JT_SHOW_DISCOVER"] == "demo" || env["JT_SHOW_DOWNLOADS"] == "demo" {
+        if DiscoverFixture.uses(env["RT_SHOW_DISCOVER"]) || DiscoverFixture.uses(env["RT_SHOW_DOWNLOADS"])
+            || DiscoverFixture.uses(env["JT_SHOW_DISCOVER"]) || DiscoverFixture.uses(env["JT_SHOW_DOWNLOADS"]) {
             seedDemoCapabilities()
             return
         }

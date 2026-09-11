@@ -71,8 +71,22 @@ public enum YsojAPI {
             /// **The flag that must never be missed.** A stub job reports real progress
             /// and fetches nothing; the download centre shows a banner when this is true.
             public let simulated: Bool
+            /// What this server's engine can actually fetch. The stub simulates all four
+            /// equally; a real engine that resolves a link to one release can do films
+            /// long before it can do "season 2, episodes 3–7", and says so here.
             public let granularity: [String]
             public let pollSeconds: Int?
+
+            /// `granularity` as scopes the client understands, in the canonical order,
+            /// dropping any name it doesn't know.
+            ///
+            /// An empty or absent list reads as **all four** rather than none: a server
+            /// that never narrowed it is the common case, and hiding every download
+            /// control on it would be the worst possible reading of silence.
+            public var supportedScopes: [DownloadScope.Kind] {
+                let known = DownloadScope.Kind.allCases.filter { granularity.contains($0.rawValue) }
+                return known.isEmpty ? DownloadScope.Kind.allCases : known
+            }
         }
 
         public struct LibraryOverrides: Decodable, Sendable, Equatable {
@@ -92,6 +106,22 @@ public enum YsojAPI {
         /// Films need a TMDB key on the server; without one Discover is television and
         /// anime only, and the screen says so rather than looking short of films.
         public var hasMovieSource: Bool { features.discover?.hasMovieSource ?? false }
+
+        /// What this server can be asked to download. All four when it doesn't say.
+        public var downloadScopes: [DownloadScope.Kind] {
+            features.downloads?.supportedScopes ?? DownloadScope.Kind.allCases
+        }
+
+        public func canDownload(_ kind: DownloadScope.Kind) -> Bool {
+            downloadScopes.contains(kind)
+        }
+
+        /// A series cannot be asked for at all — the engine resolves one link to one
+        /// release, which is a film today. The page says so instead of offering chips
+        /// that would start a job fetching the wrong thing.
+        public var downloadsAreFilmOnly: Bool {
+            downloadScopes == [.movie]
+        }
     }
 
     // MARK: - Discover
@@ -288,8 +318,18 @@ public enum YsojAPI {
         public let seasonNumber: Int?
         public let episodeNumbers: [Int]?
 
-        public enum Kind: String, Codable, Sendable, Equatable, Hashable {
+        public enum Kind: String, CaseIterable, Codable, Sendable, Equatable, Hashable {
             case movie, episode, season, series
+
+            /// What to call it where a control is missing because the server can't do it.
+            public var label: String {
+                switch self {
+                case .movie: return "films"
+                case .episode: return "single episodes"
+                case .season: return "seasons"
+                case .series: return "whole shows"
+                }
+            }
         }
 
         public init(kind: Kind, seasonNumber: Int? = nil, episodeNumbers: [Int]? = nil) {

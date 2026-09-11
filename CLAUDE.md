@@ -435,6 +435,36 @@ fixed 500pt on a 402pt screen. The phone also **has a Discover search field now*
 Rated, so without it no specific film could be reached at all, which is most of what the
 screen is for.
 
+**The page offers only what the engine can fetch.** `capabilities.features.downloads.
+granularity` is the engine's own list now, not a constant the API could express: a
+downloader that resolves one link to one release can do films long before "season 2,
+episode 4", and the server reports whatever its engine declares (`downloads.ALL_SCOPES`
+when it declares nothing, which is the stub). The client reads it as
+`Capabilities.downloadScopes` and the title page hides what cannot be honoured — season
+chips gated on season-or-episode, the episode row on episode, "Whole show" on series —
+rather than offering a control that would start a job fetching the wrong thing. When a
+*show* can't be asked for at all, the chips and the bar are replaced by one sentence
+built from what the server *can* do ("This server can't fetch shows yet — its downloader
+only does films so far."), so it stays true as that grows. **An empty or unknown list
+reads as all four, never as none**: silence is the common case on a server that never
+narrowed it, and hiding every download control on it would be the worst reading of
+silence. `currentScope` re-checks the same gate, so a capability that narrows while the
+page is open cannot start a job through a stale chip.
+
+**A failed download offers Try again on the spot** — through the plan sheet, so the size
+and warnings are re-quoted and a scope changed on the chips since is honoured. It is the
+one thing anyone wants after "No source had every episode of season 2", and it was two
+screens away. A cancel gets no such button: putting the panel away is already the way
+back, and it was cancelled on purpose.
+
+**Fixture modes are one list** (`DiscoverFixture`): `demo` (shelves and the centre),
+`detail` (a title mid-download), `landed`, `owned`, `failed`, `filmonly`. They were string
+literals in four files, which is how `filmonly` came to exist in two of them and not the
+other two. Note the fixtures' own clock: a finished job stands on a title's page for a day
+(`jobToShow(for:)`), so `landedJobs` and `failedJob` stamp themselves relative to *now* —
+a literal timestamp works the afternoon it is written and silently shows the Download bar
+every day after, which is exactly what happened.
+
 **The Discover title page has a real phone layout now** (`DiscoverDetailView.phoneBody`),
 because the one-sheet cannot be narrowed: the spine is a fixed 118pt of a 393pt screen
 and the text column has a 340pt floor, so side by side it overflowed by half a poster —

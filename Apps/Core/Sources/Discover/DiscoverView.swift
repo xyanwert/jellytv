@@ -35,7 +35,7 @@ struct DiscoverView: View {
     @State private var presentedRef: String? = {
         let env = ProcessInfo.processInfo.environment
         let mode = env["RT_SHOW_DISCOVER"] ?? env["JT_SHOW_DISCOVER"]
-        return ["detail", "landed", "owned"].contains(mode ?? "") ? DiscoverStore.demoDetailRef : nil
+        return DiscoverFixture.opensDetail(mode) ? DiscoverStore.demoDetailRef : nil
     }()
 
     #if os(tvOS)

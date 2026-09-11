@@ -26,6 +26,12 @@ struct DownloadProgressPanel: View {
     /// nothing to play — a stub job (which lands no file), a failure, or a
     /// server that reported `landed` without saying what it became.
     var onPlay: (() -> Void)? = nil
+    /// Ask for the same thing again. Offered on a failure only: it is the one
+    /// thing anybody wants after "No source had every episode of this season",
+    /// and without it the way back is to put the panel away and hunt for the
+    /// Download bar again. A cancel needs no such button — putting the panel
+    /// away *is* the way back, and the person cancelled on purpose.
+    var onRetry: (() -> Void)? = nil
 
     /// Which button the remote is on. Two controls share this row once a job
     /// lands, so a single `Bool` would leave tvOS with two views claiming one
@@ -115,6 +121,11 @@ struct DownloadProgressPanel: View {
                            slot: .primary, perform: onPlay)
                     action("OK", systemImage: "checkmark", prominent: false,
                            slot: .secondary, perform: onDismiss)
+                } else if job.state == .failed, let onRetry {
+                    action("Try again", systemImage: "arrow.clockwise", prominent: true,
+                           slot: .primary, perform: onRetry)
+                    action("OK", systemImage: "checkmark", prominent: false,
+                           slot: .secondary, perform: onDismiss)
                 } else {
                     // Read, understood, put away — the page's Download bar comes back.
                     // The job itself stays in the download centre.
@@ -123,6 +134,14 @@ struct DownloadProgressPanel: View {
                 }
             }
             .padding(.top, 2)
+            #if os(tvOS)
+            // Focus lands on the first action the moment the panel replaces the bar —
+            // the bar had it, and a tvOS page with nothing focused has nothing for Menu
+            // to hang off, which backgrounds the app. Re-armed when the set of actions
+            // changes under the remote (a running job finishing), never on every poll.
+            .onAppear { focused = .primary }
+            .onChange(of: job.isActive) { _, _ in focused = .primary }
+            #endif
         }
         .padding(panelPadding)
         .frame(maxWidth: .infinity, alignment: .leading)

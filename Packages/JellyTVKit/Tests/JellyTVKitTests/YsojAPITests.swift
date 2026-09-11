@@ -324,4 +324,39 @@ final class YsojAPITests: XCTestCase {
         XCTAssertTrue(DownloadFormatting.bytes(7_644_000).hasSuffix("MB"))
         XCTAssertFalse(DownloadFormatting.bytes(-1).contains("-"))
     }
+
+    // MARK: - What the engine can actually fetch
+
+    /// The stub simulates all four scopes; a real engine that resolves one link to one
+    /// release can do films long before seasons, and narrows `granularity` to say so.
+    func testGranularityNarrowsWhatThePageMayOffer() throws {
+        let all = try decode(YsojAPI.Capabilities.self, capabilitiesJSON)
+        XCTAssertEqual(all.downloadScopes, [.movie, .episode, .season, .series])
+        XCTAssertFalse(all.downloadsAreFilmOnly)
+        XCTAssertTrue(all.canDownload(.season))
+
+        let filmOnly = try decode(YsojAPI.Capabilities.self, capabilitiesJSON.replacingOccurrences(
+            of: #""granularity":["movie","episode","season","series"]"#,
+            with: #""granularity":["movie"]"#))
+        XCTAssertEqual(filmOnly.downloadScopes, [.movie])
+        XCTAssertTrue(filmOnly.downloadsAreFilmOnly)
+        XCTAssertFalse(filmOnly.canDownload(.season))
+    }
+
+    /// Silence is not "nothing". A server that never narrowed the list, or one that sends
+    /// only names this client has never heard of, must not hide every download control.
+    func testAnEmptyOrUnknownGranularityReadsAsEverything() throws {
+        for raw in [#"[]"#, #"["chapters"]"#] {
+            let caps = try decode(YsojAPI.Capabilities.self, capabilitiesJSON.replacingOccurrences(
+                of: #""granularity":["movie","episode","season","series"]"#,
+                with: #""granularity":\#(raw)"#))
+            XCTAssertEqual(caps.downloadScopes, YsojAPI.DownloadScope.Kind.allCases,
+                           "\(raw) must read as everything, not as nothing")
+        }
+    }
+
+    func testScopesAreNamedForTheSentenceThatExplainsThem() {
+        XCTAssertEqual(YsojAPI.DownloadScope.Kind.season.label, "seasons")
+        XCTAssertEqual(YsojAPI.DownloadScope.Kind.movie.label, "films")
+    }
 }

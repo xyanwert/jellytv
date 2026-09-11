@@ -152,7 +152,7 @@ struct RootView: View {
             // Covers the signed-out case; `AppState.loadYsojCapabilities` re-seeds on
             // every connect, since `configure()` clears the capabilities each time.
             let env = ProcessInfo.processInfo.environment
-            if ["demo", "detail", "landed", "owned"].contains(env["RT_SHOW_DISCOVER"] ?? "") || ["demo", "landed"].contains(env["RT_SHOW_DOWNLOADS"] ?? "") {
+            if DiscoverFixture.uses(env["RT_SHOW_DISCOVER"]) || DiscoverFixture.uses(env["RT_SHOW_DOWNLOADS"]) {
                 appState.seedDemoCapabilities()
             }
         }
@@ -341,10 +341,13 @@ struct RootView: View {
         // `=demo` seeds fixture rows so Discover can be iterated on without a live
         // YSOJ-server — see `DiscoverStore.demo()`. Inert unless the var is set.
         let env = ProcessInfo.processInfo.environment
-        if ["demo", "detail", "landed", "owned"].contains(env["RT_SHOW_DISCOVER"] ?? "") || ["demo", "landed"].contains(env["RT_SHOW_DOWNLOADS"] ?? "") {
-            let demo = DiscoverStore.demo(landed: env["RT_SHOW_DISCOVER"] == "landed"
-                                              || env["RT_SHOW_DOWNLOADS"] == "landed",
-                                         owned: env["RT_SHOW_DISCOVER"] == "owned")
+        if DiscoverFixture.uses(env["RT_SHOW_DISCOVER"]) || DiscoverFixture.uses(env["RT_SHOW_DOWNLOADS"]) {
+            let demo = DiscoverStore.demo(
+                landed: env["RT_SHOW_DISCOVER"] == DiscoverFixture.landed
+                    || env["RT_SHOW_DOWNLOADS"] == DiscoverFixture.landed,
+                owned: env["RT_SHOW_DISCOVER"] == DiscoverFixture.owned,
+                filmOnly: env["RT_SHOW_DISCOVER"] == DiscoverFixture.filmOnly,
+                failed: env["RT_SHOW_DISCOVER"] == DiscoverFixture.failed)
             discoverStoreBox.store = demo
             return demo
         }

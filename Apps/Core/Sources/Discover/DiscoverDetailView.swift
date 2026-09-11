@@ -57,6 +57,37 @@ struct DiscoverDetailView: View {
     /// hundreds) gets a number to step instead of a row that scrolls for a minute.
     private static let episodeChipLimit = 60
 
+    // MARK: - What this server can actually fetch
+
+    /// The engine's granularities, not the API's. A server whose engine resolves one
+    /// link to one release can do films long before "season 2, episode 4", and says so
+    /// in its capabilities; silence reads as all four, which is the stub's own answer.
+    private func canGet(_ kind: YsojAPI.DownloadScope.Kind) -> Bool {
+        (appState.ysojCapabilities?.downloadScopes ?? YsojAPI.DownloadScope.Kind.allCases)
+            .contains(kind)
+    }
+
+    /// A season chip is the way into both a season *and* one of its episodes, so it
+    /// stays while either is possible.
+    private var offersSeasonChips: Bool { canGet(.season) || canGet(.episode) }
+    private var offersWholeShow: Bool { canGet(.series) }
+
+    /// Nothing about this show can be asked for. The page says so instead of offering
+    /// chips that would start a job fetching the wrong thing.
+    private func cannotGet(_ detail: YsojAPI.DiscoverDetail) -> Bool {
+        detail.isSeries ? !(offersSeasonChips || offersWholeShow) : !canGet(.movie)
+    }
+
+    /// Written from what the server *can* do, so it stays true when that grows.
+    private func cannotGetNotice(_ detail: YsojAPI.DiscoverDetail) -> String {
+        let can = (appState.ysojCapabilities?.downloadScopes ?? []).map(\.label)
+        let subject = detail.isSeries ? "shows" : "films"
+        guard !can.isEmpty else {
+            return "This server can't fetch anything yet."
+        }
+        return "This server can't fetch \(subject) yet — its downloader only does \(can.joined(separator: ", ")) so far."
+    }
+
     var body: some View {
         ZStack {
             PosterBloom(image: detail?.posterURLString, artwork: artwork, tint: effectiveTint)
@@ -107,6 +138,9 @@ struct DiscoverDetailView: View {
             detail = await store.loadDetail(ref: ref)
             detailFailed = detail == nil
             selectedSeason = detail?.downloadableSeasons.first?.seasonNumber
+            // A server that can only take "the whole show" opens on it, or the bar
+            // would sit disabled with no chip able to satisfy it.
+            wantsWholeSeries = !offersSeasonChips && offersWholeShow
             // A download started here earlier — or from another device — shows in the
             // bar's place the moment the page opens, and keeps moving while it is up.
             await store.refreshDownloads()
@@ -379,7 +413,12 @@ struct DiscoverDetailView: View {
     @ViewBuilder
     private func seasonPicker(_ detail: YsojAPI.DiscoverDetail) -> some View {
         let seasons = detail.downloadableSeasons
-        if seasons.isEmpty {
+        if cannotGet(detail) {
+            // Nothing to choose from, so not even the header: the bar below has been
+            // replaced by the sentence explaining why, and "WHAT TO GET" over an empty
+            // row reads as chips that failed to load.
+            EmptyView()
+        } else if seasons.isEmpty {
             Text("This source doesn't list seasons for this show yet, so there's nothing to choose from.")
                 .font(Typography.font(synopsisSize - 2, .medium))
                 .foregroundStyle(Palette.text(0.5))
@@ -391,7 +430,7 @@ struct DiscoverDetailView: View {
                     .foregroundStyle(Palette.text(0.45))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        ForEach(seasons) { season in
+                        ForEach(offersSeasonChips ? seasons : []) { season in
                             LibraryFilterChip(
                                 label: season.name,
                                 isOn: !wantsWholeSeries && selectedSeason == season.seasonNumber,
@@ -406,7 +445,7 @@ struct DiscoverDetailView: View {
                             .focused($focus, equals: .season(season.seasonNumber))
                             #endif
                         }
-                        if seasons.count > 1 {
+                        if offersWholeShow, seasons.count > 1 || !offersSeasonChips {
                             LibraryFilterChip(
                                 label: "Whole show",
                                 isOn: wantsWholeSeries,
@@ -427,7 +466,7 @@ struct DiscoverDetailView: View {
                 .focusSection()
                 #endif
 
-                if !wantsWholeSeries,
+                if canGet(.episode), !wantsWholeSeries,
                    let season = seasons.first(where: { $0.seasonNumber == selectedSeason }),
                    season.episodeCount > 0 {
                     episodePicker(season)
@@ -528,7 +567,8 @@ struct DiscoverDetailView: View {
                 job: job, tint: effectiveTint,
                 onCancel: { Task { await store.remove(jobId: job.id) } },
                 onDismiss: { store.dismiss(job) },
-                onPlay: landedPlayIds.map { ids in { play(ids) } }
+                onPlay: landedPlayIds.map { ids in { play(ids) } },
+                onRetry: { retry(job, detail) }
             )
         } else if let ids = watchNowIds(detail) {
             watchBar(detail, ids: ids)
@@ -536,6 +576,11 @@ struct DiscoverDetailView: View {
             Text("Only the owner of this server can add to the library.")
                 .font(Typography.font(synopsisSize, .semibold))
                 .foregroundStyle(Palette.text(0.5))
+        } else if cannotGet(detail) {
+            Text(cannotGetNotice(detail))
+                .font(Typography.font(synopsisSize, .semibold))
+                .foregroundStyle(Palette.text(0.5))
+                .fixedSize(horizontal: false, vertical: true)
         } else {
             downloadControls(detail)
         }
@@ -830,14 +875,17 @@ struct DiscoverDetailView: View {
             : season.name
     }
 
+    /// The scope the chips currently describe — or nil, which disables the bar. Every
+    /// branch is checked against what the engine can do, so a stale chip (the capability
+    /// narrowed while this page was open) cannot start a job the server would botch.
     private func currentScope(_ detail: YsojAPI.DiscoverDetail) -> YsojAPI.DownloadScope? {
-        guard detail.isSeries else { return .movie }
-        if wantsWholeSeries { return .wholeSeries }
+        guard detail.isSeries else { return canGet(.movie) ? .movie : nil }
+        if wantsWholeSeries { return canGet(.series) ? .wholeSeries : nil }
         guard let selectedSeason else { return nil }
-        if let selectedEpisode {
+        if let selectedEpisode, canGet(.episode) {
             return .episode(season: selectedSeason, number: selectedEpisode)
         }
-        return .season(selectedSeason)
+        return canGet(.season) ? .season(selectedSeason) : nil
     }
 
     // MARK: - Plan / confirm
@@ -850,6 +898,14 @@ struct DiscoverDetailView: View {
         isPlanning = true
         defer { isPlanning = false }
         plan = await store.plan(ref: ref, scope: scope)
+    }
+
+    /// Put the failed panel away and ask for the same thing again — through the plan
+    /// sheet, not straight into a job: the size and the warnings are re-quoted, and the
+    /// scope may have been changed on the chips since it failed.
+    private func retry(_ job: YsojAPI.DownloadJob, _ detail: YsojAPI.DiscoverDetail) {
+        store.dismiss(job)
+        Task { await makePlan(detail) }
     }
 
     private func confirm(_ plan: YsojAPI.DownloadPlan) async {

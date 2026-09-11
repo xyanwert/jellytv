@@ -425,7 +425,8 @@ extension DiscoverStore {
     /// - `owned` (`…_SHOW_DISCOVER=owned`) — a film already in the library and no job
     ///   at all, where Play replaces Download as the bar.
     @MainActor
-    static func demo(landed: Bool = false, owned: Bool = false) -> DiscoverStore {
+    static func demo(landed: Bool = false, owned: Bool = false,
+                     filmOnly: Bool = false, failed: Bool = false) -> DiscoverStore {
         let store = DiscoverStore(
             client: YsojClient(baseURL: URL(string: "http://demo.invalid")!,
                                apiKey: "demo", deviceId: "demo")
@@ -436,8 +437,17 @@ extension DiscoverStore {
         // unavailable state is the one most worth being able to look at.
         store.sources = decode([YsojAPI.Capabilities.Source].self, Fixture.sources)
         store.items = decode([YsojAPI.DiscoverItem].self, Fixture.items)
-        store.jobs = decode([YsojAPI.DownloadJob].self,
-                            owned ? "[]" : (landed ? Fixture.landedJobs : Fixture.jobs))
+        // A server that can only fetch films has no job for a *show* — the fixture must
+        // not contradict the capabilities it is shown with.
+        let jobsJSON: String
+        if owned || filmOnly {
+            jobsJSON = "[]"
+        } else if failed {
+            jobsJSON = Fixture.failedJob
+        } else {
+            jobsJSON = landed ? Fixture.landedJobs : Fixture.jobs
+        }
+        store.jobs = decode([YsojAPI.DownloadJob].self, jobsJSON)
         // The title `job_a` is fetching, so `=detail` can open on a page mid-download.
         store.details[demoDetailRef] = decode(
             YsojAPI.DiscoverDetail.self,
@@ -459,6 +469,27 @@ extension DiscoverStore {
     }
 
     private enum Fixture {
+        /// The download that could not be made. The message is the shape a real engine
+        /// sends — what it looked for and why it gave up — because that sentence is the
+        /// whole reason the panel shows one.
+        static var failedJob: String {
+            // Minutes ago, like the landed one: a title's page only shows a finished job
+            // from the last day, so a fixture stamped with a fixed date stops appearing
+            // the day after it is written — which is exactly what it did.
+            let finished = Date().timeIntervalSince1970 - 240
+            return """
+            [{"id":"job_x","ref":"tmdb:series:1396","title":"Copper Season",
+              "subtitle":"Season 2 · 13 episodes","posterURL":null,
+              "scope":{"kind":"season","seasonNumber":2,"episodeNumbers":null},
+              "state":"failed","progress":0.0,"bytesTotal":18200000000,"bytesDownloaded":0,
+              "speedBytesPerSecond":0,"etaSeconds":null,"seeds":0,"peers":0,
+              "message":"No source had every episode of season 2 — the best had 9 of 13.",
+              "engine":"media-downloader","landedItemIds":[],
+              "createdAt":\(finished - 600),"updatedAt":\(finished),"finishedAt":\(finished),
+              "isActive":false}]
+            """
+        }
+
         /// The same season, finished and in the library — `engine` is not "stub" and
         /// `landedItemIds` names what it became, which is exactly what a real engine
         /// must send for the Play button to appear. Written out rather than patched
