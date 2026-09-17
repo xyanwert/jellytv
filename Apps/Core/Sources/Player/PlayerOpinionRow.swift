@@ -55,7 +55,10 @@ struct PlayerOpinionRow: View {
     }
 
     /// Local-only "not interested" — Jellyfin has no dislike endpoint, so this
-    /// never leaves the device (see `PlayerController.toggleDislike`).
+    /// never leaves the device. **It also moves on**: the press saves the flag
+    /// and plays the next thing in the queue (`PlayerController
+    /// .dislikeAndAdvance`); pressing it again on something already disliked
+    /// only takes the flag back.
     private var dislikeButton: some View {
         let active = controller.isDisliked
         return circle(
@@ -66,7 +69,7 @@ struct PlayerOpinionRow: View {
             stroke: active ? accent : Palette.text(0.16),
             label: active ? "Undo not for me" : "Not for me"
         ) {
-            controller.toggleDislike()
+            Task { await controller.dislikeAndAdvance() }
         }
     }
 

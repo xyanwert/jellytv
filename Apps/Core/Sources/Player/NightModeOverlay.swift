@@ -39,15 +39,27 @@ struct NightVeil: View {
 }
 
 /// What Night mode puts between a sleeping viewer and the controls: a
-/// full-screen catcher that swallows every touch, and a badge that says why.
+/// full-screen catcher that swallows every touch, a badge that says why, and
+/// beside the badge the one verdict you can still give — NOT FOR ME.
 ///
 /// A tap does nothing but bring the badge back — that's the whole feature, an
 /// accidental touch has to be *inert*. Only a press held for
 /// `NightModeController.unlockHoldSeconds` opens the lock, and the ring fills
 /// while it's held so the gesture teaches itself.
+///
+/// **The dislike button is the one deliberate exception to "inert".** Night
+/// mode is for a queue playing itself through a dark room, and the thing you
+/// most want to do from under the covers is skip the one you don't like —
+/// without unlocking, finding the chrome and locking it again. So the button
+/// sits next to the timer, does exactly what the chrome's thumbs-down does
+/// (`PlayerController.dislikeAndAdvance`: save the flag, play the next), and
+/// wakes the badge first if it had faded, so a press in the dark never acts on
+/// something you can't see. On tvOS it is focusable — the badge is the other
+/// focusable, and Left/Right walks between the two.
 struct NightLockOverlay: View {
     let remainingLabel: String
     let onUnlock: () -> Void
+    let onDislike: () -> Void
 
     /// The badge fades away on its own so the screen can go properly dark;
     /// any touch wakes it. `wake` is bumped rather than reset so each touch
@@ -55,16 +67,22 @@ struct NightLockOverlay: View {
     @State private var badgeShown = true
     @State private var wake = 0
     @State private var holdProgress: Double = 0
+    #if os(tvOS)
+    private enum Field: Hashable { case badge, dislike }
+    @FocusState private var focused: Field?
+    #endif
 
     private static let badgeSeconds: Double = 4
 
     var body: some View {
         ZStack {
             catcher
-            badge
-                .opacity(badgeShown ? 1 : 0)
-                .animation(.easeInOut(duration: 0.45), value: badgeShown)
-                .allowsHitTesting(false)
+            HStack(alignment: .center, spacing: 22) {
+                badgeControl
+                dislikeButton
+            }
+            .opacity(badgeShown ? 1 : 0)
+            .animation(.easeInOut(duration: 0.45), value: badgeShown)
         }
         .task(id: wake) {
             badgeShown = true
@@ -72,29 +90,19 @@ struct NightLockOverlay: View {
             guard !Task.isCancelled else { return }
             badgeShown = false
         }
+        #if os(tvOS)
+        .onAppear { focused = .badge }
+        #endif
     }
 
     /// Swallows everything. On iOS this must not be a `Button` — an invisible
-    /// one silently eats direct touches (see `PlayerChrome.tapCatcher`); on
-    /// tvOS it must be one, since only a focusable view can receive a Select
-    /// press at all.
+    /// one silently eats direct touches (see `PlayerChrome.tapCatcher`). On
+    /// tvOS there is nothing to swallow (no touches) and a full-screen
+    /// focusable would be a focus sink the dislike button could never be
+    /// reached from — the *badge* is the focusable there (`badgeControl`).
     @ViewBuilder
     private var catcher: some View {
-        #if os(tvOS)
-        Button {
-            wake += 1
-        } label: {
-            Color.clear
-        }
-        .buttonStyle(InvisibleButtonStyle())
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onLongPressGesture(minimumDuration: NightModeController.unlockHoldSeconds) {
-            onUnlock()
-        } onPressingChanged: { pressing in
-            press(pressing)
-        }
-        #else
+        #if os(iOS)
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -105,6 +113,31 @@ struct NightLockOverlay: View {
                 press(pressing)
             }
             .ignoresSafeArea()
+        #else
+        Color.clear
+        #endif
+    }
+
+    /// The badge — inert under a finger on iOS (the catcher beneath has the
+    /// touches), the hold-to-unlock control itself under a remote on tvOS.
+    @ViewBuilder
+    private var badgeControl: some View {
+        #if os(tvOS)
+        Button {
+            wake += 1
+        } label: {
+            badge
+        }
+        .buttonStyle(NightControlStyle(cornerRadius: 22))
+        .focused($focused, equals: .badge)
+        .onLongPressGesture(minimumDuration: NightModeController.unlockHoldSeconds) {
+            onUnlock()
+        } onPressingChanged: { pressing in
+            press(pressing)
+        }
+        .accessibilityLabel("Night mode, \(remainingLabel) left. Hold to unlock.")
+        #else
+        badge.allowsHitTesting(false)
         #endif
     }
 
@@ -144,6 +177,40 @@ struct NightLockOverlay: View {
         .overlay { NeonTube(shape: shape, accent: NightPalette.amber, intensity: 0.5) }
     }
 
+    /// NOT FOR ME, in the badge's own amber so it reads as part of Night mode
+    /// rather than a piece of the chrome that slipped through the lock.
+    private var dislikeButton: some View {
+        Button {
+            // A press on a faded badge only wakes it — nothing here acts
+            // unseen.
+            let seen = badgeShown
+            wake += 1
+            guard seen else { return }
+            onDislike()
+        } label: {
+            VStack(spacing: 12) {
+                Image(systemName: "hand.thumbsdown.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(NightPalette.amberBright)
+                    .frame(width: 84, height: 84)
+                    .background(Palette.page.opacity(0.72), in: Circle())
+                    .overlay(Circle().stroke(NightPalette.amber.opacity(0.7), lineWidth: 1))
+                Text("NOT FOR ME")
+                    .font(Mono.font(11, .bold)).tracking(2)
+                    .foregroundStyle(NightPalette.amberBright.opacity(0.75))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 22)
+            .background(Palette.page.opacity(0.72), in: shape)
+            .overlay { NeonTube(shape: shape, accent: NightPalette.amber, intensity: 0.35) }
+        }
+        .buttonStyle(NightControlStyle(cornerRadius: 22))
+        #if os(tvOS)
+        .focused($focused, equals: .dislike)
+        #endif
+        .accessibilityLabel("Not for me — skip to the next")
+    }
+
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 22, style: .continuous) }
 
     /// Fills across the hold. Present at rest as a hairline so the badge
@@ -161,5 +228,44 @@ struct NightLockOverlay: View {
                 }
             }
             .frame(height: 3)
+    }
+}
+
+/// The lock's controls under a remote: the amber ring, not the theme's accent
+/// — `FocusScaleStyle` would put a red LED around an amber card. Touch keeps
+/// the plain press dip.
+struct NightControlStyle: ButtonStyle {
+    var cornerRadius: CGFloat
+
+    func makeBody(configuration: Configuration) -> some View {
+        Content(configuration: configuration, cornerRadius: cornerRadius)
+    }
+
+    private struct Content: View {
+        #if os(tvOS)
+        @Environment(\.isFocused) private var focused: Bool
+        #endif
+        let configuration: NightControlStyle.Configuration
+        let cornerRadius: CGFloat
+
+        var body: some View {
+            #if os(tvOS)
+            configuration.label
+                .scaleEffect((focused ? 1.05 : 1) * (configuration.isPressed ? 0.96 : 1))
+                .overlay {
+                    if focused {
+                        LEDRing(cornerRadius: cornerRadius + 4, accent: NightPalette.amberBright)
+                            .padding(-4)
+                            .transition(.opacity)
+                    }
+                }
+                .shadow(color: NightPalette.amber.opacity(focused ? 0.55 : 0), radius: focused ? 34 : 0)
+                .animation(.spring(response: 0.26, dampingFraction: 0.6), value: focused)
+            #else
+            configuration.label
+                .scaleEffect(configuration.isPressed ? 0.96 : 1)
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            #endif
+        }
     }
 }

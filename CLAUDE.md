@@ -970,7 +970,13 @@ filter, and every part of it exists to survive someone falling asleep holding th
   lock closes itself again after `relockSeconds` (15s) of idleness. That countdown measures
   idleness, so every deliberate control tap pushes it back out (`noteInteraction`, called from
   `PlayerChrome.interact`) — and a *paused* player holds it open indefinitely, same rule as the
-  chrome's own auto-hide.
+  chrome's own auto-hide. **The one control that works through the lock is NOT FOR ME**, beside
+  the badge: the same dislike-and-advance as the chrome's thumbs-down, so a queue playing itself
+  through a dark room can be pruned without unlocking. A press on a faded badge only wakes it —
+  nothing under the lock acts unseen. On tvOS there is no full-screen catcher (it would be a
+  focus sink the button could never be reached from): the badge itself is the focusable
+  hold-to-unlock control, Left/Right walks between it and the button, both in the amber
+  `NightControlStyle` rather than the accent-red `FocusScaleStyle`.
 - **It dims and de-blues.** `UIScreen.brightness` to its minimum (iOS only — tvOS has no such
   knob) *plus* `NightVeil`: a warm wash `.blendMode(.multiply)`'d into the picture. Multiply is
   what actually removes blue; a normal-blended warm layer only lifts the blacks. The blend does
@@ -1100,9 +1106,39 @@ said *where in it*.
 **On tvOS every reveal of the chrome lands focus on play/pause** (`PlayerChrome`'s
 `.onChange(of: visible)`), and the failure overlay seeds its own Retry on appear. Before that, the
 idle-hide → nudge cycle left focus on BACK — the geometrically-first control — so on a chrome whose
-premise is "press without aiming", the stray Select after a reveal *exited playback*. Menu on tvOS
-always leaves the player (the system dismisses the `.fullScreenCover` before SwiftUI sees it —
-see `RootView`); that's platform behaviour, not something to fight.
+premise is "press without aiming", the stray Select after a reveal *exited playback*.
+
+**The tvOS remote, with the chrome hidden, is four commands and Menu** (`PlayerChrome.handleMove`
+/ `handleMenuPress`): Up likes (toggles the favourite), Left and Right jump ∓30 s, Down brings the
+chrome up; Menu with the chrome showing hides it, Menu with it hidden leaves the player, and
+under the Night lock Menu is inert like every other press. Each hidden-chrome press leaves a
+`PlayerGlance` for a beat — the heart as it now stands, or the jump glyph over the clock, which
+moves on the press because it reads `displayTime` — so a press with no visible answer doesn't
+get pressed again. With the chrome up the focus engine walks the four centred rows as before,
+plus `nudgeFocusIfStuck`: 140 ms after an Up/Down, if focus is where it was, it is moved to the
+next row by hand (the simulator walks all four rows cleanly; the real box was reported "stuck
+between the top buttons and the bottom ones", and this is the belt to the engine's braces).
+**None of this fires inside a `.fullScreenCover`**: tvOS dismisses a SwiftUI cover on Menu at
+the system level before any `.onExitCommand` runs — re-verified with the chrome up and focus on
+the play circle, no log line, straight to Home — so `JellyTV`'s `RootView` presents the player
+as a **same-`ZStack` overlay** (`playerLayer`), the way every detail page already is. The screen
+beneath stays alive with its state (Menu lands back on the movie page or the episode drawer
+playback started from) but `.disabled`, at opacity 0 (flipped without animation — the focus
+engine won't land on alpha ≤ 0.01 on the first frame of the return) and told so through
+`\.isObscured`, which Home's hero rotation and its two `TimelineView`s read to stop: the crumble
+shader running under a film would be the most expensive thing in the app running for nobody.
+Menu needs a focused view to reach any handler, so `PlayerView`'s loading placeholder is
+`.focusable()` and carries a root `.onExitCommand` for the frames before the chrome exists. iOS
+keeps its `.fullScreenCover` and `dismiss`; `PlayerView.onClose` is the tvOS closure that
+removes the overlay.
+
+**A dislike is a verdict, so it moves on** (`PlayerController.dislikeAndAdvance`, used by the
+opinion row's thumbs-down and by the Night lock's NOT FOR ME): the flag is saved locally as before
+and the queue advances when it has somewhere to go; pressing it on something already disliked only
+takes the flag back. **Random and a show's SHUFFLE ALL leave disliked items out**
+(`PlayerController.dislikedItemIds()` filtered in `AppState.randomQueue` / `shufflePlayRequest`);
+ordered queues keep every item — skipping episode 4 of something you asked to watch in order is a
+different, quieter surprise.
 
 ## Three targets, one core
 

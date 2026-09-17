@@ -58,27 +58,59 @@ struct RootView: View {
     }
 
     var body: some View {
-        Group {
-            if server.isConnected {
-                ZStack {
-                    // `.disabled`, not just covered: the screen's controls have to leave
-                    // the focus pool while the panel is up, or Menu and the arrows keep
-                    // reaching them through it.
-                    mainContent
-                        .disabled(pairingHost.isPanelOpen)
-                    if pairingHost.isPanelOpen {
-                        RemotePanel()
-                            .zIndex(5)
-                            .transition(.opacity)
+        ZStack {
+            Group {
+                if server.isConnected {
+                    ZStack {
+                        // `.disabled`, not just covered: the screen's controls have to leave
+                        // the focus pool while the panel is up, or Menu and the arrows keep
+                        // reaching them through it.
+                        mainContent
+                            .disabled(pairingHost.isPanelOpen)
+                        if pairingHost.isPanelOpen {
+                            RemotePanel()
+                                .zIndex(5)
+                                .transition(.opacity)
+                        }
                     }
+                    .animation(.easeOut(duration: 0.25), value: pairingHost.isPanelOpen)
+                } else if case .connecting = server.status {
+                    SetupView(server: server)
+                } else {
+                    SetupView(server: server)
                 }
-                .animation(.easeOut(duration: 0.25), value: pairingHost.isPanelOpen)
-            } else if case .connecting = server.status {
-                SetupView(server: server)
-            } else {
-                SetupView(server: server)
+            }
+            // The screen under the player: out of the focus pool, invisible, and told
+            // so (`isObscured`) so its clocks stop — but alive, with its state, so Menu
+            // lands back on the movie page or the episode drawer playback started from.
+            // The opacity flips without animation on purpose: the player fades in over
+            // it (its own `.transition`), and on the way out the screen has to be at
+            // full alpha on the first frame or the focus engine refuses to land there.
+            .disabled(playerPresentation != nil)
+            .opacity(playerPresentation == nil ? 1 : 0)
+            .animation(nil, value: playerPresentation == nil)
+            .accessibilityHidden(playerPresentation != nil)
+            .environment(\.isObscured, playerPresentation != nil)
+
+            // **A same-`ZStack` overlay, not a `.fullScreenCover` — so Menu is ours.**
+            // tvOS dismisses a SwiftUI cover on Menu at the system level, before any
+            // `.onExitCommand` inside it runs — verified again with the chrome showing
+            // and focus on the play circle: the press produced no log line and dropped
+            // the user on Home (raw HID keycode 41 and a real `System Events` keystroke
+            // both; `.interactiveDismissDisabled()` changes nothing). The player needs
+            // Menu for something else: with the chrome showing it hides the chrome, and
+            // only with the chrome hidden does it leave — the same split every detail
+            // page presented this way already gets (`MovieDetailView` over Home). An
+            // overlay in the ZStack is what those pages do, and Menu reaches it as long
+            // as something in it is focused, which the player guarantees (the invisible
+            // catcher, the play circle, the night badge, or the loading placeholder).
+            if let presentation = playerPresentation {
+                playerLayer(presentation)
+                    .zIndex(10)
+                    .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: playerPresentation == nil)
         .environmentObject(theme)
         .environmentObject(server)
         .environmentObject(appState)
@@ -101,42 +133,8 @@ struct RootView: View {
                 playerPresentation = nil
             }
         }
-        .fullScreenCover(item: $playerPresentation) { presentation in
-            Group {
-                switch presentation {
-                case .fixture:
-                    PlayerPreviewFixture()
-                case .request(let request):
-                    if let client = appState.jellyfinClient {
-                        PlayerView(request: request, client: client, userId: appState.currentUserId)
-                    }
-                }
-            }
-            // `.fullScreenCover` content doesn't reliably inherit
-            // `@EnvironmentObject`s from the presenting view — inject them
-            // explicitly (`PlayerChrome` reads `theme` directly).
-            .environmentObject(theme)
-            .environmentObject(appState)
-            // The cover is its own window layer, so the toast has to be drawn here too
-            // for a "which TV is this?" to reach someone mid-film.
-            .overlay(alignment: .top) {
-                RemoteNoticeToast().environmentObject(remote).environmentObject(theme)
-            }
-            // **tvOS dismisses this cover on Menu before any SwiftUI code
-            // runs — `.interactiveDismissDisabled()` does not stop it.**
-            // Verified three ways, all producing an unconditional exit back
-            // to whatever presented the cover, with zero log line from
-            // `PlayerChrome.handleMenuPress`/`interact` — meaning the press
-            // never reaches the view at all: raw HID keycode 41, a real
-            // `System Events key code 53` (routed through Simulator.app's
-            // own remote translation, not a bypass), and with
-            // `.interactiveDismissDisabled()` attached here (tried and
-            // removed — no effect on tvOS's cover-dismiss gesture, whatever
-            // it does on iOS/iPadOS sheets). See `PlayerChrome`'s own doc
-            // comment for what this means for Menu inside the player.
-        }
         .onChange(of: playerPresentation) { _, presentation in
-            // The cover's own dismiss (back button / exit command) only
+            // The player's own close (BACK, Menu with the chrome hidden) only
             // clears local state — mirror it back so `AppState` doesn't
             // think a request is still active.
             if presentation == nil { appState.activePlaybackRequest = nil }
@@ -191,6 +189,22 @@ struct RootView: View {
                 discoverStoreBox.store?.stopPolling()
                 discoverStoreBox.store = nil
                 appState.activeDownloadCount = 0
+            }
+        }
+    }
+
+    /// The player, over everything. Sits inside the same `ZStack` as the screens, so
+    /// the `.environmentObject`s applied to that stack reach it without the by-hand
+    /// injection a `.fullScreenCover` needed; the toast is drawn once, over the stack.
+    @ViewBuilder
+    private func playerLayer(_ presentation: PlayerPresentation) -> some View {
+        switch presentation {
+        case .fixture:
+            PlayerPreviewFixture(onClose: { playerPresentation = nil })
+        case .request(let request):
+            if let client = appState.jellyfinClient {
+                PlayerView(request: request, client: client, userId: appState.currentUserId,
+                           onClose: { playerPresentation = nil })
             }
         }
     }

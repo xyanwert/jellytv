@@ -44,6 +44,7 @@ struct HomeView: View {
     @State private var heroIndex = 0
     @State private var slideStartTime = Date()
     @State private var rotateTask: Task<Void, Never>?
+    @Environment(\.isObscured) private var isObscured
     @State private var outgoingHero: HeroFeature?
     @State private var outgoingVisible = false
     @State private var departProgress: Double = 1
@@ -308,6 +309,14 @@ struct HomeView: View {
             }
         }
         .onDisappear { rotateTask?.cancel() }
+        // Under the tvOS player (a same-ZStack overlay, so this view stays alive and
+        // invisible) the crumble must not run: the hero would keep rotating beneath
+        // the film, and the departure shader is the most expensive thing in the app.
+        // Rotation resumes, from a fresh slide clock, when the player goes.
+        .onChange(of: isObscured) { _, obscured in
+            guard DeviceClass.current != .phone else { return }
+            if obscured { rotateTask?.cancel() } else { startHeroRotation() }
+        }
         .tvBackCommand(
             closeOverlay: isLibrariesOpen,
             onCloseOverlay: { onSelectRail(.libraries) },

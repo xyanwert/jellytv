@@ -6,6 +6,9 @@ import JellyTVKit
 /// Launched via `JT_SHOW_PLAYER=1`, matching the `JT_SHOW_DEMO=movie|show`
 /// family (see `RootView`).
 struct PlayerPreviewFixture: View {
+    /// What BACK / Menu-with-chrome-hidden does — tvOS passes the closure that removes
+    /// the overlay, so the fixture leaves the way the real player does.
+    var onClose: () -> Void = {}
     @State private var engine: PlayerEngine?
     @State private var controller: PlayerController?
     @State private var chromeVisible = ProcessInfo.processInfo.environment["JT_SHOW_PLAYER"] != "hidden"
@@ -14,7 +17,7 @@ struct PlayerPreviewFixture: View {
         ZStack {
             Color.black.ignoresSafeArea()
             if let controller {
-                PlayerChrome(controller: controller, visible: $chromeVisible, onClose: {}, onOpenScenes: {})
+                PlayerChrome(controller: controller, visible: $chromeVisible, onClose: onClose, onOpenScenes: {})
             }
         }
         // **iPhone only**, matching `PlayerView`'s identical pair — this

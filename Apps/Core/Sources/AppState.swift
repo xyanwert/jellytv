@@ -1422,9 +1422,10 @@ final class AppState: ObservableObject {
             userId: userId, parentId: seriesId, includeItemTypes: "Episode"
         ) else { return nil }
         let identity = seriesId.isEmpty ? [:] : [seriesId: series]
+        let disliked = PlayerController.dislikedItemIds()
         let items = rows.compactMap {
             PlayQueue.playableItem(from: $0, seriesIdentity: identity, imageBaseURL: imageBaseURL)
-        }
+        }.filter { !disliked.contains($0.id) }
         guard !items.isEmpty else { return nil }
         return .shuffled(PlayQueue.merge([items]))
     }
@@ -1614,6 +1615,14 @@ final class AppState: ObservableObject {
     /// or erroring contributes nothing instead of failing the press: v1's
     /// equivalent picked a single library up front and, per its own commit
     /// message, came back empty most of the time because of it.
+    ///
+    /// **Anything marked *not for me* is left out** — here and in a show's
+    /// SHUFFLE ALL (`shufflePlayRequest`). The flag lives on this device only
+    /// (`PlayerController.dislikedItemIds`), so the server's draw can't know
+    /// about it; it is applied to the rows after they land, before the merge
+    /// shuffles them. An ordered queue (the rest of a season, a list you tapped
+    /// into) keeps every item: skipping episode 4 of something you asked to
+    /// watch in order would be a different, quieter kind of surprise.
     func randomQueue(for scope: PlaylistScope) async -> PlaybackRequest? {
         guard let client else { return nil }
         let sources = queueSources(for: scope)
@@ -1640,11 +1649,12 @@ final class AppState: ObservableObject {
         }
 
         let identity = await seriesIdentities(in: groups.flatMap { $0 })
+        let disliked = PlayerController.dislikedItemIds()
         let items = PlayQueue.merge(groups.map { rows in
             rows.compactMap {
                 PlayQueue.playableItem(from: $0, seriesIdentity: identity,
                                        imageBaseURL: imageBaseURL, hidesTitle: hidesTitle)
-            }
+            }.filter { !disliked.contains($0.id) }
         })
         guard !items.isEmpty else { return nil }
         return .shuffled(items)

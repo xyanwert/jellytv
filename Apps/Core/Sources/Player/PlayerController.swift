@@ -45,7 +45,7 @@ final class PlayerController {
     /// seek itself — a single tap is not perceptibly delayed by it.
     private static let seekCoalesceSeconds: Duration = .milliseconds(280)
 
-    private static let dislikedIdsKey = "jelly:player.dislikedItemIds"
+    nonisolated private static let dislikedIdsKey = "jelly:player.dislikedItemIds"
 
     init(engine: PlayerEngine) {
         self.engine = engine
@@ -328,24 +328,52 @@ final class PlayerController {
 
     /// Local-only toggle. Mirrors the mutual exclusivity a Jellyfin-native
     /// dislike would have with favorite, even though this half never
-    /// reaches the server.
-    func toggleDislike() {
-        guard let id = currentItem?.id else { return }
+    /// reaches the server. Returns whether the item is disliked *after* the
+    /// press.
+    @discardableResult
+    func toggleDislike() -> Bool {
+        guard let id = currentItem?.id else { return false }
         var ids = Self.dislikedIds()
+        let disliked: Bool
         if ids.contains(id) {
             ids.remove(id)
+            disliked = false
         } else {
             ids.insert(id)
+            disliked = true
             if isFavorite {
                 Task { await engine.toggleFavorite() }
             }
         }
         UserDefaults.standard.set(Array(ids), forKey: Self.dislikedIdsKey)
+        return disliked
+    }
+
+    /// Not for me — *and on to the next one.*
+    ///
+    /// A dislike is a verdict on the thing playing, and what follows a verdict
+    /// like that is never "keep watching it". So the one press does both: the
+    /// flag is saved (locally, as ever) and the queue moves on, when it has
+    /// somewhere to go — the last item of a queue just stays, flagged. Pressing
+    /// it on something already disliked only takes the flag back; that press is
+    /// a correction, not a verdict, and nothing moves. Every dislike control in
+    /// the app — the opinion row, the button under the Night lock — goes
+    /// through here, so they cannot disagree about what a thumbs-down does.
+    @discardableResult
+    func dislikeAndAdvance() async -> Bool {
+        guard toggleDislike() else { return false }
+        if hasNext { await next() }
+        return true
     }
 
     func toggleRepeatOne() { engine.toggleRepeatOne() }
 
-    private static func dislikedIds() -> Set<String> {
+    /// Every item this device has marked *not for me*. Read by the queue
+    /// builders too: a shuffle that keeps dealing the videos you have already
+    /// said no to isn't a shuffle anyone asked for (`AppState.randomQueue`).
+    nonisolated static func dislikedItemIds() -> Set<String> {
         Set(UserDefaults.standard.stringArray(forKey: dislikedIdsKey) ?? [])
     }
+
+    private static func dislikedIds() -> Set<String> { dislikedItemIds() }
 }

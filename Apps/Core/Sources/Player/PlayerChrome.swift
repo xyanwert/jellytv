@@ -68,12 +68,12 @@ final class ChromeIdleTimer {
     private let interval: Duration
 
     #if os(tvOS)
-    static let defaultSeconds = 3
+    nonisolated static let defaultSeconds = 3
     #else
-    static let defaultSeconds = 2
+    nonisolated static let defaultSeconds = 2
     #endif
 
-    init(seconds: Int = ChromeIdleTimer.defaultSeconds) {
+    init(seconds: Double = Double(ChromeIdleTimer.defaultSeconds)) {
         self.interval = .seconds(seconds)
     }
 
@@ -158,6 +158,13 @@ struct PlayerChrome: View {
     /// none is up. See `applyTagAndClose`.
     @State private var stampedTag: String?
     @State private var sonarPulse = false
+    #if os(tvOS)
+    /// The receipt for a D-pad press made with the chrome hidden — see
+    /// `handleMove` and `PlayerGlance`. Cleared by its own timer, or the
+    /// moment the chrome comes up (the chrome shows the same state for real).
+    @State private var glance: PlayerGlance.Kind?
+    @State private var glanceTimer = ChromeIdleTimer(seconds: 1.4)
+    #endif
 
     /// Shared duration for every chrome show/hide — see the type's own doc
     /// comment. 300ms reads as quick without being a flash-cut; long enough
@@ -195,12 +202,12 @@ struct PlayerChrome: View {
                 // nothing to cross-fade between when `visible` flips).
                 Group {
                     #if os(iOS)
-                    // tvOS reveals/hides chrome via the Menu button
-                    // (`PlayerView`'s `.onExitCommand`) and idle-timeout alone.
-                    // Touch has no such button, so tapping the empty video area
-                    // toggles chrome visibility instead — lowest z-order so it
-                    // sits behind every real control and only catches taps that
-                    // miss them.
+                    // tvOS shows the chrome on Down and hides it on Menu
+                    // (`handleMove` / `handleMenuPress`) or idle-timeout.
+                    // Touch has no such buttons, so tapping the empty video
+                    // area toggles chrome visibility instead — lowest z-order
+                    // so it sits behind every real control and only catches
+                    // taps that miss them.
                     tapCatcher(action: toggleVisible)
                     #endif
 
@@ -247,6 +254,12 @@ struct PlayerChrome: View {
             } else if !scenesOpen && !tagsOpen {
                 hiddenCatcher
                     .transition(.opacity)
+                #if os(tvOS)
+                if let glance, !night.isLocked {
+                    PlayerGlance(kind: glance, controller: controller, accent: accent)
+                        .transition(.opacity)
+                }
+                #endif
             }
 
             if scenesOpen {
@@ -276,7 +289,10 @@ struct PlayerChrome: View {
             if night.isLocked {
                 NightLockOverlay(
                     remainingLabel: SleepTimer.remainingLabel(night.remaining),
-                    onUnlock: { withAnimation(.easeOut(duration: 0.25)) { night.unlock() } }
+                    onUnlock: { withAnimation(.easeOut(duration: 0.25)) { night.unlock() } },
+                    // The same press as the chrome's thumbs-down: flag it, move on.
+                    // The lock stays on — that is the point of doing it from here.
+                    onDislike: { Task { await controller.dislikeAndAdvance() } }
                 )
                 .transition(.opacity)
             }
@@ -300,6 +316,8 @@ struct PlayerChrome: View {
             if v, !scenesOpen, !tagsOpen {
                 focus = isFailed ? .failureRetry : .playPause
             }
+            // The chrome now shows the heart and the clock for real.
+            if v { glanceTimer.cancel(); glance = nil }
             #endif
         }
         .onAppear {
@@ -335,24 +353,16 @@ struct PlayerChrome: View {
             }
         }
         #if os(tvOS)
-        .onMoveCommand { _ in interact() }
-        // **This never actually runs, and that's not a bug to chase.**
-        // `RootView` presents the player in a `.fullScreenCover`, and tvOS
-        // dismisses that cover on Menu at the system level, before SwiftUI
-        // delivers the press anywhere — confirmed three ways (raw HID
-        // keycode, a real `System Events` keystroke through Simulator.app's
-        // own remote translation, and `.interactiveDismissDisabled()` on the
-        // cover, none of which produced a single `PlayerDiagnostics` log
-        // line from this handler). So on tvOS today, Menu always exits the
-        // player outright — the same action as the on-screen BACK pill, not
-        // a toggle. Left wired (rather than deleted) because it is the
-        // *correct* fallback if the presentation ever stops being a system
-        // modal, and because "Menu exits" is arguably the more honest tvOS
-        // behavior anyway: "Menu is Back, universally" is this app's own
-        // rule, and a chrome-visibility toggle was already a quiet
-        // repurposing of it. Revealing hidden chrome doesn't need Menu — any
-        // `onMoveCommand` nudge already does it, same as it does everywhere
-        // else in this file.
+        // **The remote, with the chrome hidden, is four commands and Menu**
+        // — see `handleMove` and `handleMenuPress`. Both fire here because
+        // something in this view is always focused: the invisible catcher
+        // while the chrome is away, a control while it's up, the badge under
+        // the Night lock. They fire *at all* only because `JellyTV`'s
+        // `RootView` presents the player as a same-`ZStack` overlay — inside
+        // a `.fullScreenCover`, tvOS dismissed the cover on Menu before any
+        // handler ran (verified with the chrome up and focus on the play
+        // circle: no log line, straight to Home).
+        .onMoveCommand(perform: handleMove)
         .onExitCommand(perform: handleMenuPress)
         #endif
         .onChange(of: controller.isPlaying) { _, playing in
@@ -648,33 +658,110 @@ struct PlayerChrome: View {
     #endif
 
     #if os(tvOS)
-    /// **Doesn't fire in this app's current player presentation** — see the
-    /// `.onExitCommand` call site's comment for the three-way confirmation
-    /// that tvOS's own "Menu dismisses this `.fullScreenCover`" behavior
-    /// wins before SwiftUI ever calls this. Written the way it *should*
-    /// behave if that stops being true: back out of whichever full-screen
-    /// panel is on top first, since tags and scenes both live inside this
-    /// same view and neither has its own exit-command handler, and only
-    /// fall back to a manual show/hide of the chrome itself
-    /// (`toggleVisible()` below) once nothing is layered over the
-    /// transport.
+    /// **Menu is "put that away", and only with nothing left to put away is
+    /// it "leave".** Back out of whichever full-screen panel is on top first
+    /// (tags and scenes both live in this view and have no handler of their
+    /// own), then hide the chrome, and only from a hidden chrome leave the
+    /// player — the same press the BACK pill makes. A failed item has no
+    /// picture to hide the chrome over, so Menu leaves from there directly.
+    /// Under the Night lock the press is inert, like every other press: the
+    /// lock exists so a hand on the remote in the dark changes nothing.
     private func handleMenuPress() {
-        if tagsOpen {
+        if night.isLocked {
+            PlayerDiagnostics.log("chrome: menu — locked, ignored")
+        } else if tagsOpen {
             closeTags()
         } else if scenesOpen {
             closeScenes()
-        } else {
-            toggleVisible()
-        }
-    }
-
-    private func toggleVisible() {
-        if visible {
+        } else if visible && !isFailed {
             PlayerDiagnostics.log("chrome: menu — hide")
             idleTimer.cancel()
             withAnimation(Self.fadeAnimation) { visible = false }
         } else {
+            PlayerDiagnostics.log("chrome: menu — leave")
+            onClose()
+        }
+    }
+
+    /// **With the chrome hidden, the D-pad's four edges are the four things
+    /// you do most**: Up likes, Left and Right jump thirty seconds, Down
+    /// brings the controls. Each of the first three leaves a `PlayerGlance`
+    /// so the press is seen to land. With the chrome up, the focus engine
+    /// walks the controls as it always has and this only keeps the idle
+    /// timer honest — plus `nudgeFocusIfStuck`, for the press it drops.
+    /// Under the Night lock the overlay's two controls own the arrows.
+    private func handleMove(_ direction: MoveCommandDirection) {
+        if night.isLocked { return }
+        if scenesOpen || tagsOpen || visible {
             interact()
+            if visible, !scenesOpen, !tagsOpen { nudgeFocusIfStuck(direction) }
+            return
+        }
+        switch direction {
+        case .up:
+            PlayerDiagnostics.log("chrome: hidden ↑ — like")
+            night.noteInteraction()
+            Task { await controller.toggleFavorite() }
+            showGlance(.favorite)
+        case .left, .right:
+            let delta: Double = direction == .left ? -30 : 30
+            PlayerDiagnostics.log("chrome: hidden \(direction == .left ? "←" : "→") — \(Int(delta))s")
+            night.noteInteraction()
+            controller.jump(by: delta)
+            showGlance(.seek(delta))
+        case .down:
+            interact()
+        @unknown default:
+            interact()
+        }
+    }
+
+    private func showGlance(_ kind: PlayerGlance.Kind) {
+        withAnimation(.easeOut(duration: 0.15)) { glance = kind }
+        glanceTimer.arm {
+            withAnimation(.easeOut(duration: 0.35)) { glance = nil }
+        }
+    }
+
+    /// The chrome is four centred rows — top bar, opinions, transport, foot —
+    /// and the focus engine finds its way between them by geometry alone,
+    /// which is what "stuck between the top buttons and the bottom ones" on
+    /// the real box says it sometimes doesn't. So a moment after every Up or
+    /// Down with the chrome up, check whether focus actually moved; if the
+    /// engine left it where it was, put it on the next row by hand. When the
+    /// engine does its job this never runs (the simulator walks all four rows
+    /// cleanly); when it doesn't, the press still lands.
+    private func nudgeFocusIfStuck(_ direction: MoveCommandDirection) {
+        guard direction == .up || direction == .down, let before = focus else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(140))
+            guard visible, !scenesOpen, !tagsOpen, focus == before,
+                  let target = fallbackFocus(from: before, direction) else { return }
+            PlayerDiagnostics.log("chrome: focus stuck on \(before) — nudged to \(target)")
+            focus = target
+        }
+    }
+
+    private func fallbackFocus(from field: PlayerFocusField,
+                               _ direction: MoveCommandDirection) -> PlayerFocusField? {
+        let canEditTags = appState.canEditItemMetadata != false
+        switch (direction, field) {
+        case (.down, .back), (.down, .tags), (.down, .night):
+            return .playPause
+        case (.down, .dislike), (.down, .favorite):
+            return .playPause
+        case (.down, .back30), (.down, .playPause), (.down, .forward30), (.down, .forwardMinute):
+            return .scenes
+        case (.up, .previous), (.up, .scenes), (.up, .next):
+            return .playPause
+        case (.up, .back30):
+            return .dislike
+        case (.up, .playPause), (.up, .forward30), (.up, .forwardMinute):
+            return .favorite
+        case (.up, .dislike), (.up, .favorite):
+            return canEditTags ? .tags : .back
+        default:
+            return nil
         }
     }
     #endif

@@ -313,6 +313,7 @@ struct HeroDotsRow: View {
     let interval: Double
 
     @EnvironmentObject private var theme: Theme
+    @Environment(\.isObscured) private var isObscured
     private let leadIn: Double = 0.5
 
     var body: some View {
@@ -322,7 +323,7 @@ struct HeroDotsRow: View {
             // `.animation` alone kept this row invalidating every frame for
             // the whole time Home was on screen — a constant tax on the same
             // GPU the crumble has to share.
-            TimelineView(.animation(minimumInterval: 1.0 / 12)) { context in
+            TimelineView(.animation(minimumInterval: 1.0 / 12, paused: isObscured)) { context in
                 let elapsed = context.date.timeIntervalSince(slideStartTime)
                 let drain = max(0.1, interval - leadIn)
                 let progress = max(0, min(1, (elapsed - leadIn) / drain))

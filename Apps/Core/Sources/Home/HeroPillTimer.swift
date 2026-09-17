@@ -13,13 +13,15 @@ struct HeroPillTimer: View {
     let interval: Double
 
     @EnvironmentObject private var theme: Theme
+    @Environment(\.isObscured) private var isObscured
 
     /// Hold the active pill full for this long before it starts draining.
     private let leadIn: Double = 0.5
 
     var body: some View {
         if count > 1 {
-            TimelineView(.animation) { context in
+            // Stopped under the tvOS player — see `isObscured`.
+            TimelineView(.animation(paused: isObscured)) { context in
                 let elapsed = context.date.timeIntervalSince(slideStartTime)
                 let drain = max(0.1, interval - leadIn)
                 let progress = max(0, min(1, (elapsed - leadIn) / drain))

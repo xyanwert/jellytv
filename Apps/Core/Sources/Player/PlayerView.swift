@@ -16,6 +16,10 @@ struct PlayerView: View {
     let request: PlaybackRequest
     let client: JellyfinClient
     let userId: String
+    /// How BACK (and, on tvOS, Menu with the chrome hidden) leaves. tvOS presents this
+    /// view as a same-`ZStack` overlay and passes the closure that removes it; iOS keeps
+    /// its `.fullScreenCover`, passes nothing, and the environment's `dismiss` does it.
+    var onClose: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     /// Only for registering the live controller as
@@ -29,6 +33,10 @@ struct PlayerView: View {
     @State private var controller: PlayerController?
     @State private var chromeVisible = true
 
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -40,13 +48,21 @@ struct PlayerView: View {
                 PlayerChrome(
                     controller: controller,
                     visible: $chromeVisible,
-                    onClose: { dismiss() },
+                    onClose: { close() },
                     onOpenScenes: {}
                 )
             } else {
                 ProgressView()
                     .controlSize(.large)
                     .tint(.white)
+                    #if os(tvOS)
+                    // Something must hold focus for Menu to reach `.onExitCommand`
+                    // below; with nothing focused the press falls through to tvOS
+                    // and backgrounds the whole app (the same hazard `MovieDetailView`
+                    // hit as an overlay). The engine is built on the first `.task`
+                    // pass, so this is focused for a frame or two at most.
+                    .focusable()
+                    #endif
             }
         }
         // **tvOS Siri Remote — Play/Pause only.** Wired at the root (not
@@ -56,19 +72,22 @@ struct PlayerView: View {
         // button in `PlayerCenterControls`, and chrome-visibility-toggle-on-
         // tap is handled directly inside `PlayerChrome`'s own tap catcher.
         //
-        // **Menu lives inside `PlayerChrome` instead**, not here — it used to
-        // be a bare `chromeVisible.toggle()` at this root, which mutated
-        // `visible` outside the chrome's `withAnimation` fade and had no way
-        // to know a full-screen panel (tags/scenes) was covering the chrome.
-        // In practice neither version's Menu handling is ever reached on
-        // tvOS: this cover gets dismissed by the system before a Menu press
-        // reaches either root, at any chrome/panel state — see
-        // `PlayerChrome.handleMenuPress` for the three-way confirmation and
-        // why that isn't actually the wrong outcome.
+        // **Menu lives inside `PlayerChrome`**, not here — it used to be a
+        // bare `chromeVisible.toggle()` at this root, which mutated `visible`
+        // outside the chrome's `withAnimation` fade and had no way to know a
+        // full-screen panel (tags/scenes) was covering the chrome. It reaches
+        // the chrome at all only because tvOS presents this view as a
+        // same-`ZStack` overlay (`JellyTV`'s `RootView`): inside a
+        // `.fullScreenCover` the system dismissed the cover on Menu before
+        // any handler ran.
         #if os(tvOS)
         .onPlayPauseCommand {
             controller?.togglePlay()
         }
+        // Menu before the chrome exists (the loading placeholder above holds focus
+        // then): leave. Once `PlayerChrome` is up its own handler is nearer the
+        // focused view and takes every press first.
+        .onExitCommand { if controller == nil { close() } }
         #endif
         // **iPhone only.** Flips the phone into landscape for the duration
         // of playback so full-screen video gets the full width, then hands

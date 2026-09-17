@@ -124,6 +124,23 @@ extension EnvironmentValues {
     }
 }
 
+/// True for a screen the tvOS player is drawn over. The player is a same-`ZStack`
+/// overlay there (so Menu reaches it — see `JellyTV`'s `RootView`), which leaves the
+/// screen beneath alive, disabled and invisible; anything on it that redraws on a
+/// clock — Home's hero rotation and its two `TimelineView`s — reads this and stops,
+/// or it would keep taxing the GPU the video needs. iOS keeps its system cover and
+/// never sets it.
+private struct IsObscuredKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isObscured: Bool {
+        get { self[IsObscuredKey.self] }
+        set { self[IsObscuredKey.self] = newValue }
+    }
+}
+
 private struct PhoneTabBarClearance: ViewModifier {
     @Environment(\.phoneBottomBarInset) private var extra
 
