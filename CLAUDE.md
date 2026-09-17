@@ -264,7 +264,7 @@ guard so a re-appear does nothing), so a request that ever changes under a live 
 into it instead of being ignored.
 
 **The TV reports at once on pause, resume and seek** (`PlayerEngine.reportNow` →
-`ProgressReporter.reportNow`, outside the ten-second throttle) — but **only in the `.ready`
+`PlaybackProgressReporter.reportNow`, outside the ten-second throttle) — but **only in the `.ready`
 phase**, and the periodic observer skips reporting until then too. The resume seek runs before
 the first `play()`, and reporting it said "paused" milliseconds ahead of the "playing" behind
 it; the observer's first tick does the same. The reporter also serialises its posts
@@ -318,7 +318,7 @@ per-frame request). Verified live: swipe 10:00 → 11:00, tap, TV at 11:11 a bea
 **What the review after the first evening changed, so it stays changed.** The TV bar is two
 sibling buttons, never a button inside a button — SwiftUI does not say which nested button
 a tap belongs to, and the pause circle is the one control pressed most. Every session post
-on the TV (`ProgressReporter`: start, progress, stop) goes through one serial chain, so a
+on the TV (`PlaybackProgressReporter`: start, progress, stop) goes through one serial chain, so a
 late progress cannot overtake a stop and resurrect a stopped session's "now playing".
 `Device=` in the auth header is user-typed on an Apple TV, so `JellyfinAPI.headerSafe`
 strips quotes, backslashes and non-ASCII before it goes in (a `"` broke Jellyfin's parse
@@ -1187,9 +1187,9 @@ already caused (`requestGeometryUpdate` racing a `.fullScreenCover`'s own
 presentation transition, silently rejected with no error handler, leaving
 edge-anchored chrome off-frame while centred content looked fine — the kind
 of thing that reads as "half the UI is missing" and is actually an
-orientation-timing bug). Default iPhone simulator: **iPhone 17 Pro**, UDID
-`FB41ABA0-B0DA-44F9-BDD1-377BA80E153C` — re-resolve by name if it's gone
-stale, same as the iPad default below.
+orientation-timing bug). Default iPhone simulator: **iPhone 18 Pro**, UDID
+`D1D2F974-9C12-45BB-910C-B644314E1D1C` (iOS 27.0) — re-resolve by name if
+it's gone stale, same as the iPad default below.
 
 ## Verification & workflow
 
@@ -1198,6 +1198,17 @@ stale, same as the iPad default below.
 - **Build/test.** App via XcodeBuildMCP (`build_sim` / `build_run_sim`, scheme `JellyTV`); the
   package via `swift test` in `Packages/JellyTVKit` (XCTest — update the row-count assertions when
   adding e.g. a settings category).
+- **Xcode 27 unbundled the Metal toolchain.** `HeroTransitions.metal` (the hero crumble) makes
+  every app build fail on a fresh Xcode with *cannot execute tool 'metal' due to missing Metal
+  Toolchain* — a toolchain gap, not a shader error. One-time fix, no sudo:
+  `xcodebuild -downloadComponent MetalToolchain` (~839 MB). Re-run it after any Xcode major
+  upgrade or reinstall.
+- **Never call a type `ProgressReporter` again.** The 27 SDK's Foundation added its own
+  `ProgressManager`/`ProgressReporter`, and ours collided with it — *'ProgressReporter' is
+  ambiguous for type lookup* in every file importing both, which is nearly all of them. Ours is
+  `PlaybackProgressReporter` now (it posts `/Sessions/Playing/*`). Qualifying call sites was the
+  other option and was rejected: `Foundation` is imported everywhere, so the next unqualified
+  reference would break again silently.
 - **Screenshot every visual change.** Launch with env hooks to land directly on a screen:
   `JT_SHOW_MOVIES=1`, `JT_SHOW_SETTINGS=1`, `JT_SHOW_SEARCH=1`, `JT_SHOW_DEMO=movie|show`,
   `JT_SHOW_VIDEOS=1|nsfw` / `RT_SHOW_VIDEOS=1|nsfw` (Home Videos / After Hours),
@@ -1222,12 +1233,15 @@ stale, same as the iPad default below.
   (`.xcodebuildmcp/config.yaml`) after the 13-inch simulator's player chrome measured "too big" on
   a size the user doesn't actually use — the two Pro sizes render UI at the same point-scale, so a
   control sized for the 13-inch is oversized on every smaller iPad, not just this one. Boot with
-  `xcrun simctl boot D63C44DF-5A7B-4369-AE5B-5BD2B2B11ECB` (iOS 26.5) if the UDID in
+  `xcrun simctl boot 0E639392-76B1-4F49-A2CF-165F628BB72D` (iOS 27.0) if the UDID in
   `session_show_defaults` has gone stale (simulator UDIDs aren't stable across machines/Xcode
   updates — re-resolve by name via `xcrun simctl list devices available | grep "iPad Pro 11-inch"`).
-- **iPhone simulator: `iPhone 17 Pro`** (same `Remote` scheme, a different destination). Boot with
-  `xcrun simctl boot FB41ABA0-B0DA-44F9-BDD1-377BA80E153C` (iOS 26.2), re-resolving by name the
-  same way if stale. Unlike the iPad, this one runs genuinely in portrait outside the player
+- **iPhone simulator: `iPhone 18 Pro`** (same `Remote` scheme, a different destination). Boot with
+  `xcrun simctl boot D1D2F974-9C12-45BB-910C-B644314E1D1C` (iOS 27.0), re-resolving by name the
+  same way if stale. iOS 27 retired the *17* Pro; the 18 Pro is the same 402x874pt canvas, so no
+  layout work shifts. The tvOS default is `Apple TV 4K (3rd generation)` on tvOS 27.0,
+  `F66BA6CE-3752-47CF-A7D9-AD5EDB270BF2`. Unlike the iPad, this one runs genuinely in portrait
+  outside the player
   (`OrientationLock` — see "Three targets, one core" above) — a portrait screen's
   `simctl io screenshot` output is already right-side-up, no rotation needed. Once the player
   flips it to landscape, though, the buffer comes back the same way the iPad's always does — needs

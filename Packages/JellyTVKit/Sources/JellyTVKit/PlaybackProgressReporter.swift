@@ -5,7 +5,7 @@ import Foundation
 /// `reportProgressIfDue` on every tick; the reporter throttles the actual
 /// network POST to once per 10s.
 @MainActor
-public final class ProgressReporter {
+public final class PlaybackProgressReporter {
     private let client: JellyfinClient
     private let itemId: String
     private let playSessionId: String

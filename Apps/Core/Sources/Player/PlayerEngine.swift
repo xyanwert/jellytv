@@ -100,7 +100,7 @@ final class PlayerEngine {
     private var bufferKeepUpObservation: NSKeyValueObservation?
 
     private weak var currentPlayerItem: AVPlayerItem?
-    private var progressReporter: ProgressReporter?
+    private var progressReporter: PlaybackProgressReporter?
 
     init(client: JellyfinClient, userId: String) {
         self.client = client
@@ -357,7 +357,7 @@ final class PlayerEngine {
         attachObservers(to: playerItem, resolved: resolved, fallback: fallback, token: token)
         avPlayer.replaceCurrentItem(with: playerItem)
 
-        let reporter = ProgressReporter(
+        let reporter = PlaybackProgressReporter(
             client: client,
             itemId: item.id,
             playSessionId: resolved.playSessionId,
@@ -385,7 +385,7 @@ final class PlayerEngine {
         await reporter.reportStart(positionTicks: item.resumePositionTicks)
 
         // 4Hz tick — smooth enough for the scrubber; the actual Jellyfin
-        // POST is independently throttled to 10s inside ProgressReporter.
+        // POST is independently throttled to 10s inside PlaybackProgressReporter.
         timeObserverToken = avPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(value: 1, timescale: 4),
             queue: .main

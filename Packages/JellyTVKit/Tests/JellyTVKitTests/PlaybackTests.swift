@@ -239,7 +239,7 @@ final class PlaybackTests: XCTestCase {
         }
     }
 
-    // MARK: - ProgressReporter stale-session detection
+    // MARK: - PlaybackProgressReporter stale-session detection
 
     /// The public API throttles to one POST per 10s, so driving three real
     /// consecutive 404s through `reportProgressIfDue` isn't practical in a
@@ -248,7 +248,7 @@ final class PlaybackTests: XCTestCase {
     func testStaleSessionCallbackDoesNotFireOnFirst404() async throws {
         MockURLProtocol.reset(responses: [.init(status: 404, body: Data())])
         let client = mockClient()
-        let reporter = await ProgressReporter(client: client, itemId: "i", playSessionId: "p", mediaSourceId: "m")
+        let reporter = await PlaybackProgressReporter(client: client, itemId: "i", playSessionId: "p", mediaSourceId: "m")
         let fired = Locked(false)
         await reporter.setStaleCallback { fired.set(true) }
         await reporter.reportProgressIfDue(positionTicks: 0, isPaused: false)
@@ -329,7 +329,7 @@ final class PlaybackTests: XCTestCase {
     }
 }
 
-private extension ProgressReporter {
+private extension PlaybackProgressReporter {
     func setStaleCallback(_ callback: @escaping @MainActor () -> Void) {
         onStaleSessionDetected = callback
     }
