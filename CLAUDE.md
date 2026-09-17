@@ -1226,9 +1226,12 @@ it's gone stale, same as the iPad default below.
   `SIMCTL_CHILD_<VAR>=<value> xcrun simctl launch <device> <bundle-id>` sets the env var directly
   when driving the simulator outside XcodeBuildMCP's `launch_app_sim`. The Apple TV simulator's
   screenshot capture sometimes comes back portrait-rotated (e.g. 450×800 instead of landscape) —
-  `magick screenshot.jpg -rotate -90 out.png` before inspecting it. Same fix applies to `Remote`'s
-  iPad simulator: `simctl io screenshot` returns the device's native-orientation buffer regardless
-  of how it's actually displayed, so a landscape-locked app comes back needing `-rotate 90`.
+  `magick screenshot.jpg -rotate -90 out.png` before inspecting it. The iPad's is not fixed either
+  way: a freshly-created simulator returns the portrait native buffer (1668x2420, needs rotating),
+  but the same device returns landscape (2420x1668) once it has been used — both seen on the same
+  UDID in one session. So **read the dimensions and rotate only if it came back portrait**
+  (`identify -format '%wx%h'`), rather than applying a fixed `-rotate`; a hardcoded rotation is
+  how you end up staring at an upside-down screenshot deciding the layout is broken.
 - **iPad simulator: `iPad Pro 11-inch (M5)`, not 13-inch.** Set as the `Remote` scheme's default
   (`.xcodebuildmcp/config.yaml`) after the 13-inch simulator's player chrome measured "too big" on
   a size the user doesn't actually use — the two Pro sizes render UI at the same point-scale, so a
