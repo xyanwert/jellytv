@@ -849,7 +849,7 @@ it cost to find:
   (`/var/log/jellyfin/jellyfin*.log`). `JellyfinTags.unparseableKeys` is the list to extend if
   another type ever does this.
 - **The tag vocabulary comes from `/Items/Filters`, not `/Items/Filters2`.** The newer endpoint
-  advertises a `Tags` array and returns it **empty** on 10.11.11 (verified: 0 vs 1,266 server-wide),
+  advertises a `Tags` array and returns it **empty** (verified on 10.11.11: 0 vs 1,266 server-wide),
   with or without `parentId`/`recursive`/`includeItemTypes`. A silently-empty vocabulary reads as
   "this server has no tags", so nothing at the call site notices. There is no `/Tags` endpoint.
 - **Editing requires an admin account** (`RequiresElevation`). `AppState.canEditItemMetadata` is
@@ -947,6 +947,51 @@ moment, then 50s, then 60s). `TabView(.page)` does the swiping — v1 shipped a 
 page slide back in; the native pager also can't be spammed, since a drag must physically complete
 to land a page. `.page` style is **iOS-only**: on tvOS a `TabView` without it paints a tab bar
 across the panel, so tvOS renders the current page directly and travels by the footer buttons.
+
+**Skip intro / credits comes from the server, and nothing here detects anything.**
+Jellyfin has served `GET /MediaSegments/{itemId}` since 10.10 and *providers* fill it — this
+server runs **Intro Skipper** (audio fingerprinting, `POST /Intros/ScanSeason/{seriesId}/{seasonId}`
+scans one season without touching the rest of the library, ~3s an episode). `Chapter Segments
+Provider` is also installed and contributes nothing, because these episodes have no chapters at
+all. The real DTO is five fields — `Id`, `ItemId`, `Type`, `StartTicks`, `EndTicks` — with
+**no `Action` and no `StreamIndex`**, whatever the SDK docs list: the server has no opinion about
+auto-skip versus a button, so that policy is entirely ours (`JellyfinAPI.MediaSegment`, decoded
+in `MediaSegmentTests` from bytes captured off this server). The envelope is the same
+`ItemsResponse<T>` every list endpoint uses. YSOJ forwards it untouched, so nothing was needed
+server-side.
+
+**Jellyfin merges segment providers; it never falls back between them.**
+`RunSegmentPluginProviders` loops every enabled provider with no early exit, and
+`MediaSegmentProviderOrder` only sorts which runs first — so two providers that both know an
+episode yield two `Intro` segments, and the DTO carries no provider field to prefer one by. The
+tie is broken on the numbers in `MediaSegments.collapse`: same kind overlapping, **the shorter
+one wins**, because over-skipping cuts into the first scene while under-skipping leaves a couple
+of seconds of theme playing. Different kinds overlapping are both kept — an intro over a recap is
+two true statements. Only `intro` and `outro` are ever offered (`Kind.isSkippable`): a recap is
+often the only reminder of what happened last week, a preview is the thing people stay for, and
+an ad break in a recording has no reliable end.
+
+**The button lives outside the chrome's `if visible` branch** (`PlayerSkipButton`), which is the
+point — the theme starts, it appears over the picture, one press and you're past it; needing to
+summon the chrome first would make it slower than the ⏩ circle it replaces. It sits bottom-right
+rather than in the centred column, because that column is for controls you go looking for and a
+live target under the play button is a press meant for pause. **`PlayerIdentityMark` yields that
+corner while it is up** — the mark is there precisely because nobody acts on it, so it is the
+thing to drop when something actionable needs the space; stacking them was tried and the title
+reads straight through the button. On tvOS the button takes focus when it appears *while the
+chrome is hidden* (one Select press, the convention every TV app follows) — seeded in `onAppear`
+as well as `onChange`, since `onChange` never fires for a segment that was already active on the
+first frame. Fetching is fire-and-forget off `setItem` and the 4Hz observer is what decides
+whether it shows; an empty list is the common case and must read as "no button", never as an
+error. `PlayerEngine.skip` lands a second short of `duration` for the same reason
+`clampToItem` does — a credits segment running to the last frame would otherwise trip
+end-of-item and auto-advance, so "skip the credits" would start the next episode.
+
+The Settings row is real now (`jelly:playback.skipSegments`, default on) and identified by
+`PlaybackToggle.Kind` rather than its English label, which is what the pane's state dictionary
+used to key on — fine while every row was inert, a trap the moment one became live. **Its two
+neighbours are still dead**: "Auto-play next episode" describes behaviour the engine does
+unconditionally, and "HDR passthrough" has nothing behind it at all.
 
 **Resuming an episode queues the rest of its season.** `AppState.resumeRequest` used to return
 `.single(item)` for Continue Watching, which silently disabled everything downstream that needs a

@@ -46,6 +46,7 @@ final class PlayerController {
     private static let seekCoalesceSeconds: Duration = .milliseconds(280)
 
     nonisolated private static let dislikedIdsKey = "jelly:player.dislikedItemIds"
+    nonisolated private static let skipSegmentsKey = "jelly:playback.skipSegments"
 
     init(engine: PlayerEngine) {
         self.engine = engine
@@ -111,6 +112,40 @@ final class PlayerController {
     var isDisliked: Bool {
         guard let id = currentItem?.id else { return false }
         return Self.dislikedIds().contains(id)
+    }
+
+    /// The intro or credits sequence the playhead is inside, when there is
+    /// one *and* the viewer wants to be offered it.
+    ///
+    /// The preference is read per access rather than cached: it is a single
+    /// `UserDefaults` bool, this is called at 4Hz at most, and caching it
+    /// would mean a change in Settings mid-film didn't take until the next
+    /// launch.
+    var activeSegment: MediaSegment? {
+        guard Self.skipSegmentsEnabled else { return nil }
+        return engine.activeSegment
+    }
+
+    /// Jump to the end of `activeSegment`.
+    ///
+    /// Routed through the engine's own `seek`, which is uncoalesced — this is
+    /// a button pressed once with an exact target, not one of the mashable
+    /// transport circles, and it must not sit in the 280ms jump-coalesce
+    /// window waiting to see whether more presses arrive.
+    func skipActiveSegment() {
+        guard let segment = activeSegment else { return }
+        Task { await engine.skip(segment) }
+    }
+
+    /// Whether the player offers a skip when the server has marked a
+    /// sequence. Default **on**: a server that has never run a segment
+    /// provider reports nothing and the button simply never appears, so the
+    /// setting costs nothing until it is useful.
+    nonisolated static var skipSegmentsEnabled: Bool {
+        get {
+            UserDefaults.standard.object(forKey: skipSegmentsKey) as? Bool ?? true
+        }
+        set { UserDefaults.standard.set(newValue, forKey: skipSegmentsKey) }
     }
 
     // MARK: - Actions — transport

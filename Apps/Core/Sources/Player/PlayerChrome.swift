@@ -12,6 +12,9 @@ enum PlayerFocusField: Hashable {
     case back30, playPause, forward30, forwardMinute
     /// The foot, left to right.
     case previous, scenes, next
+    /// "Skip intro" / "Skip credits" — bottom-right, and the only field here
+    /// that can be focused while the chrome is hidden.
+    case skipSegment
     case failureRetry, failureSkip, failureClose
 }
 
@@ -178,6 +181,18 @@ struct PlayerChrome: View {
         return false
     }
 
+    /// Where the skip button sits in from the bottom-right corner. Generous
+    /// on tvOS for the overscan margin every other edge control here already
+    /// respects, tighter on a tablet, tighter still on a phone in landscape
+    /// where the corner is also where the home indicator lives.
+    private var skipButtonInset: (horizontal: CGFloat, vertical: CGFloat) {
+        #if os(tvOS)
+        return (88, 76)
+        #else
+        return DeviceClass.current == .phone ? (28, 22) : (46, 40)
+        #endif
+    }
+
     /// Screenshot hook, inert unless set: `JT_NIGHT` / `RT_NIGHT` =
     /// `on` (engaged, lock open) | `locked` | `ending` (deep in the
     /// wind-down) | `ended` (the timer has fired) | `fast` (the whole thing
@@ -283,6 +298,25 @@ struct PlayerChrome: View {
                     .allowsHitTesting(false)
             }
 
+            // **Outside the `if visible` branch**, which is the whole point:
+            // the theme starts, the button appears over the picture, one
+            // press and you're past it. Summoning the chrome first would make
+            // it slower than the ⏩ circle it exists to replace.
+            //
+            // Still suppressed by everything that owns the screen — the scene
+            // grid, the tag panel, a playback failure, and the Night lock,
+            // under which nothing may act unseen.
+            if let segment = controller.activeSegment,
+               !night.isLocked, !scenesOpen, !tagsOpen, !isFailed {
+                PlayerSkipButton(segment: segment, accent: accent,
+                                 onSkip: { interact(); controller.skipActiveSegment() },
+                                 focus: $focus)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: .bottomTrailing)
+                    .padding(.trailing, skipButtonInset.horizontal)
+                    .padding(.bottom, skipButtonInset.vertical)
+            }
+
             // Last in the stack on purpose: while the lock is on it takes
             // every touch on the screen, including the ones that would
             // otherwise reach the hidden catcher underneath.
@@ -298,6 +332,31 @@ struct PlayerChrome: View {
             }
         }
         .animation(.easeInOut(duration: 0.9), value: night.isOn)
+        .animation(Self.fadeAnimation, value: controller.activeSegment)
+        #if os(tvOS)
+        .onChange(of: controller.activeSegment) { previous, current in
+            // The button arrives already focused, so skipping is one Select
+            // press rather than a hunt with the D-pad — the convention every
+            // TV app that has this button follows. Only while the chrome is
+            // hidden: with the controls up, yanking focus off play/pause
+            // mid-film is the more annoying of the two failures.
+            if current != nil, previous == nil, !visible, !night.isLocked {
+                focus = .skipSegment
+            } else if current != nil, previous != nil, current != previous,
+                      focus == .skipSegment {
+                // Intro straight into a recap, or the segment list arriving
+                // late and replacing what was there: keep the focus on the
+                // button rather than letting it fall to the catcher.
+                focus = .skipSegment
+            } else if current == nil, focus == .skipSegment {
+                // Hand focus back rather than leaving it on a view that no
+                // longer exists: with the chrome hidden the invisible catcher
+                // is the only focusable thing left, and Menu needs *something*
+                // focused for `.onExitCommand` to reach `handleMenuPress`.
+                focus = nil
+            }
+        }
+        #endif
         .onChange(of: visible) { _, v in
             PlayerDiagnostics.log("chrome: visible -> \(v)")
             #if os(tvOS)
@@ -330,7 +389,16 @@ struct PlayerChrome: View {
             // taps stopped reaching any SwiftUI `Button` here, chrome/hidden-
             // catcher included, the instant this ran unconditionally).
             #if os(tvOS)
-            focus = .playPause
+            // A segment can already be active on the very first frame — the
+            // `=skip` fixture, or resuming into an episode's credits. The
+            // `onChange` above never fires for a value that was there from
+            // the start, so the button would render unfocused and take two
+            // presses instead of one.
+            if controller.activeSegment != nil, !visible, !night.isLocked {
+                focus = .skipSegment
+            } else {
+                focus = .playPause
+            }
             #endif
             armIdleTimer()
             night.attach(controller)
@@ -440,10 +508,20 @@ struct PlayerChrome: View {
         .padding(.horizontal, 56)
         // Diagonally opposite BACK, clear of the centred foot row,
         // and inert — it names the thing playing, it isn't a control.
+        //
+        // **It yields that corner to the skip button.** The mark is here
+        // precisely because nobody needs to act on it, which is also what
+        // makes it the thing to drop when something actionable needs the same
+        // space for a minute. Stacking them instead was tried and is worse:
+        // the button lands on top of the title and the episode line reads
+        // through it.
         .overlay(alignment: .bottomTrailing) {
-            PlayerIdentityMark(item: controller.currentItem)
-                .padding(.trailing, 56)
-                .padding(.bottom, 44)
+            if controller.activeSegment == nil {
+                PlayerIdentityMark(item: controller.currentItem)
+                    .padding(.trailing, 56)
+                    .padding(.bottom, 44)
+                    .transition(.opacity)
+            }
         }
     }
 

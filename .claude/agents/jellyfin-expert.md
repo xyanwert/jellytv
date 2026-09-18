@@ -13,7 +13,9 @@ builds from.
 ## The server
 
 - **URL**: `http://192.168.1.150:8096` (LAN, plain HTTP)
-- **Version**: Jellyfin **10.11.11**, `ServerName` "xyan-media", x64
+- **Version**: Jellyfin **12.0.0**, `ServerName` "xyan-media", x64 (it was 10.11.11
+  until Sep 2026 — confirm with `GET /System/Info/Public`, which needs no auth,
+  rather than trusting this line)
 - **User id**: `89b2ae71b4514311bb24ea1c4ca0461d` (single user; confirm with
   `GET /Users` rather than assuming it hasn't changed)
 
@@ -44,7 +46,11 @@ metadata refresh with image replacement is the first thing to test.
 
 Read it from `$JELLYFIN_API_KEY`. If it is unset, ask the user for it (or ask
 them to export it) rather than digging for it — it is also visible in the app's
-own Setup screen. Pass it as a header: `-H "X-Emby-Token: $JELLYFIN_API_KEY"`.
+own Setup screen. Pass it as the **`Authorization` header**:
+`-H "Authorization: MediaBrowser Token=\"$JELLYFIN_API_KEY\", Client=\"cli\",
+Device=\"mac\", DeviceId=\"cli\", Version=\"1.0\""`. Jellyfin 12 **rejects**
+both `X-Emby-Token:` and `?api_key=` — each answers 401, with no hint that the
+key itself is fine (verified against this server).
 Redact it from anything you quote back, including URLs you paste into findings.
 
 ## What you may change, and what you may never touch

@@ -326,6 +326,24 @@ public struct JellyfinClient: Sendable {
         return response.trickplay
     }
 
+    /// The item's intro/credits/recap markers, as whatever segment providers
+    /// the server has filled in (Intro Skipper, TheIntroDB, …).
+    ///
+    /// Its own request, like trickplay and for the same reason: this is not a
+    /// `fields` value on `/Items` — it's a separate endpoint, and only the
+    /// player ever wants it. `runtimeSeconds` is passed through to clamp
+    /// providers that report an end past the file's own runtime.
+    ///
+    /// Not user-scoped: segments describe the file, not the viewer.
+    public func fetchMediaSegments(itemId: String,
+                                   runtimeSeconds: Double? = nil) async throws -> [MediaSegment] {
+        guard let url = buildURL(path: "/MediaSegments/\(itemId)", query: nil) else {
+            throw JellyfinRequestError.invalidURL
+        }
+        let response: JellyfinAPI.ItemsResponse<JellyfinAPI.MediaSegment> = try await request(url: url)
+        return MediaSegments.from(response.items, runtimeSeconds: runtimeSeconds)
+    }
+
     // MARK: - Playback
 
     /// Negotiates DirectPlay vs. DirectStream vs. Transcode for one item.

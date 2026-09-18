@@ -112,7 +112,14 @@ public enum SampleCatalog {
     /// Playback category: toggle rows.
     public static let playbackToggles: [PlaybackToggle] = [
         .init(label: "Auto-play next episode", description: "Start the next episode automatically", isOnByDefault: true),
-        .init(label: "Skip intros", description: "Detect and skip recaps & title sequences", isOnByDefault: true),
+        // The only live row of the three. Its old description promised
+        // "Detect and skip recaps & title sequences", which was wrong twice
+        // over: nothing here detects anything (a Jellyfin segment provider
+        // does, server-side), and recaps are deliberately never offered —
+        // they are often the only reminder of what happened last week.
+        .init(label: "Skip intros and credits",
+              description: "Offer a skip when your server has marked one",
+              isOnByDefault: true, kind: .skipSegments),
         .init(label: "HDR passthrough", description: "Send HDR metadata to your display", isOnByDefault: false),
     ]
 

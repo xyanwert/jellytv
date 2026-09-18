@@ -50,6 +50,14 @@ final class PlayerEngine {
     /// Scene thumbnails. Lives here so its sheet cache outlives any one
     /// opening of the panel.
     let trickplayClient: TrickplayClient
+    /// Intro/credits markers for the current item, as the *server's* segment
+    /// providers reported them. Empty for everything nobody has analysed,
+    /// which is most of a library — every consumer must degrade to "no
+    /// button" rather than treating emptiness as a failure.
+    private(set) var segments: [MediaSegment] = []
+    /// The segment the playhead is inside right now, if it is one this app
+    /// offers to skip. Recomputed on the 4Hz tick; nil the rest of the time.
+    private(set) var activeSegment: MediaSegment?
     private(set) var isFavorite: Bool = false
     private(set) var repeatOne: Bool = false
     private(set) var queue: [PlayableItem] = []
@@ -226,6 +234,45 @@ final class PlayerEngine {
         await seek(to: currentTime + delta)
     }
 
+    /// Jump to the end of a segment the viewer asked to skip.
+    ///
+    /// Lands a hair *before* the end rather than exactly on it: `seek(to:)`
+    /// already clamps to `duration`, but an end-credits segment that runs to
+    /// the last frame would otherwise park the playhead on end-of-item and
+    /// auto-advance — so "skip the credits" would silently start the next
+    /// episode instead of showing them the last shot.
+    func skip(_ segment: MediaSegment) async {
+        let target = duration > 0 ? min(segment.endSeconds, duration - 1) : segment.endSeconds
+        // Clear immediately so the button cannot be pressed twice while the
+        // seek settles; the next tick recomputes it anyway.
+        activeSegment = nil
+        await seek(to: max(0, target))
+    }
+
+    /// Ask the server what it knows about this item's intro and credits.
+    ///
+    /// Deliberately not awaited by `setItem`: this is a second endpoint, and
+    /// nothing about starting playback should wait on it. A server with no
+    /// segment provider answers an empty list in about a millisecond, an
+    /// older one 404s, and either way the player behaves exactly as it did
+    /// before this existed.
+    private func loadSegments(for item: PlayableItem, token: Int) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let runtime = item.runtimeTicks.map { Double($0) / 10_000_000 }
+            let found = (try? await self.client.fetchMediaSegments(
+                itemId: item.id, runtimeSeconds: runtime)) ?? []
+            // Two guards, not one: the generation token catches a superseded
+            // load, and the id catches the same item being re-entered.
+            guard !self.generation.isCancelled(token),
+                  self.currentItem?.id == item.id else { return }
+            self.segments = found
+            PlayerDiagnostics.log("segments [\(item.title)] \(found.count): "
+                + found.map { "\($0.kind.rawValue) \(Int($0.startSeconds))-\(Int($0.endSeconds))s" }
+                    .joined(separator: ", "))
+        }
+    }
+
     /// Resolve and start playing the given item. Safe to call repeatedly —
     /// each call supersedes the in-flight load.
     func setItem(_ item: PlayableItem) async {
@@ -235,6 +282,11 @@ final class PlayerEngine {
         isFavorite = item.isFavorite
         isPlaying = false
         reresolveAttemptsForCurrentItem = 0
+        // Clear before the fetch, never after: a queue advance must not leave
+        // the outgoing episode's intro markers pointing into the new one.
+        segments = []
+        activeSegment = nil
+        loadSegments(for: item, token: token)
 
         // Capture the outgoing item's position BEFORE tearing down
         // observers, so `/Sessions/Playing/Stopped` carries an accurate
@@ -393,6 +445,11 @@ final class PlayerEngine {
             Task { @MainActor in
                 guard let self, let reporter else { return }
                 self.currentTime = self.avPlayer.currentTime().seconds
+                // The only recurring position callback in the app, so it is
+                // also what decides whether a "Skip intro" is on offer. Pure
+                // arithmetic over an array that is almost always empty or two
+                // items long — cheaper than the `currentTime` assignment above.
+                self.activeSegment = MediaSegments.skippable(at: self.currentTime, in: self.segments)
                 // Not while loading: the observer's first tick lands before the first
                 // `play()`, and "paused" is not what a still-buffering item is.
                 guard case .ready = self.phase else { return }
@@ -626,7 +683,8 @@ final class PlayerEngine {
     /// Never called outside that debug harness.
     func previewSeed(item: PlayableItem, currentTime: Double, duration: Double,
                      isPlaying: Bool, isFavorite: Bool, queue: [PlayableItem], queueIndex: Int,
-                     failureMessage: String? = nil) {
+                     failureMessage: String? = nil,
+                     segments: [MediaSegment] = []) {
         self.currentItem = item
         self.currentTime = currentTime
         self.duration = duration
@@ -635,5 +693,10 @@ final class PlayerEngine {
         self.queue = queue
         self.queueIndex = queueIndex
         self.phase = failureMessage.map { .failed(message: $0) } ?? .ready
+        self.segments = segments
+        // The fixture has no periodic observer to recompute this, so it is
+        // resolved once here — through the same function the live tick uses,
+        // so a screenshot can't show a button the real player wouldn't.
+        self.activeSegment = MediaSegments.skippable(at: currentTime, in: segments)
     }
 }

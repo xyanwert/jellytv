@@ -48,15 +48,35 @@ struct PlaybackDetail: View {
 
             ForEach(SampleCatalog.playbackToggles) { toggle in
                 DetailRow(label: toggle.label, description: toggle.description) {
-                    ToggleSwitch(isOn: Binding(
-                        get: { toggleState[toggle.label] ?? toggle.isOnByDefault },
-                        set: { toggleState[toggle.label] = $0 }
-                    ))
+                    ToggleSwitch(isOn: binding(for: toggle))
                 }
                 DetailDivider()
             }
 
             Spacer(minLength: 0)
+        }
+    }
+
+    /// A row with a `kind` writes through to the real preference; the rest
+    /// keep the session-local state they have always had.
+    ///
+    /// Those others are still display-only, and knowingly so: "Auto-play next
+    /// episode" describes behaviour the engine performs unconditionally, and
+    /// "HDR passthrough" has nothing behind it at all. Wiring this one row
+    /// does not make its neighbours honest — flagged rather than quietly left
+    /// looking identical to the one that now works.
+    private func binding(for toggle: PlaybackToggle) -> Binding<Bool> {
+        switch toggle.kind {
+        case .skipSegments:
+            return Binding(
+                get: { PlayerController.skipSegmentsEnabled },
+                set: { PlayerController.skipSegmentsEnabled = $0 }
+            )
+        case nil:
+            return Binding(
+                get: { toggleState[toggle.label] ?? toggle.isOnByDefault },
+                set: { toggleState[toggle.label] = $0 }
+            )
         }
     }
 }

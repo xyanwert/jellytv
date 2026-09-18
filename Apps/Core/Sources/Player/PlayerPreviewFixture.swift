@@ -11,7 +11,16 @@ struct PlayerPreviewFixture: View {
     var onClose: () -> Void = {}
     @State private var engine: PlayerEngine?
     @State private var controller: PlayerController?
-    @State private var chromeVisible = ProcessInfo.processInfo.environment["JT_SHOW_PLAYER"] != "hidden"
+    /// The mode, from whichever of the two hooks this platform is launched
+    /// with — tvOS gates the fixture on `JT_SHOW_PLAYER`, the Remote app on
+    /// `RT_SHOW_PLAYER`, and reading only the first meant `=hidden`/`=failed`
+    /// silently did nothing on iPad.
+    static var hook: String? {
+        let env = ProcessInfo.processInfo.environment
+        return env["JT_SHOW_PLAYER"] ?? env["RT_SHOW_PLAYER"]
+    }
+
+    @State private var chromeVisible = PlayerPreviewFixture.hook != "hidden"
 
     var body: some View {
         ZStack {
@@ -55,17 +64,29 @@ struct PlayerPreviewFixture: View {
                        "Subtitled", "Ensemble", "Slow burn", "Rewatch",
                        "Late night", "Award winner"]
             )
-            let showFailure = ProcessInfo.processInfo.environment["JT_SHOW_PLAYER"] == "failed"
+            let hook = Self.hook
+            let showFailure = hook == "failed"
+            // Real numbers, straight off a scanned Simpsons episode: intro
+            // 0:17–1:18, credits from 22:10. `=skip` parks the playhead
+            // inside the intro so the button is in the screenshot; every
+            // other mode keeps the 27-minute position and shows no button,
+            // which is the state the chrome is in almost all of the time.
+            let segments = [
+                MediaSegment(id: "intro", kind: .intro, startSeconds: 17, endSeconds: 78),
+                MediaSegment(id: "outro", kind: .outro, startSeconds: 3190, endSeconds: 3300),
+            ]
             e.previewSeed(
                 // Parked 27 minutes in rather than at zero, so the position
                 // readout shows something worth reading in a screenshot.
-                item: item, currentTime: 1620, duration: 3316, isPlaying: true, isFavorite: true,
+                item: item, currentTime: hook == "skip" ? 40 : 1620,
+                duration: 3316, isPlaying: true, isFavorite: true,
                 // Parked one *into* the queue, not at its head, so the foot
                 // renders PREV as well as NEXT — both hide at the ends of a
                 // queue, and a fixture that never shows one is a fixture that
                 // can't catch it breaking.
                 queue: Array(repeating: item, count: 68), queueIndex: 1,
-                failureMessage: showFailure ? "Playback failed — the server returned repeated 500 errors and a fresh session didn't recover." : nil
+                failureMessage: showFailure ? "Playback failed — the server returned repeated 500 errors and a fresh session didn't recover." : nil,
+                segments: segments
             )
             engine = e
             controller = PlayerController(engine: e)

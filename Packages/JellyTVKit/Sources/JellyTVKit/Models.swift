@@ -773,15 +773,29 @@ public struct SettingsCategory: Equatable, Sendable, Hashable, Identifiable {
 
 /// A toggle row in the Settings Playback detail pane.
 public struct PlaybackToggle: Equatable, Sendable, Hashable, Identifiable {
+    /// Which preference a row actually drives, for the rows that drive one.
+    ///
+    /// Rows used to be identified by their English label alone, which is what
+    /// the pane's state dictionary was keyed by — fine while every row was
+    /// inert sample data, and a trap the moment one of them became real:
+    /// rewording a label would silently detach it from its setting.
+    public enum Kind: String, Sendable, Hashable {
+        /// Offer "Skip intro"/"Skip credits" when the server has marked one.
+        case skipSegments
+    }
+
     public var id: String { label }
     public var label: String
     public var description: String
     public var isOnByDefault: Bool
+    /// `nil` for the rows that are still display-only.
+    public var kind: Kind?
 
-    public init(label: String, description: String, isOnByDefault: Bool) {
+    public init(label: String, description: String, isOnByDefault: Bool, kind: Kind? = nil) {
         self.label = label
         self.description = description
         self.isOnByDefault = isOnByDefault
+        self.kind = kind
     }
 }
 
