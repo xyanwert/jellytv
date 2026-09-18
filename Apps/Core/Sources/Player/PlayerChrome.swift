@@ -306,8 +306,12 @@ struct PlayerChrome: View {
             // Still suppressed by everything that owns the screen — the scene
             // grid, the tag panel, a playback failure, and the Night lock,
             // under which nothing may act unseen.
+            // `!night.isOn`, not `!night.isLocked`: with Night mode engaged
+            // the skip happens by itself (`autoSkipIfNightMode`), so a button
+            // would only flash for a tick before the jump it was offering
+            // already happened.
             if let segment = controller.activeSegment,
-               !night.isLocked, !scenesOpen, !tagsOpen, !isFailed {
+               !night.isOn, !scenesOpen, !tagsOpen, !isFailed {
                 PlayerSkipButton(segment: segment, accent: accent,
                                  onSkip: { interact(); controller.skipActiveSegment() },
                                  focus: $focus)
@@ -333,6 +337,20 @@ struct PlayerChrome: View {
         }
         .animation(.easeInOut(duration: 0.9), value: night.isOn)
         .animation(Self.fadeAnimation, value: controller.activeSegment)
+        // Night mode skips intros and credits by itself — the lock makes the
+        // button unreachable, and someone asleep with a season queued should
+        // not be woken by a theme tune the app could have jumped. Driven from
+        // the same `activeSegment` change the button is, so the two can never
+        // disagree about what is on offer.
+        .onChange(of: controller.activeSegment) { _, _ in
+            controller.autoSkipIfNightMode(night.isOn)
+        }
+        // A segment can already be active when Night mode is switched on
+        // mid-sequence; `activeSegment` hasn't changed, so the line above
+        // never fires for it.
+        .onChange(of: night.isOn) { _, on in
+            controller.autoSkipIfNightMode(on)
+        }
         #if os(tvOS)
         .onChange(of: controller.activeSegment) { previous, current in
             // The button arrives already focused, so skipping is one Select

@@ -48,6 +48,11 @@ final class PlayerController {
     nonisolated private static let dislikedIdsKey = "jelly:player.dislikedItemIds"
     nonisolated private static let skipSegmentsKey = "jelly:playback.skipSegments"
 
+    /// Segments already jumped on this item, so Night mode's automatic skip
+    /// can't fire twice on the same one. See `autoSkipIfNightMode`.
+    private var autoSkipped: Set<String> = []
+    private var autoSkipItemId: String?
+
     init(engine: PlayerEngine) {
         self.engine = engine
     }
@@ -134,6 +139,51 @@ final class PlayerController {
     /// window waiting to see whether more presses arrive.
     func skipActiveSegment() {
         guard let segment = activeSegment else { return }
+        autoSkipped.insert(segment.id)
+        Task { await engine.skip(segment) }
+    }
+
+    /// **Night mode skips for you.** Called from the chrome whenever the
+    /// active segment changes.
+    ///
+    /// The lock is the reason this exists rather than a convenience: engaging
+    /// Night mode hides the chrome and puts a catcher over the whole screen
+    /// so a stray touch is inert, which means the skip button is *unreachable*
+    /// for as long as the lock is on. Someone who falls asleep with a season
+    /// queued would otherwise sit through every title sequence with no way
+    /// past it — and Night mode's entire premise is a queue playing itself
+    /// through a dark room.
+    ///
+    /// Silent on purpose: no glance, no badge, no flash. Night mode dims the
+    /// screen and de-blues it so someone can fall asleep to it, and lighting
+    /// the display up to announce that a theme tune was skipped would undo
+    /// the thing it is for.
+    ///
+    /// It obeys the same preference as the button — `activeSegment` is nil
+    /// when "Skip intros and credits" is off — so turning the feature off
+    /// turns it off everywhere, rather than leaving Night mode quietly
+    /// overriding a choice the viewer made.
+    func autoSkipIfNightMode(_ nightModeOn: Bool) {
+        guard nightModeOn, isPlaying, let segment = activeSegment else { return }
+        // Forget the bookkeeping when the item changes — segment ids are
+        // per-item, but this also keeps the set from growing across a
+        // 500-item shuffle queue.
+        if autoSkipItemId != currentItem?.id {
+            autoSkipItemId = currentItem?.id
+            autoSkipped.removeAll()
+        }
+        // **Never skip the same segment twice**, and this is not paranoia.
+        // `PlayerEngine.skip` clamps its target to `duration - 1` so a jump
+        // can't trip end-of-item and auto-advance; for a credits segment that
+        // runs to the last frame, that clamped target lands *inside the
+        // segment it just skipped*, the next tick recomputes the very same
+        // active segment, and without this guard the two would seek at each
+        // other forever. It also means a viewer who deliberately seeks back
+        // into an intro is left alone.
+        guard !autoSkipped.contains(segment.id) else { return }
+        autoSkipped.insert(segment.id)
+        PlayerDiagnostics.log("night: auto-skipping \(segment.kind.rawValue) "
+            + "\(Int(segment.startSeconds))-\(Int(segment.endSeconds))s")
         Task { await engine.skip(segment) }
     }
 

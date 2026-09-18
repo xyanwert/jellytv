@@ -1022,6 +1022,21 @@ filter, and every part of it exists to survive someone falling asleep holding th
   focus sink the button could never be reached from): the badge itself is the focusable
   hold-to-unlock control, Left/Right walks between it and the button, both in the amber
   `NightControlStyle` rather than the accent-red `FocusScaleStyle`.
+- **It skips the intros and credits itself** (`PlayerController.autoSkipIfNightMode`, driven off
+  the same `activeSegment` change the button is). This follows from the lock rather than being a
+  convenience: with the chrome hidden and a catcher over the screen, the skip button is
+  *unreachable*, so someone asleep with a season queued would sit through every title sequence
+  with no way past it — and a queue playing itself through a dark room is exactly what Night mode
+  is for. Silent, with no glance or badge: lighting the screen up to announce that a theme tune
+  was skipped would undo the thing the mode exists to do. The button is hidden whenever
+  `night.isOn` (not merely locked), since otherwise it would flash for one tick before the jump
+  it was offering had already happened. It obeys the same `jelly:playback.skipSegments`
+  preference, so switching the feature off switches it off here too rather than leaving Night
+  mode quietly overriding the viewer. **A segment is never auto-skipped twice on the same item**
+  — `PlayerEngine.skip` clamps its target to `duration - 1` so a jump can't trip end-of-item and
+  auto-advance, and for credits that run to the last frame that clamped target lands *inside the
+  segment just skipped*: without the guard the next tick would find the same segment and the two
+  would seek at each other forever. It also leaves alone a viewer who deliberately seeks back.
 - **It dims and de-blues.** `UIScreen.brightness` to its minimum (iOS only — tvOS has no such
   knob) *plus* `NightVeil`: a warm wash `.blendMode(.multiply)`'d into the picture. Multiply is
   what actually removes blue; a normal-blended warm layer only lifts the blacks. The blend does
