@@ -1318,6 +1318,18 @@ it's gone stale, same as the iPad default below.
   `touch --down --up` is more reliable than `tap` for a control that may still be animating in.
   Coordinates are device points. For real playback without tap automation, `RT_AUTOPLAY=<substring>`
   resumes a Continue Watching entry at launch (any non-empty value falls back to the first one).
+- **Do not trust an AXe tap to prove a control dead — prove the harness alive first.** A whole
+  session was spent "fixing" a `Skip intro` button that was never broken: AXe reported
+  `✓ Tap … completed successfully` every time and nothing happened. Two causes, both invisible
+  as errors. The simulator had **suspended the app** (display sleep) — the tell is two
+  `simctl io screenshot`s two seconds apart with a *zero* pixel diff, and the fix is a screenshot
+  loop, not `sleep`. And in the **landscape player**, AXe's coordinate space does not match the
+  frame `axe describe-ui` reports: the reported frame is rotated, so an x of 718 on a phone whose
+  portrait width is 402pt lands nowhere, silently. The correct mapping was never established.
+  So before concluding a control is dead, tap something whose effect is unmistakable (the centre
+  of the player toggles the chrome) — if *that* does nothing, the harness is the bug. Better
+  still, read the app's own log: `JT_PLAYER_LOG=1` puts `chrome: visible -> true` on stdout the
+  moment any control's `interact()` runs, which is a yes/no answer a screenshot diff is not.
 - SourceKit frequently shows stale `No such module 'JellyTVKit'` (or missing-member) errors in the
   editor after package edits; trust the actual `xcodebuild` / `swift test` result, not the inline
   diagnostics.
