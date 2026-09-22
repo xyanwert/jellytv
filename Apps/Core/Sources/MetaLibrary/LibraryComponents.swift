@@ -1146,8 +1146,6 @@ struct LibraryPosterCard: View {
         }
         .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.1))
         .focused($isFocusedCard)
-        // The page a poster opens zooms out of that poster — see `ZoomTransition`.
-        .zoomOrigin(isFocusedCard)
     }
 
     @FocusState private var isFocusedCard: Bool

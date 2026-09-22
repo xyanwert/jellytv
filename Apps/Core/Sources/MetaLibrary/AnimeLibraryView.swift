@@ -42,7 +42,6 @@ struct AnimeLibraryView: View {
     /// is a round trip long enough to need reporting.
     @State private var randomState: RandomPlayState = .idle
     @State private var presentedMovie: Movie?
-    @State private var zoomOrigin: UnitPoint = .center
     @State private var presentedShow: Show?
     @State private var selectedMovieDetail: Movie?
     @State private var selectedShowDetail: Show?
@@ -236,24 +235,23 @@ struct AnimeLibraryView: View {
             // `presentedShow` are same-ZStack overlays, not modals, so
             // without this the rail stays focus-reachable underneath them.
             .disabled(presentedMovie != nil || presentedShow != nil)
-            .trackZoomOrigin($zoomOrigin)
-            .zoomedBehind(presentedMovie != nil || presentedShow != nil, origin: zoomOrigin)
+            .pageBehind(presentedMovie != nil || presentedShow != nil)
 
             if let presentedMovie {
                 MovieDetailView(movie: presentedMovie, onDismiss: { self.presentedMovie = nil },
                                 onOpenItem: openItem)
                     .id(presentedMovie.id)
-                    .zoomPresented(from: zoomOrigin)
+                    .pagePresented()
                     .zIndex(2)
             }
             if let presentedShow {
                 ShowView(show: presentedShow, onDismiss: { self.presentedShow = nil })
-                    .zoomPresented(from: zoomOrigin)
+                    .pagePresented()
                     .zIndex(2)
             }
         }
-        .animation(.zoomPresentation, value: presentedMovie)
-        .animation(.zoomPresentation, value: presentedShow)
+        .animation(.pagePresentation, value: presentedMovie)
+        .animation(.pagePresentation, value: presentedShow)
         // Menu from a page puts the remote back on the poster it opened.
         .onChange(of: presentedMovie) { _, new in if new == nil { focusedId = lastFocusedId } }
         .onChange(of: presentedShow) { _, new in if new == nil { focusedId = lastFocusedId } }

@@ -241,8 +241,6 @@ struct HeroView: View {
         }
         .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
         .focused($detailsFocused)
-        // The film's page zooms out of this button — see `ZoomTransition`.
-        .zoomOrigin(detailsFocused)
     }
 
     @FocusState private var detailsFocused: Bool

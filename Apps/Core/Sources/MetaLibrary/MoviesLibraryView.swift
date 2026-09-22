@@ -41,7 +41,6 @@ struct MoviesLibraryView: View {
     @State private var randomState: RandomPlayState = .idle
     @State private var presentedMovie: Movie?
     /// Where a presented page zooms from: the focused poster.
-    @State private var zoomOrigin: UnitPoint = .center
     /// A show reached *from* a movie page — one of an actor's other credits
     /// in the person sheet. This screen never lists shows itself.
     @State private var presentedShow: Show?
@@ -243,26 +242,24 @@ struct MoviesLibraryView: View {
             // is a same-ZStack overlay, not a modal, so without this the
             // rail stays focus-reachable underneath it.
             .disabled(presentedMovie != nil || presentedShow != nil)
-            // The page zooms out of the focused poster and the shelf pushes
-            // in behind it — see `ZoomTransition`.
-            .trackZoomOrigin($zoomOrigin)
-            .zoomedBehind(presentedMovie != nil || presentedShow != nil, origin: zoomOrigin)
+            // The page dissolves in over the shelf — see `PageTransition`.
+            .pageBehind(presentedMovie != nil || presentedShow != nil)
 
             if let presentedMovie {
                 MovieDetailView(movie: presentedMovie, onDismiss: { self.presentedMovie = nil },
                                 onOpenItem: openItem)
                     .id(presentedMovie.id)
-                    .zoomPresented(from: zoomOrigin)
+                    .pagePresented()
                     .zIndex(2)
             }
             if let presentedShow {
                 ShowView(show: presentedShow, onDismiss: { self.presentedShow = nil })
-                    .zoomPresented(from: zoomOrigin)
+                    .pagePresented()
                     .zIndex(3)
             }
         }
-        .animation(.zoomPresentation, value: presentedMovie)
-        .animation(.zoomPresentation, value: presentedShow)
+        .animation(.pagePresentation, value: presentedMovie)
+        .animation(.pagePresentation, value: presentedShow)
         // Menu from a page puts the remote back on the poster it opened —
         // left alone, focus came back on the first filter chip.
         .onChange(of: presentedMovie) { _, new in if new == nil { focusedId = lastFocusedId } }

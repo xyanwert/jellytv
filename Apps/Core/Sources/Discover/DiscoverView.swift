@@ -257,7 +257,6 @@ struct DiscoverView: View {
                     }
                     #if os(tvOS)
                     .focused($focused, equals: .card(item.ref))
-                    .zoomOrigin(focused == .card(item.ref))
                     #endif
                 }
             }

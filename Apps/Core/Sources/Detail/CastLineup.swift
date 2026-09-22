@@ -97,8 +97,6 @@ struct CastLineup: View {
                     }
                     .buttonStyle(FigureButtonStyle())
                     .focused(focus, equals: .cast(member.id))
-                    // The person sheet zooms out of the coin — see `ZoomTransition`.
-                    .zoomOrigin(focusedMemberId == member.id)
                 }
             }
             .padding(.horizontal, 12)

@@ -49,7 +49,6 @@ struct HomeView: View {
     @State private var outgoingVisible = false
     @State private var departProgress: Double = 1
     @State private var presentedDetail: PresentedDetail?
-    @State private var zoomOrigin: UnitPoint = .center
     @State private var focusBeforePresent: HomeFocus?
     @State private var transitionStartTime: Date?
 
@@ -81,6 +80,14 @@ struct HomeView: View {
         guard !displayHeroes.isEmpty else { return nil }
         return displayHeroes[heroIndex % displayHeroes.count]
     }
+    /// Whether the hero should stop moving: something opaque is over it.
+    /// `isObscured` is the player (set by `RootView`); `presentedDetail` is a
+    /// movie or show page, which this view presents itself and so has to
+    /// notice itself — `PageTransition.pageBehind` sets the same flag for the
+    /// two `TimelineView`s further down this subtree, but an `@Environment`
+    /// set inside a body does not reach the body that set it.
+    private var heroShouldRest: Bool { isObscured || presentedDetail != nil }
+
     private var libraryItems: [Library] {
         let libs = appState.libraryUIItems()
         return libs.isEmpty ? SampleCatalog.libraries : libs
@@ -208,18 +215,17 @@ struct HomeView: View {
             // from the Show view's cast row eventually focused-and-selected
             // the Settings rail icon underneath).
             .disabled(presentedDetail != nil)
-            // The page zooms out of whatever was selected — a Recommended
-            // poster or the hero's Details button — see `ZoomTransition`.
-            .trackZoomOrigin($zoomOrigin)
-            .zoomedBehind(presentedDetail != nil, origin: zoomOrigin)
+            // The page dissolves in and this one goes quiet beneath it —
+            // see `PageTransition`.
+            .pageBehind(presentedDetail != nil)
 
             if let presentedDetail {
                 detailView(presentedDetail)
-                    .zoomPresented(from: zoomOrigin)
+                    .pagePresented()
                     .zIndex(2)
             }
         }
-        .animation(.zoomPresentation, value: presentedDetail)
+        .animation(.pagePresentation, value: presentedDetail)
         // Menu from a page puts the remote back on what opened it — the
         // poster or the hero's Details — instead of the first thing on screen.
         .onChange(of: presentedDetail) { old, new in
@@ -309,13 +315,16 @@ struct HomeView: View {
             }
         }
         .onDisappear { rotateTask?.cancel() }
-        // Under the tvOS player (a same-ZStack overlay, so this view stays alive and
-        // invisible) the crumble must not run: the hero would keep rotating beneath
-        // the film, and the departure shader is the most expensive thing in the app.
-        // Rotation resumes, from a fresh slide clock, when the player goes.
-        .onChange(of: isObscured) { _, obscured in
+        // Under the player *or* an opened movie/show page — both same-ZStack
+        // overlays, so this view stays alive and invisible behind them — the
+        // crumble must not run: the hero would keep rotating beneath, and the
+        // departure shader is the most expensive thing in the app. It ran
+        // under a detail page until now, which is the worst possible moment
+        // for it: a page opening is already the busiest frame on the TV.
+        // Rotation resumes, from a fresh slide clock, when the cover goes.
+        .onChange(of: heroShouldRest) { _, resting in
             guard DeviceClass.current != .phone else { return }
-            if obscured { rotateTask?.cancel() } else { startHeroRotation() }
+            if resting { rotateTask?.cancel() } else { startHeroRotation() }
         }
         .tvBackCommand(
             closeOverlay: isLibrariesOpen,

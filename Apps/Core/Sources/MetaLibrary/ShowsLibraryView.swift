@@ -37,7 +37,6 @@ struct ShowsLibraryView: View {
     /// is a round trip long enough to need reporting.
     @State private var randomState: RandomPlayState = .idle
     @State private var presentedShow: Show?
-    @State private var zoomOrigin: UnitPoint = .center
     /// Real detail (cast, ratings, season count, network) fetched for the
     /// selected item; shown in place of the sample fallback once it arrives.
     @State private var selectedDetail: Show?
@@ -225,16 +224,15 @@ struct ShowsLibraryView: View {
             // is a same-ZStack overlay, not a modal, so without this the
             // rail stays focus-reachable underneath it.
             .disabled(presentedShow != nil)
-            .trackZoomOrigin($zoomOrigin)
-            .zoomedBehind(presentedShow != nil, origin: zoomOrigin)
+            .pageBehind(presentedShow != nil)
 
             if let presentedShow {
                 ShowView(show: presentedShow, onDismiss: { self.presentedShow = nil })
-                    .zoomPresented(from: zoomOrigin)
+                    .pagePresented()
                     .zIndex(2)
             }
         }
-        .animation(.zoomPresentation, value: presentedShow)
+        .animation(.pagePresentation, value: presentedShow)
         // Menu from a page puts the remote back on the poster it opened.
         .onChange(of: presentedShow) { _, new in if new == nil { focusedId = lastFocusedId } }
         // Crossfades the backdrop and hero on a selection change — see

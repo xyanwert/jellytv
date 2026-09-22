@@ -56,9 +56,10 @@ struct MovieDetailView: View {
     @State private var directorCredits: Int?
     @State private var collection: (position: Int?, total: Int, seen: Int)?
     @State private var presentedPerson: CastMember?
-    @State private var zoomOrigin: UnitPoint = .center
-    /// Flips on appear; the folds enter in order off it — see `contentTV`.
-    @State private var entered = false
+    /// Flips on appear. The page's two heavy layers wait for it — see
+    /// `tvBody`. It used to stagger the folds in as well; see
+    /// `PageTransition` for why that went.
+    @State private var settled = false
     #endif
     #if os(iOS)
     /// Phone only — which of the DETAILS/CAST tabs is showing.
@@ -122,16 +123,17 @@ struct MovieDetailView: View {
     private var tvBody: some View {
         ZStack {
             // The two heavy layers — a 90pt blur of the poster at 1.3× the
-            // screen, and a full-bleed backdrop on a drift — wait out the
-            // zoom and fade in over the settled page. Rendered during the
-            // transition they were the frames it dropped; and the colour
-            // arriving a beat after the page reads as the room lighting up.
+            // screen, and a full-bleed backdrop on a slow drift — wait out
+            // the dissolve and fade in over the page once it has landed.
+            // Rendered *during* the transition they are the frames it drops,
+            // and the colour arriving a beat after the page reads as the room
+            // lighting up rather than as a delay.
             ZStack {
                 PosterBloom(image: posterImage, artwork: movie.artwork, tint: tint)
                 AmbientBackdrop(urls: backdropURLs, fallback: movie.artwork.gradient)
             }
-            .opacity(entered ? 1 : 0)
-            .animation(.easeIn(duration: 0.9).delay(0.4), value: entered)
+            .opacity(settled ? 1 : 0)
+            .animation(.easeIn(duration: 0.7).delay(0.3), value: settled)
             HStack(spacing: 0) {
                 DetailSpine(genreLabel: movie.genreLabel, markerTop: "FILM",
                             markerBottom: "001", onBack: onDismiss, accent: tint)
@@ -141,9 +143,8 @@ struct MovieDetailView: View {
             // Same-ZStack overlay, not a modal: without this the page's
             // controls stay in the focus engine's pool under the sheet.
             .disabled(presentedPerson != nil)
-            // The sheet zooms out of the coin — see `ZoomTransition`.
-            .trackZoomOrigin($zoomOrigin)
-            .zoomedBehind(presentedPerson != nil, origin: zoomOrigin)
+            // See `PageTransition` — a dissolve, and the page goes quiet.
+            .pageBehind(presentedPerson != nil)
 
             if presentedPerson != nil {
                 // Near-opaque: at 0.74 the page's Play bar and fact card
@@ -158,11 +159,11 @@ struct MovieDetailView: View {
                             currentItemId: movie.id, tint: tint,
                             onOpen: { item in self.presentedPerson = nil; onOpenItem(item) },
                             onDismiss: { self.presentedPerson = nil })
-                    .zoomPresented(from: zoomOrigin)
+                    .pagePresented()
                     .zIndex(2)
             }
         }
-        .animation(.zoomPresentation, value: presentedPerson)
+        .animation(.pagePresentation, value: presentedPerson)
         // The poster's colour lands a beat after the page; every surface that
         // wears it glides there rather than snapping.
         .animation(.easeInOut(duration: 0.7), value: posterTint)
@@ -179,12 +180,13 @@ struct MovieDetailView: View {
     /// awards/RT. No-ops gracefully before the server is up (keeps the initial).
     private func loadDetail() async {
         #if os(tvOS)
-        // Fetch at once, apply after the zoom has settled: the detail lands
-        // in ~300ms, squarely inside a 450ms transition, and re-laying out
-        // the whole page (logo, chips, cast, scenes) mid-animation was a
-        // visible hitch. Waiting costs at most the remainder of the zoom.
+        // Fetch at once, apply once the page has landed: the detail
+        // arrives in ~300ms, squarely inside the transition, and re-laying
+        // out the whole page (logo, chips, cast, scenes) mid-animation is a
+        // visible hitch. The wait tracks the transition's own length — it was
+        // 500ms against a 450ms zoom, and the dissolve is 300ms.
         async let fetched = appState.movieDetail(for: initialMovie.id)
-        try? await Task.sleep(for: .milliseconds(500))
+        try? await Task.sleep(for: .milliseconds(350))
         guard var m = await fetched else { return }
         #else
         guard var m = await appState.movieDetail(for: initialMovie.id) else { return }
@@ -313,46 +315,38 @@ struct MovieDetailView: View {
     private var contentTV: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                // The folds land one after another while the page itself is
-                // still zooming out of its poster: the pitch first, then the
-                // cast, the scenes, the shelf.
                 HStack(alignment: .top, spacing: 64) {
                     OneSheetPoster(image: posterImage, artwork: movie.artwork, height: Self.posterMaxHeight)
-                        .entrance(entered, delay: 0.04, rise: 10)
                     oneSheetInfoTV(height: Self.posterMaxHeight)
-                        .entrance(entered, delay: 0.10)
                 }
 
                 // The folds below arrive with the detail fetch, a beat after
                 // the page — they fade in rather than pop, so data landing
-                // mid-transition doesn't read as a stutter.
+                // just after the dissolve doesn't read as a stutter.
                 if !movie.cast.isEmpty {
                     CastLineup(cast: movie.cast, releaseYear: Int(movie.year), currentItemId: movie.id,
                                tint: tint, focusedMemberId: focusedCastId, focus: $focus,
                                onSelect: { presentedPerson = $0 })
                         .padding(.top, 56)
-                        .entrance(entered, delay: 0.18)
                         .transition(.opacity)
                 }
 
                 if scenes.count >= 3 {
                     ScenesStrip(chapters: scenes, tint: tint, focus: $focus, onSelect: play(from:))
                         .padding(.top, 44)
-                        .entrance(entered, delay: 0.24)
                         .transition(.opacity)
                 }
 
                 if !similar.isEmpty {
                     SimilarRow(items: similar, focus: $focus, onOpen: onOpenItem)
                         .padding(.top, 44)
-                        .entrance(entered, delay: 0.30)
                         .transition(.opacity)
                 }
             }
             .padding(.init(top: 52, leading: 64, bottom: 96, trailing: 64))
             .animation(.easeOut(duration: 0.45), value: foldSignature)
         }
-        .onAppear { entered = true }
+        .onAppear { settled = true }
     }
 
     /// Changes whenever a fold appears or disappears with the data behind it.

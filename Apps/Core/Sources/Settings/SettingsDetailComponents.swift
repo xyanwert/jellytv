@@ -76,3 +76,28 @@ struct ToggleSwitch: View {
         .animation(.easeOut(duration: 0.15), value: isOn)
     }
 }
+
+/// A `DetailRow`'s trailing control when the row is an *action* rather than a
+/// setting — the shape a `ToggleSwitch` or `SegmentedControl` would sit in.
+/// Sized to the widest of its labels by the caller's own text, not padded to a
+/// fixed width: the rows using this swap their label with their state
+/// ("Unlock" ↔ "Hide now") and a fixed frame would leave one of them floating.
+struct DetailActionButton: View {
+    let title: String
+    let action: () -> Void
+
+    @EnvironmentObject private var theme: Theme
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(Typography.font(20, .bold))
+                .foregroundStyle(Palette.screen)
+                .padding(.horizontal, 26)
+                .padding(.vertical, 13)
+                .background(theme.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(FocusScaleStyle(scale: 1.1, cornerRadius: 10))
+    }
+}

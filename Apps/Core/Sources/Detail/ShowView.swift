@@ -950,22 +950,20 @@ struct ShowView: View {
     // through a season is what a remote is for), and a cast row.
     private static let heroHeight: CGFloat = 490
 
-    /// Flips on appear; the hero and the shelves enter in order off it.
-    @State private var entered = false
-
+    // The hero and the shelves used to fade and rise in turn off an
+    // `entered` flag. They don't any more — see `PageTransition`: the page
+    // itself was being scaled at the same time, on a box that cannot afford
+    // one full-screen transform let alone three overlapping ones.
     private var tvBody: some View {
         ZStack(alignment: .topLeading) {
             ShowFullBackdrop(image: show.keyArt, artwork: show.artwork)
             VStack(alignment: .leading, spacing: 0) {
                 tvHero
                     .frame(height: Self.heroHeight, alignment: .bottomLeading)
-                    .entrance(entered, delay: 0.08, rise: 28)
                 tvShelves
-                    .entrance(entered, delay: 0.24)
             }
         }
         .ignoresSafeArea()
-        .onAppear { entered = true }
     }
 
     private var tvHero: some View {

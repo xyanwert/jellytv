@@ -711,33 +711,49 @@ for every actor of every movie and drops them in under those names — 30 films,
 minute. Without it only whatever was seeded by hand has a bust, which is why "only EuroTrip has
 them" was once a question. Two segmentations at a time on device, never redone for a URL.
 
-**Pages zoom out of what you selected** (`ZoomTransition.swift`, tvOS only; iOS keeps its
-crossfade through the same calls). A focused card marks itself with `zoomOrigin(_:)` (an anchor
-preference — `LibraryPosterCard`, Home's `PosterCard`, the hero's Details button, a cast coin); the
-presenting screen reads it with `trackZoomOrigin(_:)` into a `UnitPoint` of its own frame and
-clears the preference so a coin focused inside the movie page can't become the library's origin;
-the page gets `zoomPresented(from:)` (scale 0.94 → 1 out of that point, back to 0.97 on Menu) and
-the screen beneath `zoomedBehind(_:origin:)` (pushes in to 1.04× toward the same point and fades),
-all on `.animation(.zoomPresentation)`, one even 0.45s ease. **Subtle is the whole point:** the
-first cut flew the page in from 30% on a spring with the shelf pushing to 1.18×, and the user's
-verdict was "NOT smooth" — a big scale range moves every pixel of a 4K frame a long way per frame
-and the spring settles with a wobble; the anchor is what makes it read as a zoom, not the
-distance. The person sheet takes the same route out of its coin. Inside the movie page the folds
-then `entrance(_:delay:)` in order — poster, column, cast, scenes, shelf, a 14pt rise — and the
-folds that arrive with the detail fetch (`foldSignature`) fade in rather than pop, as does the
-poster's colour (`.animation(value: posterTint)`), because data landing mid-transition reads as
-stutter. **Nothing heavy happens while the zoom runs:** the detail fetch is applied no sooner
-than 500ms after appear (fetched at once, applied after the transition — it lands in ~300ms,
-squarely mid-animation, and the reflow was a visible hitch), and `PosterBloom` (a 90pt blur at
-1.3× the screen) and `AmbientBackdrop` fade in over 0.9s starting 0.4s after appear instead of
-being drawn during it. Scale and opacity only; no new blur (a full-screen blur at 3840×2160 is
-exactly the cost the crumble taught). **The simulator cannot judge smoothness:** a recording of
-the zoom (`simctl io recordVideo`, frames dumped with `AVAssetImageGenerator`) showed it drawing a
-new frame every 150–180ms during the transition, whatever the code does — judge on the Apple TV.
-Two things the zoom cost: the screen beneath fades to 2%, not 0, because the focus engine won't
-land on alpha ≤ 0.01 and focus is handed back on the first frame of the return; and each
-presenting screen puts focus back explicitly on Menu (`focusedId = lastFocusedId`, or the focus
-saved when the page opened) — left to the engine it fell to the first filter chip.
+**Pages dissolve in, and the screen beneath goes quiet** (`PageTransition.swift`;
+`pagePresented()` / `pageBehind(_:)` / `.animation(.pagePresentation)`, one 0.3s ease).
+
+**This was a zoom and the zoom is gone — do not bring it back.** A page grew out of the poster
+you selected while the shelf beneath pushed in toward the same point, on an anchor read from a
+focused card's `anchorPreference`. It looked right on the simulator, which is exactly what the
+note below already said the simulator cannot judge, and on a real Apple TV the verdict was that
+it looked horrible. The reason is structural rather than a matter of tuning, so no amount of
+retiming would have fixed it: the box draws this app at 3840×2160, a `scaleEffect` on a subtree
+SwiftUI has not flattened is applied per layer rather than once to a texture, and **two**
+full-screen hierarchies were under one at the same time — including the movie page's own 90pt
+poster blur and full-bleed backdrop. The staggered `entrance(_:delay:)` that faded and raised
+each fold of the movie and show pages in turn went with it, for the same reason: five more
+overlapping animations on a page already being scaled. All of it — `zoomOrigin`,
+`trackZoomOrigin`, the `UnitPoint` plumbing, the rise — is deleted, and the anchor preference it
+recomputed on every focus change across a forty-poster grid went with it. What is left is a
+dissolve: one alpha blend per layer, the cheapest thing a compositor does.
+
+The scale's own history is the argument against trying again — the first cut flew the page in
+from 30% on a spring with the shelf at 1.18×, was called *"NOT smooth"*, and was cut to 6%; this
+is the last step down that road, not a new opinion.
+
+**`pageBehind(_:)` does the thing that actually matters on a TV**: as well as fading the screen
+beneath to 2%, it marks that subtree `\.isObscured`, which until now only the player did. Home's
+hero pill timer runs a `TimelineView(.animation)` — 60fps — and its dots row another at 12fps,
+and **both kept running underneath an opened movie page**, on top of everything the page was
+doing; `HomeView.heroShouldRest` stops the hero *rotation* off the same condition, which is what
+keeps the crumble shader (this repo's own most expensive thing) from firing behind a film nobody
+can see it through. That was live for as long as the zoom was, and is the likeliest single reason
+opening a movie from Home felt worse than opening one from the Movies grid.
+
+Two details that survive from the zoom and still matter: the screen beneath fades to **2%, not
+0**, because the focus engine will not land on alpha ≤ 0.01 and focus is handed back on the first
+frame of the return; and each presenting screen puts focus back explicitly on Menu (`focusedId =
+lastFocusedId`, or the focus saved when the page opened) — left to the engine it fell to the first
+filter chip. **Nothing heavy is drawn during the transition either:** the movie page's detail
+fetch is applied no sooner than 350ms after appear (fetched at once, applied after — it lands in
+~300ms, squarely mid-animation, and the reflow was a visible hitch), and `PosterBloom` and
+`AmbientBackdrop` fade in over 0.7s starting 0.3s after appear instead of being drawn during it.
+Both delays track the transition's length; retime them together. **The simulator cannot judge
+smoothness:** a recording of the old zoom (`simctl io recordVideo`, frames dumped with
+`AVAssetImageGenerator`) showed it drawing a new frame every 150–180ms whatever the code did —
+judge on the Apple TV, which is how this got found in the first place.
 
 **Focus on this page, learned the hard way.** Entering the lineup lands on whoever the fact card
 shows (lead, or last looked at) — left to geometry, Down from a Play bar that spans the page landed
@@ -749,6 +765,56 @@ the Play bar and fact card read through the biography as if they were part of th
 **Play from a scene** rebuilds the film's `PlayableItem` with `resumePositionTicks` set to the
 chapter's start (the same rebuild `restartMovie` does with zero), and the engine's ordinary
 resume seek does the rest — `resume seek → 443s of 5366s` in the log for the 7:23 chapter.
+
+## Adult content on the TV — a door, not a switch
+
+**On tvOS everything NSFW is hidden all the time, and a code opens it for twelve hours.**
+`AdultLock` (kit, pure, tested) holds the code — hardcoded `111282` **for now, deliberately**; a
+real one belongs on the server, per account — the twelve-hour span, and the arithmetic the
+Settings row reads. `AppState.adultUnlockedUntil` is the whole state: nil or a date already past
+is shut, a date in the future is open, and `scheduleAdultRelock()` arms one timer for the
+deadline itself so the door closes under whoever is holding the remote rather than at the next
+launch. **It is not a security boundary and must not be described as one** — the code is in the
+binary and the server serves the same items to anything that asks. What it buys is that adult
+libraries are not *there* unless somebody deliberately went and opened them, which is the ask.
+
+**Two rules, because only the TV was asked to change.** `AppState.visibleLibraries` is the
+*content* rule — whose items may appear in a general list (Home, Continue Watching, the TV-shows
+screen, search, a Random queue) — and is the rule this app always had, `hideNSFW` on iOS and now
+the door on tvOS. `browsableLibraries` is the *browse* rule — whose library can be reached at
+all (the Libraries menu, its own screen, a download target, Settings → Libraries) — and is the
+door on tvOS and **every library on iOS, unchanged**: the phone's row says *"Exclude adult
+content from Home"* and that is all it has ever done, so widening it there would quietly take
+screens away from an iPad that has them today. Everything filters through one of those two and
+never `libraries` directly, at the *source* rather than after the fetch, so a screen that forgets
+the rule fetches nothing instead of showing everything. `showsAdultContent` is the one question
+both are built on; nothing else reads `adultUnlockedUntil`. tvOS keeps no standing toggle at all
+— Settings → Home's switch is a status row (`DetailActionButton`: Unlock / Hide now, with the
+time left on a once-a-minute `TimelineView`), because a switch left on is the state a television
+spends most of its life in.
+
+**The keypad is a keypad** (`AdultUnlockPanel`, tvOS). tvOS's own keyboard for six digits is a
+linear strip walked with a D-pad, a dozen presses a digit, and it only raises for a field already
+on screen (`AppTextField` exists because of that) — a 3×4 grid is one press per digit from
+wherever focus is. It submits itself on the sixth digit, since there is nothing to confirm, and a
+wrong code clears the slots *and says so*, because an emptied pad with no message reads as a
+dropped button. It is presented by `SettingsView` over the whole screen, rail included, with what
+is beneath `.disabled` so Left out of the pad cannot land on the category list through the scrim.
+
+Four things the door has to do beyond filtering, each of which was its own bug waiting:
+`RootView` walks off `.lateNight` / `.videosLibrary(.porn)` when it shuts (`NavDestination
+.isAdultOnly`), or twelve hours later someone is still looking at the library that is supposed to
+be gone; the Search screen does not draw its NSFW chip while shut and `searchGrouped` ignores the
+flag on tvOS regardless, so a screen that forgot to hide a control cannot open the library behind
+it; Settings → Libraries lists only what can be browsed and *counts* the rest in one line, since
+a list of names is most of what browsing to them would have shown, and a library that silently
+vanished is a bug report; and an adult item already **playing** is left alone, because stopping
+an episode mid-scene is a worse surprise than finishing it.
+
+**The door follows the classification, not the name.** `LibraryClassifier`'s heuristic only
+guesses NSFW from `xxx|nsfw|adult|porn|jav|hentai` in the library's name — a library called
+anything else needs one toggle in Settings → Libraries, per device, or it is not covered. On the
+server this was built against, "Hentai-fin" is caught and "Nalguitas" is not.
 
 ## Video player architecture
 
@@ -1286,7 +1352,15 @@ it's gone stale, same as the iPad default below.
   `RT_SHOW_ANIME`, `RT_SHOW_LATE_NIGHT`, `RT_SHOW_SEARCH` (all `=1`),
   `JT_SHOW_PLAYER=1` (or `=failed` / `=hidden`) — the last renders `PlayerChrome` over
   `PlayerPreviewFixture` (fixture state, no live `AVPlayer`/network) for chrome-only iteration.
-  `JT_NIGHT`/`RT_NIGHT` = `on` | `locked` | `ending` | `ended` seeds Night mode's states, and
+  `JT_SHOW_SETTINGS` takes a category name as well as `1` (`=libraries`, `=home`, …), since
+  eight panes sit behind a list that needs arrow presses the tvOS simulator does not reliably
+  take; `JT_SHOW_ADULT_UNLOCK` = `1` | `row` opens on the adult-content row, with or without the
+  keypad up. `JT_ADULT_UNLOCKED` = `1` | `fast` opens the twelve-hour door at launch so the
+  unlocked side of every screen can be shot without typing a code, `fast` giving it twenty
+  seconds so the *shutting* — the relock, the refresh, `RootView`'s bounce off an adult screen —
+  can be watched rather than taken on trust. That one is **`#if DEBUG` only**, unlike every other
+  hook here: the rest merely navigate somewhere, and this is the one thing the door exists to
+  stop. `JT_NIGHT`/`RT_NIGHT` = `on` | `locked` | `ending` | `ended` seeds Night mode's states, and
   `=fast` runs a *real* one — lock, countdown, volume wind-down, auto-stop — compressed into 90
   seconds, so the end of the timer can be watched instead of taken on trust. Pair it with
   `JT_PLAYER_LOG=1`: the wind-down logs its percentage and the live volume each quarter.
@@ -1354,6 +1428,19 @@ it's gone stale, same as the iPad default below.
   of the player toggles the chrome) — if *that* does nothing, the harness is the bug. Better
   still, read the app's own log: `JT_PLAYER_LOG=1` puts `chrome: visible -> true` on stdout the
   moment any control's `interact()` runs, which is a yes/no answer a screenshot diff is not.
+- **`axe key` does nothing on the tvOS simulator — it exits 0 and prints nothing.** No arrow
+  press, no Select, no error; two screenshots either side are identical. So there is no way to
+  *drive* the Apple TV app from a script, and every tvOS screen has to be reached by a launch
+  hook instead — which is why `JT_SHOW_*` covers as much as it does and why anything new worth
+  looking at should get one rather than a plan to arrow over to it. (`axe tap`/`touch` are a
+  separate question and remain the right tool on iOS; this is about the remote.)
+- **Writing a simulator's container plist from the Mac is served stale.** `cfprefsd` inside the
+  simulator owns that domain and keeps its own cache, so an app relaunched with `simctl launch`
+  reads what cfprefsd had, not what is now on disk — even though reading the file back shows the
+  new value, which is what makes it look like the app is ignoring a setting it never saw.
+  `simctl spawn <udid> killall cfprefsd` is not available; `simctl shutdown` + `boot` is what
+  actually clears it. (This is the other half of the `jelly:device.id` note above: prefer reading
+  the plist, but never assume an external *write* to it has landed.)
 - SourceKit frequently shows stale `No such module 'JellyTVKit'` (or missing-member) errors in the
   editor after package edits; trust the actual `xcodebuild` / `swift test` result, not the inline
   diagnostics.

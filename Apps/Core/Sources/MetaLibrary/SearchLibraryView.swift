@@ -28,7 +28,6 @@ struct SearchLibraryView: View {
     /// the difference between a prompt and a dead end.
     @State private var hasSearched = false
     @State private var presentedMovie: Movie?
-    @State private var zoomOrigin: UnitPoint = .center
     @State private var focusBeforePresent: String?
     @State private var presentedShow: Show?
     @State private var groupedResults = AppState.SearchResults()
@@ -118,19 +117,18 @@ struct SearchLibraryView: View {
             // `presentedShow` are same-ZStack overlays, not modals, so without
             // this the rail stays focus-reachable underneath them.
             .disabled(presentedMovie != nil || presentedShow != nil)
-            .trackZoomOrigin($zoomOrigin)
-            .zoomedBehind(presentedMovie != nil || presentedShow != nil, origin: zoomOrigin)
+            .pageBehind(presentedMovie != nil || presentedShow != nil)
 
             if let presentedMovie {
                 MovieDetailView(movie: presentedMovie, onDismiss: { self.presentedMovie = nil },
                                 onOpenItem: openFromDetail)
                     .id(presentedMovie.id)
-                    .zoomPresented(from: zoomOrigin)
+                    .pagePresented()
                     .zIndex(2)
             }
             if let presentedShow {
                 ShowView(show: presentedShow, onDismiss: { self.presentedShow = nil })
-                    .zoomPresented(from: zoomOrigin)
+                    .pagePresented()
                     .zIndex(2)
             }
 
@@ -149,8 +147,8 @@ struct SearchLibraryView: View {
             }
             #endif
         }
-        .animation(.zoomPresentation, value: presentedMovie)
-        .animation(.zoomPresentation, value: presentedShow)
+        .animation(.pagePresentation, value: presentedMovie)
+        .animation(.pagePresentation, value: presentedShow)
         // Menu from a page puts the remote back on the result it opened.
         .onChange(of: presentedMovie) { old, new in
             if old == nil, new != nil { focusBeforePresent = focusedId }
@@ -487,8 +485,10 @@ struct SearchLibraryView: View {
                 Rectangle().fill(Palette.text(0.14)).frame(width: 1, height: 24)
                 LibraryFilterChip(label: "Unwatched", isOn: unwatchedOnly, action: { unwatchedOnly.toggle() },
                                   accent: theme.accent, systemImage: "eye.slash.fill")
-                LibraryFilterChip(label: "NSFW", isOn: includeNSFW, action: { includeNSFW.toggle() },
-                                  accent: Self.nsfwAccent, systemImage: "lock.fill")
+                if offersNSFWChip {
+                    LibraryFilterChip(label: "NSFW", isOn: includeNSFW, action: { includeNSFW.toggle() },
+                                      accent: Self.nsfwAccent, systemImage: "lock.fill")
+                }
             }
         }
     }
@@ -497,6 +497,22 @@ struct SearchLibraryView: View {
     /// content is even fetched, and it should read as "you're opting into
     /// something" regardless of which color the user picked in Settings.
     private static let nsfwAccent = Color(hex: "#E8455C")
+
+    /// Whether this search may offer to reach adult libraries at all.
+    ///
+    /// On iOS the chip is a per-search opt-in past the standing preference,
+    /// and always drawn. On tvOS it is drawn **only while the twelve-hour
+    /// door is open** (`AdultLock`): a chip that cannot do anything is worse
+    /// than no chip, and naming the thing it would unhide is itself the leak
+    /// the door exists to close. `AppState.searchGrouped` ignores the flag on
+    /// tvOS regardless, so this is the presentation half of one rule.
+    private var offersNSFWChip: Bool {
+        #if os(tvOS)
+        return appState.showsAdultContent
+        #else
+        return true
+        #endif
+    }
 
     /// Blur behind the backdrop, per Settings → Appearance — same rule
     /// `MoviesLibraryView.backdropBlur` uses. tvOS keeps the sharp backdrop
@@ -577,7 +593,7 @@ struct SearchLibraryView: View {
                 // nothing: adult libraries are excluded until NSFW is on,
                 // and that gate fails *silently* otherwise — a zero-result
                 // screen that doesn't say why reads as "search is broken."
-                if !includeNSFW {
+                if offersNSFWChip, !includeNSFW {
                     Text("Adult libraries are excluded — turn on NSFW to include them.")
                         .font(Typography.font(15, .medium))
                         .foregroundStyle(Palette.text(0.32))

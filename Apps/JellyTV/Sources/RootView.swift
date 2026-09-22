@@ -17,7 +17,10 @@ struct RootView: View {
     @StateObject private var pairingHost = RemotePairingHost()
     @State private var destination: NavDestination = {
         let env = ProcessInfo.processInfo.environment
-        if env["JT_SHOW_SETTINGS"] == "1" { return .settings }
+        // `=1`, or a category name (`=libraries`) — see `SettingsView`.
+        if env["JT_SHOW_SETTINGS"] != nil { return .settings }
+        // Settings → Home, on the adult-content row; `=1` with the keypad up.
+        if env["JT_SHOW_ADULT_UNLOCK"] != nil { return .settings }
         if env["JT_SHOW_MOVIES"] == "1" { return .movies }
         if env["JT_SHOW_TV"] == "1" { return .tv }
         if env["JT_SHOW_ANIME"] == "1" { return .animeLibrary }
@@ -161,6 +164,17 @@ struct RootView: View {
                 destination = .tv
                 isLibrariesOpen = false
             }
+        }
+        // **The door shutting takes the screen with it.** Twelve hours after
+        // somebody typed the code — or the moment they press Hide now — a
+        // Late Night or After Hours screen is still on the television unless
+        // this puts it back on Home. An adult item already *playing* is left
+        // alone: stopping an episode mid-scene is a worse surprise than
+        // finishing it, and the player is a cover over all of this anyway.
+        .onChange(of: appState.adultUnlockedUntil) { _, _ in
+            guard !appState.showsAdultContent, destination.isAdultOnly else { return }
+            destination = .home
+            isLibrariesOpen = false
         }
         .onChange(of: server.isConnected) { _, connected in
             if connected, let info = server.serverInfo {

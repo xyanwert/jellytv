@@ -7,12 +7,43 @@ struct SettingsView: View {
     let isLibrariesOpen: Bool
     let onSelectRail: (RailTarget) -> Void
 
-    @State private var selected: SettingsCategory.Kind = .playback
+    /// Which pane to open on. `JT_SHOW_SETTINGS` takes a category name as
+    /// well as `1` (`=libraries`, `=home`, …) — eight panes behind a list
+    /// that needs arrow presses the tvOS simulator does not reliably take.
+    /// `JT_SHOW_ADULT_UNLOCK` implies the one holding the adult-content row.
+    @State private var selected: SettingsCategory.Kind = {
+        let env = ProcessInfo.processInfo.environment
+        if env["JT_SHOW_ADULT_UNLOCK"] != nil { return .home }
+        return env["JT_SHOW_SETTINGS"].flatMap(SettingsCategory.Kind.init(rawValue:)) ?? .playback
+    }()
+    /// tvOS: the adult-content keypad, over the whole screen (rail included)
+    /// rather than inside the detail pane — see `AdultUnlockPanel`.
+    @State private var isUnlockOpen =
+        ProcessInfo.processInfo.environment["JT_SHOW_ADULT_UNLOCK"] == "1"
     @FocusState private var focusedCategory: SettingsCategory.Kind?
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var theme: Theme
 
     var body: some View {
+        ZStack {
+            screenBody
+                // `.disabled`, not merely covered: the rail and the category
+                // rows stay in the tvOS focus pool under an overlay, so Left
+                // out of the keypad would land on them through the scrim.
+                // Same reasoning as `RootView`'s remote panel.
+                .disabled(isUnlockOpen)
+            #if os(tvOS)
+            if isUnlockOpen {
+                AdultUnlockPanel(onFinished: { isUnlockOpen = false })
+                    .zIndex(5)
+                    .transition(.opacity)
+            }
+            #endif
+        }
+        .animation(.easeOut(duration: 0.2), value: isUnlockOpen)
+    }
+
+    private var screenBody: some View {
         HStack(spacing: 0) {
             NavRail(
                 destination: .settings,
@@ -35,7 +66,7 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.background.ignoresSafeArea())
         .railContentSafeArea()
-        .defaultFocus($focusedCategory, .playback)
+        .defaultFocus($focusedCategory, selected)
         #if os(tvOS)
         .onExitCommand { onSelectRail(isLibrariesOpen ? .libraries : .home) }
         #endif
@@ -111,7 +142,7 @@ struct SettingsView: View {
         switch kind {
         case .playback: PlaybackDetail()
         case .libraries: LibrariesDetail()
-        case .home: HomeDetail()
+        case .home: HomeDetail(onRequestAdultUnlock: { isUnlockOpen = true })
         case .appearance: AppearanceDetail()
         case .metadata: MetadataDetail()
         case .server: ServerDetail()

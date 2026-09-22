@@ -23,8 +23,11 @@ struct LibrariesDetail: View {
             } else {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 14) {
-                        ForEach(appState.libraries) { library in
+                        ForEach(appState.browsableLibraries) { library in
                             LibraryClassificationCard(library: library, expandedLibraryId: $expandedLibraryId)
+                        }
+                        if hiddenCount > 0 {
+                            hiddenNote
                         }
                     }
                     .padding(.vertical, 4)
@@ -43,7 +46,34 @@ struct LibrariesDetail: View {
 
     private var readout: String? {
         guard !appState.libraries.isEmpty else { return nil }
-        return "\(appState.libraries.count) connected"
+        return "\(appState.browsableLibraries.count) connected"
+    }
+
+    /// **An adult library isn't listed here either while the door is shut.**
+    /// Settings is not a back way in: seeing a library called "Hentai" in a
+    /// list of names is most of what somebody would have seen by browsing to
+    /// it. It is *counted*, though, and said so — a library that simply
+    /// vanished with no explanation is a bug report, and the person who can
+    /// read this line is the person who can open it.
+    private var hiddenCount: Int {
+        appState.libraries.count - appState.browsableLibraries.count
+    }
+
+    private var hiddenNote: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Palette.text(0.35))
+            Text(hiddenCount == 1
+                 ? "1 library is hidden. Unlock adult content in Settings → Home to manage it."
+                 : "\(hiddenCount) libraries are hidden. Unlock adult content in Settings → Home to manage them.")
+                .font(Typography.font(17, .medium))
+                .foregroundStyle(Palette.text(0.35))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 20)
+        .background(Palette.text(0.03), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var emptyState: some View {

@@ -37,4 +37,20 @@ enum NavDestination: Hashable {
     /// Discover: a download outlives the browsing that started it, and the
     /// rail badge that counts active jobs has to lead somewhere.
     case downloads
+
+    /// Whether this screen exists only for adult content, and so must be
+    /// left when the TV's twelve-hour door shuts under whoever is sitting
+    /// there (`AdultLock`, `RootView`).
+    ///
+    /// `.movies`, `.tv` and `.animeLibrary` are not on this list even though
+    /// an adult library can resolve into their collection types: those
+    /// screens draw from `AppState.browsableLibraries`, so they empty
+    /// themselves and stay perfectly valid places to be standing.
+    var isAdultOnly: Bool {
+        switch self {
+        case .lateNight: return true
+        case .videosLibrary(let category): return category.isNSFW
+        default: return false
+        }
+    }
 }

@@ -13,6 +13,10 @@ final class AppState: ObservableObject {
     /// without it, the fully-rendered-but-non-interactive sample hero/rows
     /// are visible (and look tappable) for as long as the real fetch takes.
     @Published private(set) var hasLoadedHome = false
+    /// The standing "hide adult content" preference — **iOS only in effect**.
+    /// `showsAdultContent` is what everything reads, and on tvOS it answers
+    /// `adultUnlockedUntil` instead; this value is still persisted there but
+    /// nothing consults it and no tvOS screen offers it.
     @Published var hideNSFW: Bool {
         didSet { UserDefaults.standard.set(hideNSFW, forKey: "jelly:home.hideNSFW") }
     }
@@ -30,6 +34,25 @@ final class AppState: ObservableObject {
     @Published var searchIncludeNSFW: Bool {
         didSet { UserDefaults.standard.set(searchIncludeNSFW, forKey: "jelly:search.includeNSFW") }
     }
+    /// **The twelve-hour door** (`AdultLock`). Nil — or a date already past —
+    /// means every adult library is simply not there: not on Home, not in
+    /// Continue Watching, not in the Libraries menu, not in search, not in a
+    /// Random queue. A date in the future means somebody typed the code, and
+    /// it shuts itself when that date passes whether the app is open or not.
+    ///
+    /// Read `showsAdultContent`, never this — that's the one question every
+    /// filter in this file asks, and on iOS it still answers the standing
+    /// `hideNSFW` preference instead. A phone is one person's; a television
+    /// in a living room is not, which is the whole reason the two differ.
+    @Published private(set) var adultUnlockedUntil: Date? {
+        didSet {
+            UserDefaults.standard.set(adultUnlockedUntil?.timeIntervalSince1970,
+                                      forKey: "jelly:adult.unlockedUntil")
+        }
+    }
+    /// Armed for the deadline itself, so the door shuts under whoever is
+    /// holding the remote rather than at the next launch.
+    private var adultRelockTask: Task<Void, Never>?
     /// Opt-in OMDb enrichment (awards/Oscars, true Rotten Tomatoes %, Metacritic).
     @Published var omdbEnabled: Bool {
         didSet { UserDefaults.standard.set(omdbEnabled, forKey: "jelly:omdb.enabled") }
@@ -158,6 +181,27 @@ final class AppState: ObservableObject {
         searchTypeFilter = typeFilterRaw.flatMap(SearchFilter.init(rawValue:)) ?? .all
         searchUnwatchedOnly = UserDefaults.standard.bool(forKey: "jelly:search.unwatchedOnly")
         searchIncludeNSFW = UserDefaults.standard.bool(forKey: "jelly:search.includeNSFW")
+        adultUnlockedUntil = (UserDefaults.standard.object(forKey: "jelly:adult.unlockedUntil") as? Double)
+            .map(Date.init(timeIntervalSince1970:))
+        #if DEBUG
+        // `JT_ADULT_UNLOCKED=1` opens the door at launch, so the unlocked
+        // side of every screen can be screenshot without typing a code into
+        // a simulator that doesn't reliably take injected key presses; and
+        // `=fast` opens it for twenty seconds, so the *shutting* can be
+        // watched instead of taken on trust — the same idea as `JT_NIGHT=fast`
+        // running a real sleep timer in ninety seconds. The relock, the
+        // refresh it triggers and `RootView`'s bounce off an adult screen all
+        // run exactly as they would at the twelve-hour mark.
+        //
+        // **DEBUG only, deliberately** — every other hook in this app merely
+        // navigates somewhere, and this one is the one thing the door exists
+        // to stop, so it must not exist in a shipped binary at all.
+        switch ProcessInfo.processInfo.environment["JT_ADULT_UNLOCKED"] {
+        case "1": adultUnlockedUntil = AdultLock.expiry(from: .now)
+        case "fast": adultUnlockedUntil = Date.now.addingTimeInterval(20)
+        default: break
+        }
+        #endif
         omdbEnabled = UserDefaults.standard.object(forKey: "jelly:omdb.enabled") as? Bool ?? false
         omdbApiKey = UserDefaults.standard.string(forKey: "jelly:omdb.apiKey") ?? ""
         tmdbEnabled = UserDefaults.standard.object(forKey: "jelly:tmdb.enabled") as? Bool ?? false
@@ -199,6 +243,7 @@ final class AppState: ObservableObject {
             : nil
         Task { await loadEditPermission() }
         Task { await loadYsojCapabilities() }
+        scheduleAdultRelock()
     }
 
     /// Trickplay sheets for the home-video cards' frame slideshow — one
@@ -457,7 +502,7 @@ final class AppState: ObservableObject {
 
     private func fetchContinueWatching(client: JellyfinClient) async throws -> [ContinueWatchingItem] {
         var results: [JellyfinAPI.JellyfinItem] = []
-        for lib in libraries {
+        for lib in visibleLibraries {
             guard let items = try? await client.fetchItems(
                 userId: userId,
                 parentId: lib.id,
@@ -483,7 +528,7 @@ final class AppState: ObservableObject {
 
     private func fetchItemPool(client: JellyfinClient) async throws -> [JellyfinAPI.JellyfinItem] {
         var results: [JellyfinAPI.JellyfinItem] = []
-        for lib in libraries {
+        for lib in visibleLibraries {
             guard let items = try? await client.fetchItems(
                 userId: userId,
                 parentId: lib.id,
@@ -581,6 +626,98 @@ final class AppState: ObservableObject {
         return metaCategory(for: lib)
     }
 
+    // MARK: - Adult content: hidden unless somebody just opened the door
+
+    /// Whether adult libraries may be shown **at all** right now. Every
+    /// filter in this file reads this and nothing else, so a new screen has
+    /// one thing to get right rather than a rule to remember.
+    ///
+    /// The two platforms answer it differently on purpose. A television is a
+    /// shared screen, so tvOS answers "only while the twelve-hour unlock is
+    /// live" and has no standing toggle at all — see `AdultLock`. A phone is
+    /// one person's, so iOS keeps the preference it always had.
+    var showsAdultContent: Bool {
+        #if os(tvOS)
+        return AdultLock.isUnlocked(until: adultUnlockedUntil, now: .now)
+        #else
+        return !hideNSFW
+        #endif
+    }
+
+    /// "11h 42m" while the door is open, nil while it is shut.
+    var adultUnlockRemainingLabel: String? {
+        AdultLock.remainingLabel(until: adultUnlockedUntil, now: .now)
+    }
+
+    /// Opens the door for `AdultLock.duration` if the code is right, and
+    /// changes nothing at all if it isn't. The refresh is what brings the
+    /// hidden libraries back into Home and Continue Watching — they were
+    /// never fetched while it was shut.
+    @discardableResult
+    func unlockAdultContent(code: String) -> Bool {
+        guard AdultLock.matches(code) else { return false }
+        adultUnlockedUntil = AdultLock.expiry(from: .now)
+        scheduleAdultRelock()
+        Task { await refresh() }
+        return true
+    }
+
+    func lockAdultContent() {
+        adultRelockTask?.cancel()
+        adultRelockTask = nil
+        adultUnlockedUntil = nil
+        Task { await refresh() }
+    }
+
+    /// One timer, armed at the deadline. Without it, a door opened at 8pm is
+    /// still open at 9am for anyone who never quit the app — which is
+    /// precisely the case the feature exists for. A deadline already past is
+    /// cleared on the spot rather than waited on.
+    func scheduleAdultRelock() {
+        adultRelockTask?.cancel()
+        adultRelockTask = nil
+        guard let until = adultUnlockedUntil else { return }
+        let seconds = AdultLock.remaining(until: until, now: .now)
+        guard seconds > 0 else { adultUnlockedUntil = nil; return }
+        adultRelockTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.lockAdultContent()
+        }
+    }
+
+    private var nonAdultLibraries: [JellyfinAPI.JellyfinUserView] {
+        libraries.filter { !(metaCategory(for: $0)?.isNSFW ?? false) }
+    }
+
+    /// **Two rules, not one**, because the two platforms mean different
+    /// things by "hide adult content" and only the TV was asked to change.
+    ///
+    /// This is the *content* rule: whose items may turn up in a
+    /// general-purpose list — Home, Continue Watching, the TV-shows screen,
+    /// search, a Random queue. It is the rule this app has always had
+    /// (`hideNSFW` on iOS), now also answering the TV's door.
+    var visibleLibraries: [JellyfinAPI.JellyfinUserView] {
+        showsAdultContent ? libraries : nonAdultLibraries
+    }
+
+    /// And this is the *browse* rule: whose library can be reached at all —
+    /// listed in the Libraries menu, opened as its own screen, offered as a
+    /// download target, managed in Settings.
+    ///
+    /// On tvOS it is the door, which is the whole ask: an adult library is
+    /// not merely emptied, it is not there. On iOS it is every library,
+    /// unchanged — the phone's "Hide NSFW" row says *"Exclude adult content
+    /// from Home"* and that is all it has ever done, so widening it here
+    /// would quietly take screens away from an iPad that has them today.
+    var browsableLibraries: [JellyfinAPI.JellyfinUserView] {
+        #if os(tvOS)
+        return visibleLibraries
+        #else
+        return libraries
+        #endif
+    }
+
     // MARK: - Library classification (Settings → Libraries)
 
     /// Effective NSFW/anime flags for a library — a saved override always
@@ -610,11 +747,12 @@ final class AppState: ObservableObject {
     ]
 
     /// The libraries a download may be sent to, in the order the server lists them.
+    /// The browse rule: a library you cannot reach is not a place to send a film.
     ///
     /// A library with no `CollectionType` is Jellyfin's "mixed content", which holds
     /// anything — so it is offered rather than filtered out.
     var downloadLibraries: [JellyfinAPI.JellyfinUserView] {
-        libraries.filter { library in
+        browsableLibraries.filter { library in
             guard let type = library.collectionType else { return true }
             return Self.downloadableCollectionTypes.contains(type)
         }
@@ -693,7 +831,7 @@ final class AppState: ObservableObject {
     }
 
     private func applyNSFWFilter(_ items: [ContinueWatchingItem]) -> [ContinueWatchingItem] {
-        guard hideNSFW else { return items }
+        guard !showsAdultContent else { return items }
         return items.filter { item in
             guard let jfItem = allItems.first(where: { $0.id == item.id }),
                   let category = libraryCategory(for: jfItem) else { return true }
@@ -702,7 +840,7 @@ final class AppState: ObservableObject {
     }
 
     private func applyNSFWFilter(_ items: [MediaItem]) -> [MediaItem] {
-        guard hideNSFW else { return items }
+        guard !showsAdultContent else { return items }
         return items.filter { item in
             guard let jfItem = allItems.first(where: { $0.id == item.id }),
                   let category = libraryCategory(for: jfItem) else { return true }
@@ -711,7 +849,7 @@ final class AppState: ObservableObject {
     }
 
     private func applyNSFWFilter(_ items: [HeroFeature]) -> [HeroFeature] {
-        guard hideNSFW else { return items }
+        guard !showsAdultContent else { return items }
         return items.filter { item in
             guard let jfItem = allItems.first(where: { $0.id == item.id }),
                   let category = libraryCategory(for: jfItem) else { return true }
@@ -732,7 +870,7 @@ final class AppState: ObservableObject {
     /// no separate hideNSFW pass needed on top.
     func loadMovies(sortBy: String = "SortName", sortOrder: String = "Ascending") async -> [MediaItem] {
         guard let client else { return [] }
-        let movieLibs = libraries.filter { metaCategory(for: $0) == .movies }
+        let movieLibs = visibleLibraries.filter { metaCategory(for: $0) == .movies }
         var results: [JellyfinAPI.JellyfinItem] = []
         for lib in movieLibs {
             guard let items = try? await client.fetchItems(
@@ -811,9 +949,26 @@ final class AppState: ObservableObject {
             searchTerm: needle,
             fields: "Overview,Genres,Tags,OfficialRating,CommunityRating,PremiereDate,BackdropImageTags,ParentBackdropImageTags"
         ) else { return [] }
+        // `/Items?searchTerm=` sweeps every library the *account* can see, so
+        // unlike the per-library loaders this one has to be filtered after the
+        // fact or it hands back exactly what the door is shut on.
         return items.compactMap {
-            $0.toMediaItem(libraryCategory: libraryCategory(for: $0), imageBaseURL: imageBaseURL)
+            guard showsAdultContent || !(libraryCategory(for: $0)?.isNSFW ?? false) else { return nil }
+            return $0.toMediaItem(libraryCategory: libraryCategory(for: $0), imageBaseURL: imageBaseURL)
         }
+    }
+
+    /// What one search may reach, opt-in chip included.
+    ///
+    /// tvOS is `visibleLibraries` and nothing else — the door is the door.
+    /// iOS lets the chip override its standing preference, which is what that
+    /// chip has always meant there.
+    private func searchableLibraries(includeNSFW: Bool) -> [JellyfinAPI.JellyfinUserView] {
+        #if os(tvOS)
+        return visibleLibraries
+        #else
+        return includeNSFW ? libraries : visibleLibraries
+        #endif
     }
 
     /// The four sections the tvOS Search screen groups its results into.
@@ -885,9 +1040,14 @@ final class AppState: ObservableObject {
     /// call. Always a second request alongside the `searchTerm` one, never
     /// combined into it — Jellyfin doesn't OR the two server-side.
     ///
-    /// `includeNSFW` overrides the global "hide adult content" default for
-    /// this one search — a deliberate, per-search opt-in the screen's own
-    /// filter chip drives, not a change to the user's standing preference.
+    /// `includeNSFW` is a per-search opt-in the screen's own filter chip
+    /// drives — it reaches past the standing "hide adult content" preference
+    /// for this one search without changing it.
+    ///
+    /// **It cannot reach past the TV's twelve-hour door.** On tvOS the chip
+    /// isn't drawn at all while that door is shut (`SearchLibraryView`), and
+    /// this ignores the flag regardless — a screen that forgot to hide a
+    /// control must not be able to open the library behind it.
     func searchGrouped(_ term: String, includeNSFW: Bool = false) async -> SearchResults {
         let needle = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let client, needle.count >= 2 else { return SearchResults() }
@@ -898,9 +1058,8 @@ final class AppState: ObservableObject {
         let tagQuery = matchingTags.isEmpty ? nil : matchingTags.joined(separator: "|")
 
         let scopes: [(libraryId: String, bucket: SearchGroupKind, itemTypes: String, category: MetaCategory)] =
-            libraries.compactMap { lib in
+            searchableLibraries(includeNSFW: includeNSFW).compactMap { lib in
                 guard let category = metaCategory(for: lib), let bucket = searchBucket(for: category) else { return nil }
-                guard includeNSFW || !(hideNSFW && category.isNSFW) else { return nil }
                 let itemTypes: String
                 switch bucket {
                 case .movies: itemTypes = "Movie"
@@ -982,7 +1141,7 @@ final class AppState: ObservableObject {
     func loadHomeVideos(category: MetaCategory, sortBy: String = "SortName",
                         sortOrder: String = "Ascending") async -> [MediaItem] {
         guard let client else { return [] }
-        let libs = libraries.filter { metaCategory(for: $0) == category }
+        let libs = browsableLibraries.filter { metaCategory(for: $0) == category }
         var results: [JellyfinAPI.JellyfinItem] = []
         for lib in libs {
             guard let items = try? await client.fetchItems(
@@ -1024,7 +1183,7 @@ final class AppState: ObservableObject {
 
     func loadAnimeMovies(sortBy: String = "SortName", sortOrder: String = "Ascending") async -> [MediaItem] {
         guard let client else { return [] }
-        let animeLibs = libraries.filter { metaCategory(for: $0) == .animefilm }
+        let animeLibs = visibleLibraries.filter { metaCategory(for: $0) == .animefilm }
         var results: [JellyfinAPI.JellyfinItem] = []
         for lib in animeLibs {
             guard let items = try? await client.fetchItems(
@@ -1052,7 +1211,7 @@ final class AppState: ObservableObject {
     /// merge in, unlike `loadAnimeMovies`/`loadAnimeShows`.
     func loadLateNightShows(sortBy: String = "SortName", sortOrder: String = "Ascending") async -> [MediaItem] {
         guard let client else { return [] }
-        let lateLibs = libraries.filter { metaCategory(for: $0) == .hentai }
+        let lateLibs = browsableLibraries.filter { metaCategory(for: $0) == .hentai }
         var results: [JellyfinAPI.JellyfinItem] = []
         for lib in lateLibs {
             guard let items = try? await client.fetchItems(
@@ -1078,7 +1237,7 @@ final class AppState: ObservableObject {
     /// `loadAnimeMovies` and shows them together as one library.
     func loadAnimeShows(sortBy: String = "SortName", sortOrder: String = "Ascending") async -> [MediaItem] {
         guard let client else { return [] }
-        let animeLibs = libraries.filter { metaCategory(for: $0) == .anime }
+        let animeLibs = visibleLibraries.filter { metaCategory(for: $0) == .anime }
         var results: [JellyfinAPI.JellyfinItem] = []
         for lib in animeLibs {
             guard let items = try? await client.fetchItems(
@@ -1103,7 +1262,7 @@ final class AppState: ObservableObject {
     /// its own `@State` and re-calls this when the sort chip changes.
     func loadShows(sortBy: String = "SortName", sortOrder: String = "Ascending") async -> [MediaItem] {
         guard let client else { return [] }
-        let showLibs = libraries.filter {
+        let showLibs = visibleLibraries.filter {
             metaCategory(for: $0)?.collectionType == "tvshows"
         }
         var results: [JellyfinAPI.JellyfinItem] = []
@@ -1120,10 +1279,7 @@ final class AppState: ObservableObject {
             for item in items { itemLibraryId[item.id] = lib.id }
             results.append(contentsOf: items)
         }
-        let visible = hideNSFW
-            ? results.filter { !(libraryCategory(for: $0)?.isNSFW ?? false) }
-            : results
-        return visible.compactMap { item in
+        return results.compactMap { item in
             item.toMediaItem(libraryCategory: libraryCategory(for: item), imageBaseURL: imageBaseURL)
         }
     }
@@ -1285,7 +1441,7 @@ final class AppState: ObservableObject {
     }
 
     func libraryUIItems() -> [Library] {
-        libraries.compactMap { lib -> Library? in
+        browsableLibraries.compactMap { lib -> Library? in
             guard let category = metaCategory(for: lib) else { return nil }
             if isDefaultPrimaryLibrary(lib, category: category) { return nil }
             return Library(id: lib.id, name: lib.name, isAdult: category.isNSFW, itemCount: "", category: category)
@@ -1307,7 +1463,7 @@ final class AppState: ObservableObject {
     }
 
     func items(for collectionType: String) -> [MediaItem] {
-        let libIds = Set(libraries.filter { lib in
+        let libIds = Set(visibleLibraries.filter { lib in
             metaCategory(for: lib)?.collectionType == collectionType
         }.map(\.id))
         return allItems.filter { item in
@@ -1564,25 +1720,23 @@ final class AppState: ObservableObject {
     private func queueSources(for scope: PlaylistScope) -> [(libraryId: String, itemTypes: String)] {
         switch scope {
         case .movies:
-            return libraries.filter { metaCategory(for: $0) == .movies }
+            return visibleLibraries.filter { metaCategory(for: $0) == .movies }
                 .map { ($0.id, "Movie") }
 
         case .shows:
-            // Mirrors `loadShows`: every tvshows-collection library, with the
-            // NSFW ones dropped when the user has hidden them — filtered here
-            // at the source rather than after the fetch, since a queue has no
-            // reason to download what it must then discard.
-            return libraries.filter { library in
-                guard let category = metaCategory(for: library),
-                      category.collectionType == "tvshows" else { return false }
-                return !(hideNSFW && category.isNSFW)
+            // Mirrors `loadShows`: every tvshows-collection library the door
+            // is currently open on — filtered at the source rather than after
+            // the fetch, since a queue has no reason to download what it must
+            // then discard.
+            return visibleLibraries.filter {
+                metaCategory(for: $0)?.collectionType == "tvshows"
             }.map { ($0.id, "Episode") }
 
         case .anime:
             // The Anime screen is two loaders shown as one library, so its
             // queue is both: episodes from the tvshows-collection anime
             // libraries, films from the movies-collection ones.
-            return libraries.compactMap { library in
+            return visibleLibraries.compactMap { library in
                 switch metaCategory(for: library) {
                 case .anime: return (library.id, "Episode")
                 case .animefilm: return (library.id, "Movie")
@@ -1591,14 +1745,14 @@ final class AppState: ObservableObject {
             }
 
         case .lateNight:
-            return libraries.filter { metaCategory(for: $0) == .hentai }
+            return browsableLibraries.filter { metaCategory(for: $0) == .hentai }
                 .map { ($0.id, "Episode") }
 
         case .homeVideos(let category):
             // Jellyfin files a home-videos library's contents as `Movie` *or*
             // `Video` depending on how it was scanned — same pair
             // `loadHomeVideos` asks for.
-            return libraries.filter { metaCategory(for: $0) == category }
+            return browsableLibraries.filter { metaCategory(for: $0) == category }
                 .map { ($0.id, "Movie,Video") }
         }
     }

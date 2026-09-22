@@ -207,8 +207,6 @@ struct PosterCard: View {
         }
         .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.18))
         .focused($isFocusedCard)
-        // The page a poster opens zooms out of that poster — see `ZoomTransition`.
-        .zoomOrigin(isFocusedCard)
         if let focus, let focusTag {
             card.focused(focus, equals: focusTag)
         } else {
