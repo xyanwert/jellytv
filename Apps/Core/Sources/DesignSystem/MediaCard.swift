@@ -6,6 +6,10 @@ import JellyTVKit
 /// accent progress bar, and a circular remaining indicator. Focus is shown by
 /// growth + a dominant-color glow (see `CardFocusStyle`), not a white ring.
 struct ContinueCard: View {
+    /// Bumped on press; `pageLaunchBeat` plays the acknowledgement off it —
+    /// see `PageTransition`.
+    @State private var launchTick = 0
+
     let item: ContinueWatchingItem
     /// Optional focus binding so a specific card can be targeted (e.g. default focus).
     var focus: FocusState<HomeFocus?>.Binding?
@@ -37,8 +41,9 @@ struct ContinueCard: View {
     }
 
     var body: some View {
-        let card = Button(action: onSelect) { label }
+        let card = Button { launchTick += 1; PageLaunch.then(onSelect) } label: { label }
             .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.16))
+            .pageLaunchBeat(launchTick)
             .task(id: item.image) {
                 guard isRemote, let image = item.image, let url = URL(string: image) else { return }
                 remoteDominant = await DominantColor.of(url: url, fallback: Color(item.artwork.top))
@@ -154,6 +159,10 @@ struct ContinueCard: View {
 /// title; focus grows the card and glows in its dominant color. Selecting it
 /// opens the Show view via `onSelect`.
 struct PosterCard: View {
+    /// Bumped on press; `pageLaunchBeat` plays the acknowledgement off it —
+    /// see `PageTransition`.
+    @State private var launchTick = 0
+
     let item: MediaItem
     /// Optional focus binding so a specific card can be targeted (e.g.
     /// default focus) — same pattern as `ContinueCard`.
@@ -176,7 +185,7 @@ struct PosterCard: View {
     private var cardHeight: CGFloat { isPhone ? 154 : 248 }
 
     var body: some View {
-        let card = Button(action: onSelect) {
+        let card = Button { launchTick += 1; PageLaunch.then(onSelect) } label: {
             VStack(spacing: isPhone ? 6 : 10) {
                 ZStack(alignment: .bottomLeading) {
                     if let image = item.image, isRemote, let url = URL(string: image) {
@@ -206,6 +215,7 @@ struct PosterCard: View {
             .frame(width: cardWidth)
         }
         .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.18))
+        .pageLaunchBeat(launchTick)
         .focused($isFocusedCard)
         if let focus, let focusTag {
             card.focused(focus, equals: focusTag)

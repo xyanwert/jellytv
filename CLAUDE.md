@@ -765,15 +765,31 @@ engine will not land on alpha ≤ 0.01 and focus is handed back on the first fra
 and each presenting screen puts focus back explicitly on Menu (`focusedId = lastFocusedId`, or
 the focus saved when the page opened) — left to the engine it fell to the first filter chip.
 
-**If motion comes back here, it must be motion on something small.** The rule the two failures
-teach is not "no animation on tvOS" — it is that the *area* being animated is what costs, not the
-effect. A focused card is ~300×450pt and can be moved freely (`CardFocusStyle` already does, at
-60fps, with no complaints). A full-screen layer cannot. Anything proposed here should be able to
-answer "how many pixels change per frame" with a number well under the whole screen. The one
-exception worth knowing about is `.navigationTransition(.zoom(sourceID:in:))` (tvOS 18+), which
-performs because UIKit *snapshots* both sides into textures first — but it requires
-`NavigationStack` presentation, and these pages are deliberately same-`ZStack` overlays so that
-Menu is ours (see "Video player architecture"), so adopting it means reopening that decision.
+**The motion that came back is on the card, and only the card** (`PageLaunch`, `pageLaunchBeat`
+— same file). With the page cutting in, pressing a poster produced no acknowledgement of any
+kind: the shelf was replaced between one frame and the next, which reads as the remote having
+skipped a beat rather than as speed. So the card dips to 0.94 and lifts 10% in brightness for
+130ms, and *then* the page replaces it. The dip is never released on screen — you push the card
+in and it becomes the page, so the card is the door. Applied at the four places a press opens a
+page: `ContinueCard`, `PosterCard`, `LibraryPosterCard`, `DiscoverPosterCard`, and Home's hero
+Details button. iOS does none of it (a finger already gets `CardFocusStyle`'s own press dip, and
+the iPad keeps its crossfade).
+
+**The rule this follows, and the one to apply to anything proposed next:** what the two failures
+teach is not "no animation on tvOS", it is that the *area* being animated is what costs, not the
+effect. A poster is ~200×300pt — well under 1% of a 3840×2160 frame — and `CardFocusStyle`
+already scales one 1.18× on every focus move at 60fps with nothing to show for it. A full-screen
+layer cannot be moved at all. Anything new here should be able to answer "how many pixels change
+per frame" with a number that small. The one exception worth knowing about is
+`.navigationTransition(.zoom(sourceID:in:))` (tvOS 18+), which performs because UIKit *snapshots*
+both sides into textures first — but it requires `NavigationStack` presentation, and these pages
+are deliberately same-`ZStack` overlays so that Menu is ours (see "Video player architecture"),
+so adopting it means reopening that decision.
+
+**The timing and the visual are deliberately two halves** — `PageLaunch.then(action)` for the
+wait, a bumped tick plus `.pageLaunchBeat(tick)` for the dip — because the visual belongs to the
+card and the delay belongs to whatever the press opens. The beat's own `Task` is unstructured on
+purpose, so it is not cancelled when the card is covered by the page it just opened.
 
 **The simulator cannot judge any of this:** a recording of the old zoom (`simctl io recordVideo`,
 frames dumped with `AVAssetImageGenerator`) showed it drawing a new frame every 150–180ms
@@ -1452,12 +1468,20 @@ it's gone stale, same as the iPad default below.
   of the player toggles the chrome) — if *that* does nothing, the harness is the bug. Better
   still, read the app's own log: `JT_PLAYER_LOG=1` puts `chrome: visible -> true` on stdout the
   moment any control's `interact()` runs, which is a yes/no answer a screenshot diff is not.
-- **`axe key` does nothing on the tvOS simulator — it exits 0 and prints nothing.** No arrow
-  press, no Select, no error; two screenshots either side are identical. So there is no way to
-  *drive* the Apple TV app from a script, and every tvOS screen has to be reached by a launch
-  hook instead — which is why `JT_SHOW_*` covers as much as it does and why anything new worth
-  looking at should get one rather than a plan to arrow over to it. (`axe tap`/`touch` are a
-  separate question and remain the right tool on iOS; this is about the remote.)
+- **There is no way to press a button on the tvOS simulator from here.** `axe key` exits 0,
+  prints nothing and changes not one pixel (verified with `compare -metric AE`: 0 differing
+  pixels across a Down press, with DeviceHub open and the app frontmost). The other route —
+  `osascript` → System Events `key code`, which would go through the simulator window's own key
+  handling and *is* a real HID event, unlike the AXPress trap noted above — is refused with
+  *"osascript is not allowed to send keystrokes. (1002)"* unless the terminal is granted
+  Accessibility in System Settings → Privacy & Security. Granting it would make tvOS
+  interactions verifiable; until then they are not, and saying so is part of the report.
+  Consequences: every tvOS screen has to be *reached* by a launch hook (which is why `JT_SHOW_*`
+  covers as much as it does, and why anything new worth looking at should get one), and anything
+  that only happens on a press — a transition, a confirmation beat, a focus hand-off — can be
+  reasoned about and screenshot at rest but not seen. (`axe tap`/`touch` are a separate question
+  and remain the right tool on iOS; a shared component's action path can often be proven there
+  instead, which is the nearest thing to a substitute.)
 - **Writing a simulator's container plist from the Mac is served stale.** `cfprefsd` inside the
   simulator owns that domain and keeps its own cache, so an app relaunched with `simctl launch`
   reads what cfprefsd had, not what is now on disk — even though reading the file back shows the

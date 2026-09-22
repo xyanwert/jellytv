@@ -372,9 +372,11 @@ struct DiscoverPosterCard: View {
     var onSelect: () -> Void = {}
 
     @EnvironmentObject private var theme: Theme
+    /// See `PageTransition` — the press lands on the card, then the page.
+    @State private var launchTick = 0
 
     var body: some View {
-        Button(action: onSelect) {
+        Button { launchTick += 1; PageLaunch.then(onSelect) } label: {
             VStack(alignment: .leading, spacing: 8) {
                 poster
                 #if !os(tvOS)
@@ -387,6 +389,7 @@ struct DiscoverPosterCard: View {
         #else
         .buttonStyle(.plain)
         #endif
+        .pageLaunchBeat(launchTick)
         .accessibilityLabel(accessibilityLabel)
     }
 

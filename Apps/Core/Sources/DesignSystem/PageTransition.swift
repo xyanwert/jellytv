@@ -84,3 +84,98 @@ extension Animation {
         #endif
     }
 }
+
+// MARK: - The one thing that does move
+
+/// **The press lands on the card, and then the page is there.**
+///
+/// With the page itself cutting in (above), pressing a poster produced no
+/// acknowledgement of any kind: the shelf was simply replaced between one
+/// frame and the next. A cut with nothing confirming the press reads as a
+/// glitch — as though the remote had skipped a beat and something else
+/// happened. A cut *immediately after the thing you pressed visibly reacted*
+/// reads as instant, which is what it is.
+///
+/// So the card dips and brightens for `beat`, and then the page replaces it.
+/// This is the whole of the motion, and it is deliberately on the smallest
+/// thing on screen: the rule the zoom and the dissolve both taught is that
+/// **the area being animated is what costs, not the effect**. A poster is
+/// ~200×300pt, well under 1% of a 3840×2160 frame, and `CardFocusStyle`
+/// already scales one 1.18× on every focus move at 60fps with nothing to show
+/// for it on the profiler. Anything proposed here in future should be able to
+/// answer "how many pixels change per frame" with a number this small.
+///
+/// The dip is never released on screen — the page arrives on top of it. That
+/// is the right reading rather than a shortcut: you push the card in and it
+/// becomes the page, so the card is the door rather than a button that
+/// happens to sit next to one.
+///
+/// iOS does none of this. A finger already gets `CardFocusStyle`'s own press
+/// dip under it, and the iPad keeps its crossfade, so there is nothing
+/// missing to stand in for.
+enum PageLaunch {
+    /// How long the acknowledgement runs before the page replaces it.
+    /// Comfortably under the ~150ms at which an added delay starts to read as
+    /// lag, and long enough that the dip is seen rather than inferred.
+    static let beat: Duration = .milliseconds(130)
+
+    /// Runs `action` once the card's beat has played. Immediate on iOS.
+    ///
+    /// Call it *with* bumping the card's own tick — the two halves are
+    /// deliberately separate, because the visual belongs to the card and the
+    /// timing belongs to whatever the press opens.
+    @MainActor
+    static func then(_ action: @escaping () -> Void) {
+        #if os(tvOS)
+        Task { @MainActor in
+            try? await Task.sleep(for: beat)
+            action()
+        }
+        #else
+        action()
+        #endif
+    }
+}
+
+extension View {
+    /// Plays `PageLaunch`'s beat each time `tick` changes. Put it on the
+    /// button, outside its `buttonStyle`, so the dip multiplies with the
+    /// focus scale already there rather than replacing it.
+    @ViewBuilder
+    func pageLaunchBeat(_ tick: Int) -> some View {
+        #if os(tvOS)
+        modifier(PageLaunchBeat(tick: tick))
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(tvOS)
+private struct PageLaunchBeat: ViewModifier {
+    let tick: Int
+    @State private var pressed = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(pressed ? 0.94 : 1)
+            // A dip alone is ~12×18pt on a poster, which is real motion but
+            // small from across a room; the lift is what makes it land. Kept
+            // well under a flash — this is a poster, and washing the art out
+            // to acknowledge a press would be a strange trade.
+            .brightness(pressed ? 0.10 : 0)
+            .animation(.easeOut(duration: 0.06), value: pressed)
+            .onChange(of: tick) { _, _ in
+                pressed = true
+                // Released after the page has had time to cover it, so a
+                // press that opens nothing (a failed fetch, a guard that
+                // returns early) still returns the card to rest instead of
+                // leaving it pushed in.
+                Task { @MainActor in
+                    try? await Task.sleep(for: PageLaunch.beat + .milliseconds(60))
+                    pressed = false
+                }
+            }
+    }
+}
+#endif

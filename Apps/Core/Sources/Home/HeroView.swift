@@ -228,7 +228,7 @@ struct HeroView: View {
     }
 
     private func detailsButton(fullWidth: Bool) -> some View {
-        Button(action: onDetails) {
+        Button { detailsTick += 1; PageLaunch.then(onDetails) } label: {
             Text("Details")
                 .font(Typography.button)
                 .foregroundStyle(.white)
@@ -240,10 +240,12 @@ struct HeroView: View {
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.text(0.14), lineWidth: 1))
         }
         .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 14))
+        .pageLaunchBeat(detailsTick)
         .focused($detailsFocused)
     }
 
     @FocusState private var detailsFocused: Bool
+    @State private var detailsTick = 0
 
     /// A heart, not a plus: it favourites the item on the server (the same
     /// `setFavorite`/`clearFavorite` the show page and the player use), and a

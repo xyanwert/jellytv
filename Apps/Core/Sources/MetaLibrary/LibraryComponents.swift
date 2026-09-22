@@ -1073,7 +1073,7 @@ struct LibraryPosterCard: View {
     private var isPhone: Bool { DeviceClass.current == .phone }
 
     var body: some View {
-        Button(action: onSelect) {
+        Button { launchTick += 1; PageLaunch.then(onSelect) } label: {
             ZStack(alignment: .topLeading) {
                 artwork
                 #if os(tvOS)
@@ -1145,10 +1145,13 @@ struct LibraryPosterCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.1))
+        .pageLaunchBeat(launchTick)
         .focused($isFocusedCard)
     }
 
     @FocusState private var isFocusedCard: Bool
+    /// Bumped on press; `pageLaunchBeat` plays the acknowledgement off it.
+    @State private var launchTick = 0
 
     #if os(tvOS)
     private var fallbackTitle: some View {
