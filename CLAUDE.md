@@ -1468,20 +1468,34 @@ it's gone stale, same as the iPad default below.
   of the player toggles the chrome) — if *that* does nothing, the harness is the bug. Better
   still, read the app's own log: `JT_PLAYER_LOG=1` puts `chrome: visible -> true` on stdout the
   moment any control's `interact()` runs, which is a yes/no answer a screenshot diff is not.
-- **There is no way to press a button on the tvOS simulator from here.** `axe key` exits 0,
-  prints nothing and changes not one pixel (verified with `compare -metric AE`: 0 differing
-  pixels across a Down press, with DeviceHub open and the app frontmost). The other route —
-  `osascript` → System Events `key code`, which would go through the simulator window's own key
-  handling and *is* a real HID event, unlike the AXPress trap noted above — is refused with
-  *"osascript is not allowed to send keystrokes. (1002)"* unless the terminal is granted
-  Accessibility in System Settings → Privacy & Security. Granting it would make tvOS
-  interactions verifiable; until then they are not, and saying so is part of the report.
-  Consequences: every tvOS screen has to be *reached* by a launch hook (which is why `JT_SHOW_*`
-  covers as much as it does, and why anything new worth looking at should get one), and anything
-  that only happens on a press — a transition, a confirmation beat, a focus hand-off — can be
-  reasoned about and screenshot at rest but not seen. (`axe tap`/`touch` are a separate question
-  and remain the right tool on iOS; a shared component's action path can often be proven there
-  instead, which is the nearest thing to a substitute.)
+- **Driving the tvOS simulator: System Events key codes, not AXe.** `axe key` is a silent no-op
+  on tvOS — it exits 0, prints nothing and changes not one pixel (measured: `compare -metric AE`
+  reports 0 differing pixels across a Down press, with DeviceHub open and the app frontmost).
+  What *does* work is a real key event through the simulator window:
+
+      osascript -e 'tell application "DeviceHub" to activate' \
+                -e 'delay 0.5' \
+                -e 'tell application "System Events" to key code 125'
+
+  Key codes: **125** Down · **126** Up · **123** Left · **124** Right · **36** Select ·
+  **53** Menu. Send them one at a time with ~0.35s between, and keep the usual screenshot loop
+  running so the display never sleeps. This is a genuine HID event handled by the simulator
+  window, *not* the AXPress trap warned about above — it drives the focus engine exactly as the
+  remote does, and an invisible or broken control stays broken under it.
+  **It needs the terminal to hold Accessibility** in System Settings → Privacy & Security;
+  without it every call fails with *"osascript is not allowed to send keystrokes. (1002)"*, which
+  is the first thing to check when a sequence silently does nothing. Verified end to end this
+  way: focus moving down the Settings category list, Select on a poster opening its movie page,
+  and the six digits of the adult-content code typed into `AdultUnlockPanel` (both the right code
+  and a wrong one).
+- **A 130ms animation will not survive `simctl io recordVideo`.** A recording of the card's press
+  beat at 30fps went from the resting grid straight to the finished page with *zero* intermediate
+  frames — the dip renders, it simply falls between whatever frames the simulator hands the
+  recorder (the same limit as the 150–180ms/frame measured during the old zoom). To check a short
+  animation actually draws, lengthen its duration to a second or two, take one still, measure it
+  (`compare -metric AE` — one dipped card is ~3% of the frame; a page cut is ~100%), then put the
+  duration back. Verifying the *visual* and the *timing* separately is the only thing that works
+  here.
 - **Writing a simulator's container plist from the Mac is served stale.** `cfprefsd` inside the
   simulator owns that domain and keeps its own cache, so an app relaunched with `simctl launch`
   reads what cfprefsd had, not what is now on disk — even though reading the file back shows the
