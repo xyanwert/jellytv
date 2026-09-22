@@ -138,211 +138,110 @@ struct NeonReadoutItem: View {
 #endif
 
 #if os(tvOS)
-/// The one-sheet's Play bar at TV size: **the brightest thing on the page**,
-/// because it is the one thing the page exists for. A solid slab of the
-/// film's own colour with a glass top and a shaded foot, a white disc with
-/// the play glyph struck in the tint, and the label in whichever ink reads on
-/// that colour. The **whole bar is the one button**.
+/// The one-sheet's Play button — **the same button as Home's Resume and the
+/// show page's**, because that is what it should always have been.
 ///
-/// Under the remote it comes alive — all of it transforms, gradients and a
-/// `TimelineView` that ticks only while focused: a bloom behind the slab that
-/// breathes, a band of light crossing the face every couple of seconds, and
-/// rings pulsing out of the play disc like a sonar ping — *press me*. At rest
-/// it is still the solid colour, just calm. A RESUME bar shades the unwatched
-/// stretch and draws a white filament where you left off.
+/// What it replaced: an 84pt slab of the film's own colour with a glass top
+/// and a shaded foot, a white disc with the glyph struck in the tint, a bloom
+/// that breathed behind it, a band of light crossing its face every ~2.6s and
+/// two rings pulsing out of the disc like a sonar ping — all driven by a
+/// `TimelineView` ticking at 30fps for as long as it held focus. It was built
+/// to be "the brightest thing on the page" and it was; it just belonged to no
+/// other screen in the app, and read as a control borrowed from somewhere
+/// else. The verdict was that the style didn't match, and it didn't.
 ///
-/// No readout: the iPad's TRAILER / AUDIO / SUBS / ＋LIST items are settings
-/// this app doesn't have yet, and on a TV unlit glass nobody can select reads
-/// as broken. The earlier outlined-tube version was calmer and, with the
-/// readout gone, mostly empty — a lit outline around nothing.
+/// It is now `HeroView.resumeButton` / `ShowView.tvHeroActions`: accent fill,
+/// 14pt corners, `Typography.font(21, .heavy)`, the same accent shadow, the
+/// same `FocusScaleStyle`. With three quiet things those don't have, **none
+/// of which move**:
+///
+/// - a **vertical gradient** in the fill instead of a flat colour, so the
+///   pill has some depth from across a room;
+/// - a **hairline along the top inside edge**, which is what makes it read as
+///   lit from above rather than printed on;
+/// - and for a part-watched film **a rule along its foot** showing how far in
+///   you are — the one genuinely useful thing the old slab did, and
+///   information no other button in this app carries.
+///
+/// Nothing animates on focus beyond the shared `FocusScaleStyle`, and that is
+/// the trade rather than an omission: the old bar avoided that style because
+/// "two rings on one control fight", so taking the house ring means giving up
+/// a second glow of its own, not stacking both.
+///
+/// **The fill is `theme.accent`, not the film's colour.** Matching the rest of
+/// the app was the point; if the poster's own tint is ever wanted back here it
+/// is this one property, not the shape around it.
 struct TVNeonPlayBar: View {
     var icon: String = "play.fill"
     let label: String
     let sub: String
     let progress: Double
-    let tint: Color
+    /// Reads as "the widest of the row, but not the whole of it" — the same
+    /// idiom as `HeroView.resumeButton`'s 220pt floor at its own size.
+    var minWidth: CGFloat = 300
     var action: () -> Void = {}
 
-    /// Ink or white on the film's colour, whichever reads.
-    private var ink: Color { tint.luminance > 0.55 ? Color(hex: "#0C0F16") : .white }
+    @EnvironmentObject private var theme: Theme
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 14, style: .continuous) }
+    private var clampedProgress: Double { min(max(progress, 0), 1) }
 
     var body: some View {
         Button(action: action) {
-            PlayBarLabel(icon: icon, label: label, sub: sub, tint: tint, ink: ink)
-        }
-        .buttonStyle(NeonBarFocusStyle(tint: tint, ink: ink, progress: progress))
-    }
-}
-
-/// The disc, the label and the sub-line. The disc carries the sonar rings
-/// itself (it knows focus through the environment), so the style needs no
-/// hook into the label.
-private struct PlayBarLabel: View {
-    let icon: String
-    let label: String
-    let sub: String
-    let tint: Color
-    let ink: Color
-
-    @Environment(\.isFocused) private var focused: Bool
-    @State private var focusedAt = Date()
-
-    var body: some View {
-        HStack(spacing: 18) {
-            disc
-            VStack(alignment: .leading, spacing: 3) {
-                Text(label)
-                    .font(Typography.font(26, .black)).tracking(2.2)
-                    .foregroundStyle(ink)
-                if !sub.isEmpty {
-                    Text(sub)
-                        .font(Mono.font(13, .bold)).tracking(1.6)
-                        .foregroundStyle(ink.opacity(0.72))
-                }
-            }
-            Spacer(minLength: 12)
-        }
-        .padding(.horizontal, 22)
-        .frame(height: 84)
-        .contentShape(Rectangle())
-        .onChange(of: focused, initial: true) { _, isFocused in
-            if isFocused { focusedAt = Date() }
-        }
-    }
-
-    /// A white disc, the glyph in the film's colour, and — while focused —
-    /// two rings a half-beat apart expanding out of it and fading, 1.6s per
-    /// ring, never past the bar's edge.
-    private var disc: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !focused)) { context in
-            let t = focused ? context.date.timeIntervalSince(focusedAt) : 0
-            ZStack {
-                if focused {
-                    ring(phase: (t / 1.6).truncatingRemainder(dividingBy: 1))
-                    ring(phase: ((t + 0.8) / 1.6).truncatingRemainder(dividingBy: 1))
-                }
-                Circle().fill(ink)
-                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-                Image(systemName: icon)
-                    .font(.system(size: 22, weight: .black))
-                    .foregroundStyle(tint)
-                    .offset(x: icon == "play.fill" ? 2 : 0)
-            }
-            .frame(width: 54, height: 54)
-        }
-    }
-
-    private func ring(phase: Double) -> some View {
-        Circle()
-            .stroke(ink.opacity((1 - phase) * 0.75), lineWidth: 2.5)
-            .scaleEffect(1 + phase * 0.5)
-    }
-}
-
-/// The slab and its light. Focus: a 6% lift, the bloom breathing behind,
-/// the streak crossing, the white edge coming up. Deliberately not
-/// `FocusScaleStyle`: this bar is its own ring of light, and two rings on one
-/// control fight.
-private struct NeonBarFocusStyle: ButtonStyle {
-    let tint: Color
-    let ink: Color
-    let progress: Double
-
-    func makeBody(configuration: Configuration) -> some View {
-        Content(configuration: configuration, tint: tint, ink: ink, progress: progress)
-    }
-
-    private struct Content: View {
-        @Environment(\.isFocused) private var focused: Bool
-        @State private var focusedAt = Date()
-        let configuration: ButtonStyle.Configuration
-        let tint: Color
-        let ink: Color
-        let progress: Double
-
-        private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 12, style: .continuous) }
-        /// A near-black dominant colour would make a slab you can't see lit;
-        /// lift it just enough to read as a surface.
-        private var lift: Double { tint.luminance < 0.12 ? 0.22 : 0 }
-
-        var body: some View {
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !focused)) { context in
-                let t = focused ? context.date.timeIntervalSince(focusedAt) : 0
-                configuration.label
-                    .background { lamp(at: t) }
-                    // A crisp white edge, not `NeonTube`: the tube's wide
-                    // inner glow was designed for dark glass, and on a solid
-                    // slab it washed the top and bottom into a milky band.
-                    .overlay {
-                        shape.strokeBorder(.white.opacity(focused ? 0.85 : 0.35), lineWidth: 1.5)
-                            .shadow(color: .white.opacity(focused ? 0.5 : 0), radius: 9)
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 19, weight: .bold))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(Typography.font(21, .heavy))
+                        .lineLimit(1)
+                    if !sub.isEmpty {
+                        Text(sub)
+                            .font(Mono.font(12, .bold)).tracking(1.3)
+                            .foregroundStyle(.white.opacity(0.72))
+                            .lineLimit(1)
                     }
-                    .scaleEffect(focused ? 1.06 : (configuration.isPressed ? 0.98 : 1))
-                    .shadow(color: tint.opacity(focused ? 0.6 : 0.3), radius: focused ? 30 : 14, y: 10)
-            }
-            .animation(.spring(response: 0.28, dampingFraction: 0.72), value: focused)
-            .onChange(of: focused, initial: true) { _, isFocused in
-                if isFocused { focusedAt = Date() }
-            }
-        }
-
-        private func lamp(at t: TimeInterval) -> some View {
-            ZStack {
-                // The bloom: the bar's own colour thrown onto the page behind
-                // it, breathing while focused.
-                shape.fill(tint)
-                    .padding(-4)
-                    .blur(radius: 26)
-                    .opacity(focused ? 0.42 + 0.14 * sin(t * 2.4) : 0)
-
-                ZStack(alignment: .leading) {
-                    // A little more saturated than the poster's own average,
-                    // which for a skin-toned poster is a pale peach — the slab
-                    // has to read as colour, not as tinted glass.
-                    shape.fill(tint).saturation(1.2).brightness(lift)
-                    // Glass top, shaded foot.
-                    LinearGradient(stops: [
-                        .init(color: .white.opacity(0.22), location: 0),
-                        .init(color: .white.opacity(0.04), location: 0.48),
-                        .init(color: .black.opacity(0.03), location: 0.52),
-                        .init(color: .black.opacity(0.34), location: 1),
-                    ], startPoint: .top, endPoint: .bottom)
-                    if progress > 0 { remainder }
-                    if focused { streak(at: t) }
                 }
-                .clipShape(shape)
+                // No trailing `Spacer` — that is the iPad bar's idiom, where
+                // the whole width had to catch a *touch*. Given one here the
+                // HStack takes the column's full width and the pill stretches
+                // across it, which is the shape this button was just moved
+                // away from. A remote has nothing to aim.
             }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 30)
+            .padding(.vertical, sub.isEmpty ? 18 : 14)
+            .frame(minWidth: minWidth, alignment: .leading)
+            .background { surface }
+            .shadow(color: theme.accent.opacity(0.45), radius: 24, y: 8)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 14))
+    }
 
-        /// RESUME: the unwatched stretch in shadow, a white filament where
-        /// you stopped.
-        private var remainder: some View {
-            GeometryReader { geo in
-                let edge = geo.size.width * min(max(progress, 0), 1)
-                Rectangle().fill(.black.opacity(0.34))
-                    .frame(width: max(0, geo.size.width - edge))
-                    .offset(x: edge)
-                Rectangle().fill(ink.opacity(0.95))
-                    .frame(width: 2)
-                    .offset(x: edge - 1)
-                    .neonGlow(ink, intensity: 0.8)
-            }
-        }
+    /// Fill, foot rule and top hairline, clipped once to the pill.
+    private var surface: some View {
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(colors: [theme.accent.opacity(0.98), theme.accent.opacity(0.82)],
+                           startPoint: .top, endPoint: .bottom)
 
-        /// A band of light crossing the face every ~2.6s.
-        private func streak(at t: TimeInterval) -> some View {
-            GeometryReader { geo in
-                let phase = (t * 0.38).truncatingRemainder(dividingBy: 1)
-                Rectangle()
-                    .fill(LinearGradient(colors: [.clear, .white.opacity(0.32), .clear],
-                                         startPoint: .leading, endPoint: .trailing))
-                    .frame(width: 120, height: geo.size.height * 2.4)
-                    .rotationEffect(.degrees(22))
-                    .offset(x: (CGFloat(phase) * 2.2 - 1.1) * geo.size.width + geo.size.width / 2 - 60,
-                            y: -geo.size.height * 0.7)
-                    .blendMode(.screen)
+            if clampedProgress > 0 {
+                GeometryReader { geo in
+                    Rectangle()
+                        .fill(.white.opacity(0.85))
+                        .frame(width: geo.size.width * clampedProgress, height: 3)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
             }
+
+            // Inset from the corners so it stops before the radius curves
+            // away and doesn't leave two bright pixels hanging in the round.
+            Rectangle()
+                .fill(.white.opacity(0.22))
+                .frame(height: 1)
+                .padding(.horizontal, 12)
+                .frame(maxHeight: .infinity, alignment: .top)
         }
+        .clipShape(shape)
     }
 }
 #endif

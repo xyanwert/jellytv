@@ -280,7 +280,7 @@ struct MovieDetailView: View {
 
     /// "RESUME" once there is progress to resume from, otherwise "PLAY" — the
     /// remaining time rides under it and comes off the item, never invented.
-    private var playLabel: String { movie.resumeProgress > 0 ? "RESUME" : "PLAY" }
+    private var playLabel: String { movie.resumeProgress > 0 ? "Resume" : "Play" }
 
     private var playSubLabel: String {
         movie.resumeProgress > 0 ? movie.resumeRemaining : movie.runtime
@@ -429,8 +429,6 @@ struct MovieDetailView: View {
     }
 
     private static let titleSlotHeight: CGFloat = 124
-    private static let playBarWidth: CGFloat = 352
-
     private var titleTextTV: some View {
         Text(movie.title)
             .font(Typography.font(88, .black)).foregroundStyle(Palette.textPrimary)
@@ -476,28 +474,27 @@ struct MovieDetailView: View {
         return facts
     }
 
-    /// One lit Play bar and the heart — every control here does something.
+    /// Play and the heart — the same pair, in the same clothes, as the show
+    /// page's action row. The pill sizes to its own label (a `minWidth` floor
+    /// keeps it the widest thing in the row) rather than being pinned to a
+    /// width: it used to inherit the iPad's full column, where the right two
+    /// thirds carried a readout this app doesn't have, and a remote needs no
+    /// finger-width target anyway.
     private var actionsTV: some View {
-        HStack(spacing: 18) {
-            // A third of the column, not the whole of it. The bar inherited
-            // the iPad's full width, where the right two-thirds carried a
-            // readout; on TV that stretch was lit glass saying nothing
-            // ("seems so empty"). A remote needs no finger-width target.
-            TVNeonPlayBar(label: playLabel, sub: playSubLabel, progress: movie.resumeProgress,
-                          tint: tint, action: play)
-                .frame(width: Self.playBarWidth)
+        HStack(spacing: 16) {
+            TVNeonPlayBar(label: playLabel, sub: playSubLabel,
+                          progress: movie.resumeProgress, action: play)
                 .focused($focus, equals: .play)
 
             Button(action: toggleFavorite) {
                 Image(systemName: effectiveIsFavorite ? "heart.fill" : "heart")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(effectiveIsFavorite ? tint : Palette.text(0.85))
-                    .frame(width: 84, height: 84)
-                    .background(Palette.text(0.08), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(effectiveIsFavorite ? tint.opacity(0.5) : Palette.text(0.14), lineWidth: 1))
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(effectiveIsFavorite ? theme.accent : Palette.text(0.85))
+                    .frame(width: 58, height: 58)
+                    .background(Palette.text(0.08), in: Circle())
+                    .overlay(Circle().stroke(Palette.text(0.16), lineWidth: 1.5))
             }
-            .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 7))
+            .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 999))
             .focused($focus, equals: .favorite)
             .accessibilityLabel(effectiveIsFavorite ? "Remove from favourites" : "Add to favourites")
         }

@@ -725,7 +725,6 @@ struct DiscoverDetailView: View {
                 label: "Play",
                 sub: watchSubtitle(detail),
                 progress: 0,
-                tint: effectiveTint,
                 action: { play(ids) }
             )
             .frame(maxWidth: 420)
@@ -811,7 +810,6 @@ struct DiscoverDetailView: View {
                 label: isPlanning ? "Checking…" : downloadLabel,
                 sub: scopeSubtitle(detail),
                 progress: 0,
-                tint: effectiveTint,
                 action: { Task { await makePlan(detail) } }
             )
                 // Wider than the Play bar it borrows from: this one's readout carries the
