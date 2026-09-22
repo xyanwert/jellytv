@@ -1258,6 +1258,15 @@ it's gone stale, same as the iPad default below.
 - **Build/test.** App via XcodeBuildMCP (`build_sim` / `build_run_sim`, scheme `JellyTV`); the
   package via `swift test` in `Packages/JellyTVKit` (XCTest — update the row-count assertions when
   adding e.g. a settings category).
+- **Xcode 27 ships no `Simulator.app`.** The whole `Developer/Applications`
+  directory it lived in is gone, so `open -a Simulator` fails with *Unable to find application
+  named 'Simulator'* — and inside a `set -e` script that aborts the run on the spot, after a
+  successful build and before anything is installed, which reads as "it built and then did
+  nothing" (this is exactly what broke `Scripts/run-tvos.sh`). `DeviceHub.app`
+  (`com.apple.dt.Devices`) is the replacement bundled at `Xcode.app/Contents/Applications`.
+  Treat opening any UI as a **convenience, never a requirement**: `simctl install` / `launch` /
+  `io screenshot` are all headless and have worked throughout, so nothing about showing a window
+  should be able to stop a run.
 - **Xcode 27 unbundled the Metal toolchain.** `HeroTransitions.metal` (the hero crumble) makes
   every app build fail on a fresh Xcode with *cannot execute tool 'metal' due to missing Metal
   Toolchain* — a toolchain gap, not a shader error. One-time fix, no sudo:

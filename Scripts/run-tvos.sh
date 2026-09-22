@@ -129,8 +129,32 @@ APP_IOS="$(/usr/bin/find "${DERIVED}/Build/Products" -maxdepth 3 -path '*iphones
 [ "${WANT_TV}" = 1 ] && [ -z "${APP_TV}" ] && die "Build succeeded but JellyTV.app (tvOS) was not found under ${DERIVED}."
 { [ "${WANT_IPAD}" = 1 ] || [ "${WANT_IPHONE}" = 1 ]; } && [ -z "${APP_IOS}" ] && die "Build succeeded but JellyTV.app (iOS) was not found under ${DERIVED}."
 
-info "Booting simulator(s) + opening Simulator.app…"
-open -a Simulator
+# **Xcode 27 ships no Simulator.app.** The `Developer/Applications` directory
+# it lived in is gone entirely, so `open -a Simulator` fails with "Unable to
+# find application named 'Simulator'" — and under `set -e` that aborted the
+# whole run *right here*, after a successful build and before anything was
+# installed, which reads as "the script built and then did nothing".
+# `DeviceHub.app` (`com.apple.dt.Devices`) is its replacement in 27; older
+# Xcodes still have Simulator, so try that first.
+#
+# Non-fatal either way, deliberately: `simctl` installs and launches
+# headlessly, so a window is a convenience and never a requirement. Nothing
+# about showing the UI should be able to stop the app from running.
+open_simulator_ui() {
+  local app
+  for app in Simulator DeviceHub; do
+    if open -a "${app}" >/dev/null 2>&1; then
+      info "Opened ${app}."
+      return 0
+    fi
+  done
+  info "No simulator UI app found — Xcode 27 dropped Simulator.app."
+  info "The app still installs and runs; capture it with 'xcrun simctl io <udid> screenshot out.png'."
+  return 0
+}
+
+info "Booting simulator(s)…"
+open_simulator_ui
 
 LAUNCHED_SIMS=()
 cleanup() {
@@ -196,4 +220,11 @@ fi
 # shellcheck disable=SC2086
 [ "${WANT_IPHONE}" = 1 ] && install_and_launch "iphone" "${IPHONE_SIM}" "${APP_IOS}" ${MOCK_ENV}
 
-[ "${TARGET_COUNT}" -gt 1 ] && info "All requested targets launched. Check each Simulator window."
+# `cmd && info ...` as the final line makes the script exit 1 whenever the
+# condition is false — i.e. on every single-target run, which is the default.
+# Nothing downstream could chain off it (`run-tvos.sh tv && open-something`
+# never fired). An explicit `if` keeps the exit status honest.
+if [ "${TARGET_COUNT}" -gt 1 ]; then
+  info "All requested targets launched. Check each simulator window."
+fi
+exit 0
