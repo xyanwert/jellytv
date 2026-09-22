@@ -5,7 +5,7 @@ import JellyTVKit
 /// (`CastLineup`, `ScenesStrip`, `SimilarRow`) share the page's one
 /// `@FocusState`, which is what lets Down from the Play bar walk the folds.
 enum MovieField: Hashable {
-    case play, favorite
+    case play
     case cast(String)
     case scene(Int)
     case similar(String)
@@ -286,6 +286,20 @@ struct MovieDetailView: View {
         movie.resumeProgress > 0 ? movie.resumeRemaining : movie.runtime
     }
 
+    /// The big number beside the play circle: what is left of a part-watched
+    /// film, else the whole runtime. Falls back to the runtime rather than
+    /// rendering an empty line if the server gave a progress with no
+    /// remaining string.
+    private var playTime: String {
+        if movie.resumeProgress > 0, !movie.resumeRemaining.isEmpty { return movie.resumeRemaining }
+        return movie.runtime
+    }
+
+    private var playCaption: String {
+        guard movie.resumeProgress > 0 else { return "RUNTIME" }
+        return "LEFT · \(Int((movie.resumeProgress * 100).rounded()))% WATCHED"
+    }
+
     // MARK: - tvOS (the one-sheet, then the folds that sell the film)
 
     #if os(tvOS)
@@ -474,29 +488,64 @@ struct MovieDetailView: View {
         return facts
     }
 
-    /// Play and the heart — the same pair, in the same clothes, as the show
-    /// page's action row. The pill sizes to its own label (a `minWidth` floor
-    /// keeps it the widest thing in the row) rather than being pinned to a
-    /// width: it used to inherit the iPad's full column, where the right two
-    /// thirds carried a readout this app doesn't have, and a remote needs no
-    /// finger-width target anyway.
+    /// **One control and the clock.** The heart that used to sit beside them
+    /// is gone: on a page whose whole job is deciding what to watch tonight,
+    /// a second focusable thing next to Play earns a mis-press far more often
+    /// than it earns a favourite, and nothing on this screen — or anywhere
+    /// the app then takes you — reads that flag back. The iPhone keeps its
+    /// FAVOURITE quick action, where it sits in a row of actions rather than
+    /// beside the one button anybody came here for.
     private var actionsTV: some View {
-        HStack(spacing: 16) {
-            TVNeonPlayBar(label: playLabel, sub: playSubLabel,
-                          progress: movie.resumeProgress, action: play)
+        HStack(spacing: 26) {
+            TVPlayCircle(action: play)
                 .focused($focus, equals: .play)
+            playClock
+        }
+    }
 
-            Button(action: toggleFavorite) {
-                Image(systemName: effectiveIsFavorite ? "heart.fill" : "heart")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(effectiveIsFavorite ? theme.accent : Palette.text(0.85))
-                    .frame(width: 58, height: 58)
-                    .background(Palette.text(0.08), in: Circle())
-                    .overlay(Circle().stroke(Palette.text(0.16), lineWidth: 1.5))
+    /// The number, given the size the word it replaced used to take. White
+    /// for the figure and the accent for the line under it only while there
+    /// is something to come back to — a fresh film's "RUNTIME" is a fact, not
+    /// a prompt, and lighting it would say otherwise.
+    private var playClock: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(playTime)
+                .font(Typography.font(34, .black))
+                .foregroundStyle(Palette.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(playCaption)
+                .font(Mono.font(14, .bold))
+                .tracking(2.2)
+                .foregroundStyle(movie.resumeProgress > 0 ? theme.accent : Palette.text(0.42))
+                .lineLimit(1)
+            // How far in you are, where it can't fight the focus ring — see
+            // `TVPlayCircle`. The height is held whether or not there is a
+            // bar to draw, so a part-watched film and a fresh one lay this
+            // row out identically; a fresh one draws nothing rather than an
+            // empty track, which reads as something still loading.
+            resumeBar
+                .frame(height: 4)
+                .padding(.top, 5)
+        }
+        // Fixed, so the row does not reflow between "48m" and "2h 14m" — and
+        // so the bar below has a width to be a fraction of.
+        .frame(width: 210, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var resumeBar: some View {
+        if movie.resumeProgress > 0 {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Palette.text(0.14))
+                    Capsule().fill(theme.accent)
+                        .frame(width: geo.size.width * min(max(movie.resumeProgress, 0), 1))
+                }
             }
-            .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 999))
-            .focused($focus, equals: .favorite)
-            .accessibilityLabel(effectiveIsFavorite ? "Remove from favourites" : "Add to favourites")
+        } else {
+            Color.clear
         }
     }
 

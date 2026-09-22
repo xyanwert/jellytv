@@ -635,34 +635,41 @@ metadata rail (rating · runtime · director · year), the cast band across the 
 replaced — a boxed 780×439 key-art panel with a floating `ResumeCard`, a 2×2 `SpecSheet`, a MORE
 LIKE THIS row of `SampleCatalog` posters on a real film's page, and Trailer / EN·5.1 / CC·OFF
 `DetailPill`s that were focusable buttons doing nothing — is deleted, components and all.
-**The Play button is the app's own button** (`TVNeonPlayBar`) — the same pill as `HeroView
-.resumeButton` and `ShowView.tvHeroActions`: `theme.accent` fill, 14pt corners, `Typography
-.font(21, .heavy)`, the same accent shadow, the same `FocusScaleStyle`, the heart beside it a
-58pt circle like the show page's. It sizes to its own label behind a `minWidth` floor rather
-than being pinned to a width.
+**The Play control is a bold circle and the clock beside it** (`TVPlayCircle`, and
+`MovieDetailView.playClock`). A 104pt accent disc — vertical gradient, a wash of white off the
+top where the pill carried a hairline, the glyph nudged 3pt right because a triangle's visual
+centre is left of its box — then the time at `Typography.font(34, .black)` with a mono caption
+under it (`RUNTIME`, or `LEFT · 26% WATCHED` in the accent) and a slim accent bar at the resume
+position.
 
-**What it replaced, and why that stays replaced.** It was an 84pt slab of the *film's* own
-colour — glass top, shaded foot, a near-black tint lifted so it read as a surface, a white disc
-with the glyph struck in the tint, the label in ink or white by `Color.luminance` — and under
-the remote it came alive on a 30fps `TimelineView`: a bloom breathing behind it, a band of light
-crossing its face every ~2.6s, two rings pulsing out of the disc like a sonar ping. It was built
-to be the brightest thing on the page and it was. It also belonged to no other screen in the
-app, and the verdict was that the style didn't match — which it plainly didn't, sitting a
-`.focusSection()` away from controls that are flat accent pills everywhere else.
+**Three versions were removed to get here, and each removal is the reason for the next.** An
+84pt lit slab of the *film's* own colour — glass top, shaded foot, white disc, and under the
+remote a 30fps `TimelineView` running a breathing bloom, a band of light crossing every ~2.6s
+and two sonar rings — went because it matched nothing else in the app. The house pill that
+replaced it ("Resume · 1h 40m") was right to match but wrong *here*: a film has one thing to
+play and the poster and title directly above have already said what it is, so the word only
+repeated the glyph, while the number beside it is what somebody choosing tonight's film actually
+reads. And **the heart went too** — on a page whose whole job is that decision, a second
+focusable control next to Play earns a mis-press far more often than it earns a favourite, and
+nothing downstream reads the flag back. `MovieField.favorite` went with it; the iPhone keeps its
+FAVOURITE quick action, where it sits among other actions rather than beside the one button
+anybody came for.
 
-Three quiet things it keeps that the plain house button doesn't have, **none of which move**: a
-vertical gradient in the fill instead of a flat colour; a hairline along the top inside edge, so
-it reads as lit from above; and, for a part-watched film, a rule along its foot at the resume
-position — the one genuinely useful thing the old slab did, and information no other button in
-the app carries. Nothing animates on focus beyond the shared `FocusScaleStyle`, which is the
-trade rather than an omission: the old bar avoided that style because *two rings on one control
-fight*, so taking the house ring means giving up a second glow, not stacking both.
+**Progress is not a ring around the circle.** That was built and rejected on sight:
+`FocusScaleStyle` draws an `LEDRing` at the label's bounds with a 38pt accent bloom, this control
+is the page's default focus so that ring is lit almost always, and a white arc inside the bloom
+read as a smear rather than a number — which is the note this file already carried for the
+*previous* button (*two rings on one control fight*), reached from the other direction. It is a
+bar under the clock instead, in a `.frame(width: 210)` so the row cannot reflow between "48m" and
+"2h 14m", with the bar's height held even when there is nothing to draw.
 
-**The fill is `theme.accent`, not the poster's colour.** Matching the rest of the app was the
-whole point; if the film's own tint is ever wanted back it is that one property, not the shape
-around it. It still carries no readout — the iPad's TRAILER / AUDIO / SUBS / ＋LIST items aren't
-settings this app has, and on a TV unlit glass nobody can select reads as broken. Focus seeds to
-`.play` on appear. This one-sheet is now the first *fold* of the Movie
+**The show page and Discover keep their labelled pills** (`TVNeonPlayBar`), and that is not an
+inconsistency: "Resume S3 · E4" and "Download to" name *which* thing, not what the button does,
+and a circle cannot say that.
+
+**The fill is `theme.accent`, not the poster's colour** — matching the rest of the app was the
+point; if the film's own tint is ever wanted back it is that one property. Focus seeds to `.play`
+on appear, and Down from the circle walks into the cast lineup as before. This one-sheet is now the first *fold* of the Movie
 Night page below, and the unfocusable cast band under it became the `CastLineup`.
 
 ## Movie Night — the tvOS movie page

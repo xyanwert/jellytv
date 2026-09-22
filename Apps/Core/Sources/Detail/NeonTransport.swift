@@ -245,3 +245,62 @@ struct TVNeonPlayBar: View {
     }
 }
 #endif
+
+#if os(tvOS)
+/// The movie page's Play control: **a bold circle, and the clock beside it.**
+///
+/// Two removals got here. First an 84pt lit slab of the film's own colour,
+/// then the app's own labelled pill ("Resume · 1h 40m"). The pill was right
+/// to match, but on *this* page the word was doing no work: a film has one
+/// thing to play, and the poster and the title directly above have already
+/// said what it is, so "Play" only repeated the glyph. The number beside it
+/// is the part somebody choosing what to watch tonight actually reads — how
+/// long is this, or how much of it is left — so the word went and the number
+/// grew.
+///
+/// **The show page and Discover keep their labelled pills**, and that isn't
+/// an inconsistency: "Resume S3 · E4" and "Download to" name *which* thing,
+/// not what the button does, and a circle cannot say that.
+///
+/// **Progress is not a ring around it.** That was tried and it lost to the
+/// focus treatment: `FocusScaleStyle` draws an `LEDRing` at the label's
+/// bounds with a 38pt accent bloom, this control is the page's default focus
+/// so that ring is on almost all the time, and a white arc sitting inside the
+/// bloom read as a smear rather than as a number. Which is the note this repo
+/// already carried for the *previous* version of this button — *two rings on
+/// one control fight* — arrived at from the other direction. The resume
+/// position lives under the clock beside it instead, where nothing competes.
+struct TVPlayCircle: View {
+    var icon: String = "play.fill"
+    var action: () -> Void = {}
+
+    @EnvironmentObject private var theme: Theme
+
+    private static let disc: CGFloat = 104
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(
+                    LinearGradient(colors: [theme.accent.opacity(0.98), theme.accent.opacity(0.80)],
+                                   startPoint: .top, endPoint: .bottom))
+                // The gloss the pill carried as a hairline along its top edge.
+                // A straight line makes no sense on a circle, so it is the
+                // same idea as a wash off the top instead.
+                Circle().fill(
+                    LinearGradient(colors: [.white.opacity(0.22), .clear],
+                                   startPoint: .top, endPoint: .center))
+                Image(systemName: icon)
+                    .font(.system(size: 40, weight: .black))
+                    .foregroundStyle(.white)
+                    // A triangle's visual centre is left of its box's.
+                    .offset(x: icon == "play.fill" ? 3 : 0)
+            }
+            .frame(width: Self.disc, height: Self.disc)
+            .shadow(color: theme.accent.opacity(0.5), radius: 26, y: 8)
+            .contentShape(Circle())
+        }
+        .buttonStyle(FocusScaleStyle(scale: 1.08, cornerRadius: 999))
+    }
+}
+#endif
