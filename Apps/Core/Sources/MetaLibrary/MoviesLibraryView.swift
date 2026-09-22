@@ -40,7 +40,6 @@ struct MoviesLibraryView: View {
     /// is a round trip long enough to need reporting.
     @State private var randomState: RandomPlayState = .idle
     @State private var presentedMovie: Movie?
-    /// Where a presented page zooms from: the focused poster.
     /// A show reached *from* a movie page — one of an actor's other credits
     /// in the person sheet. This screen never lists shows itself.
     @State private var presentedShow: Show?
@@ -242,7 +241,7 @@ struct MoviesLibraryView: View {
             // is a same-ZStack overlay, not a modal, so without this the
             // rail stays focus-reachable underneath it.
             .disabled(presentedMovie != nil || presentedShow != nil)
-            // The page dissolves in over the shelf — see `PageTransition`.
+            // The page cuts in over the shelf — see `PageTransition`.
             .pageBehind(presentedMovie != nil || presentedShow != nil)
 
             if let presentedMovie {

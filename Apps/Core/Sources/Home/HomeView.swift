@@ -215,8 +215,8 @@ struct HomeView: View {
             // from the Show view's cast row eventually focused-and-selected
             // the Settings rail icon underneath).
             .disabled(presentedDetail != nil)
-            // The page dissolves in and this one goes quiet beneath it —
-            // see `PageTransition`.
+            // The page cuts in and this one goes quiet beneath it — see
+            // `PageTransition`.
             .pageBehind(presentedDetail != nil)
 
             if let presentedDetail {

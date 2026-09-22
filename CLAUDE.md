@@ -711,49 +711,60 @@ for every actor of every movie and drops them in under those names — 30 films,
 minute. Without it only whatever was seeded by hand has a bust, which is why "only EuroTrip has
 them" was once a question. Two segmentations at a time on device, never redone for a URL.
 
-**Pages dissolve in, and the screen beneath goes quiet** (`PageTransition.swift`;
-`pagePresented()` / `pageBehind(_:)` / `.animation(.pagePresentation)`, one 0.3s ease).
+**Pages do not animate in on tvOS. They cut.** (`PageTransition.swift`: `pagePresented()` is
+the identity on tvOS, `pageBehind(_:)` changes in one frame, `.pagePresentation` is `nil`.)
 
-**This was a zoom and the zoom is gone — do not bring it back.** A page grew out of the poster
-you selected while the shelf beneath pushed in toward the same point, on an anchor read from a
-focused card's `anchorPreference`. It looked right on the simulator, which is exactly what the
-note below already said the simulator cannot judge, and on a real Apple TV the verdict was that
-it looked horrible. The reason is structural rather than a matter of tuning, so no amount of
-retiming would have fixed it: the box draws this app at 3840×2160, a `scaleEffect` on a subtree
-SwiftUI has not flattened is applied per layer rather than once to a texture, and **two**
-full-screen hierarchies were under one at the same time — including the movie page's own 90pt
-poster blur and full-bleed backdrop. The staggered `entrance(_:delay:)` that faded and raised
-each fold of the movie and show pages in turn went with it, for the same reason: five more
-overlapping animations on a page already being scaled. All of it — `zoomOrigin`,
-`trackZoomOrigin`, the `UnitPoint` plumbing, the rise — is deleted, and the anchor preference it
-recomputed on every focus change across a forty-poster grid went with it. What is left is a
-dissolve: one alpha blend per layer, the cheapest thing a compositor does.
+**Two attempts were removed to get here; don't add a third without reading this.** The first was
+a zoom — the page grew out of the poster you selected while the shelf beneath pushed in toward
+the same point, on an anchor read from a focused card's `anchorPreference`. The second was a
+plain 0.3s dissolve. Both were judged on a real Apple TV and both were rejected, and the second
+rejection is the informative one: a cross-fade is the cheapest thing a compositor does, so if
+*that* isn't good enough then the problem was never which effect was picked. It is that any
+animated presentation has to keep **two full-screen 4K hierarchies alive and composited at once**
+— and one of them is a page whose background is a 90pt gaussian blur of a poster scaled to 1.3×
+the screen. SwiftUI does not flatten either side first, so every layer is transformed and blended
+separately, every frame. There is no version of "animate the whole frame" this hardware does
+well. A cut costs one frame and cannot stutter, because there is no second frame to stutter
+between.
 
-The scale's own history is the argument against trying again — the first cut flew the page in
-from 30% on a spring with the shelf at 1.18×, was called *"NOT smooth"*, and was cut to 6%; this
-is the last step down that road, not a new opinion.
+Everything that used to dress the arrival went with it, and each removal is its own small lesson:
+the staggered `entrance(_:delay:)` that faded and raised five folds in turn; the `zoomOrigin` /
+`trackZoomOrigin` plumbing, an `anchorPreference` recomputed on every focus change across a
+forty-poster grid; the 350ms hold on the detail fetch that existed only so the page couldn't
+re-lay-out mid-animation; **the 0.7s fade-in of `PosterBloom` and `AmbientBackdrop`**, which was
+backwards — the blur costs what it costs the moment it is first rasterised, and ramping its
+opacity doesn't avoid that, it *adds* an offscreen composite of a 4K subtree on every frame of the
+ramp; and the 0.7s glide of `posterTint`, which every surface on the page wears, so animating it
+re-composited essentially the whole frame at the busiest possible moment.
 
-**`pageBehind(_:)` does the thing that actually matters on a TV**: as well as fading the screen
-beneath to 2%, it marks that subtree `\.isObscured`, which until now only the player did. Home's
-hero pill timer runs a `TimelineView(.animation)` — 60fps — and its dots row another at 12fps,
-and **both kept running underneath an opened movie page**, on top of everything the page was
-doing; `HomeView.heroShouldRest` stops the hero *rotation* off the same condition, which is what
-keeps the crumble shader (this repo's own most expensive thing) from firing behind a film nobody
-can see it through. That was live for as long as the zoom was, and is the likeliest single reason
-opening a movie from Home felt worse than opening one from the Movies grid.
+**`pageBehind(_:)` is the part that actually made opening a page faster, and it stays however the
+presentation is styled.** As well as dropping the screen beneath to 2%, it marks that subtree
+`\.isObscured`, which until then only the player did. Home's hero pill timer runs a
+`TimelineView(.animation)` — 60fps — and its dots row another at 12fps, and **both kept running
+underneath an opened movie page**; `HomeView.heroShouldRest` stops the hero *rotation* off the
+same condition, which is what keeps the crumble shader (this repo's own most expensive thing)
+from firing behind a film nobody can see it through. That was live the whole time the zoom was,
+and is the likeliest single reason opening a film from Home felt worse than opening one from the
+Movies grid.
 
-Two details that survive from the zoom and still matter: the screen beneath fades to **2%, not
-0**, because the focus engine will not land on alpha ≤ 0.01 and focus is handed back on the first
-frame of the return; and each presenting screen puts focus back explicitly on Menu (`focusedId =
-lastFocusedId`, or the focus saved when the page opened) — left to the engine it fell to the first
-filter chip. **Nothing heavy is drawn during the transition either:** the movie page's detail
-fetch is applied no sooner than 350ms after appear (fetched at once, applied after — it lands in
-~300ms, squarely mid-animation, and the reflow was a visible hitch), and `PosterBloom` and
-`AmbientBackdrop` fade in over 0.7s starting 0.3s after appear instead of being drawn during it.
-Both delays track the transition's length; retime them together. **The simulator cannot judge
-smoothness:** a recording of the old zoom (`simctl io recordVideo`, frames dumped with
-`AVAssetImageGenerator`) showed it drawing a new frame every 150–180ms whatever the code did —
-judge on the Apple TV, which is how this got found in the first place.
+Two details survive and still matter: the screen beneath goes to **2%, not 0**, because the focus
+engine will not land on alpha ≤ 0.01 and focus is handed back on the first frame of the return;
+and each presenting screen puts focus back explicitly on Menu (`focusedId = lastFocusedId`, or
+the focus saved when the page opened) — left to the engine it fell to the first filter chip.
+
+**If motion comes back here, it must be motion on something small.** The rule the two failures
+teach is not "no animation on tvOS" — it is that the *area* being animated is what costs, not the
+effect. A focused card is ~300×450pt and can be moved freely (`CardFocusStyle` already does, at
+60fps, with no complaints). A full-screen layer cannot. Anything proposed here should be able to
+answer "how many pixels change per frame" with a number well under the whole screen. The one
+exception worth knowing about is `.navigationTransition(.zoom(sourceID:in:))` (tvOS 18+), which
+performs because UIKit *snapshots* both sides into textures first — but it requires
+`NavigationStack` presentation, and these pages are deliberately same-`ZStack` overlays so that
+Menu is ours (see "Video player architecture"), so adopting it means reopening that decision.
+
+**The simulator cannot judge any of this:** a recording of the old zoom (`simctl io recordVideo`,
+frames dumped with `AVAssetImageGenerator`) showed it drawing a new frame every 150–180ms
+whatever the code did. Judge on the Apple TV, which is how both rejections happened.
 
 **Focus on this page, learned the hard way.** Entering the lineup lands on whoever the fact card
 shows (lead, or last looked at) — left to geometry, Down from a Play bar that spans the page landed
