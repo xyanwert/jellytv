@@ -54,6 +54,11 @@ final class ServerConnection: ObservableObject {
     /// hint; connecting re-detects the kind from the server itself.
     @Published var selectedServerKind: JellyfinAPI.ServerKind?
 
+    /// True when this launch began by restoring a saved session — the one case the
+    /// app opens on `LaunchSplash` rather than the setup form. Fixed at init: a
+    /// connect made later from the form has its own progress log.
+    private(set) var launchedWithStoredSession = false
+
     /// The in-flight `connect()`/`reconnect()` task, if any. Stored so
     /// `cancelConnect()` can actually reach and cancel it — `URLSession`'s
     /// async `data(for:)` and `Task.sleep` are both cancellation-aware, so
@@ -129,6 +134,7 @@ final class ServerConnection: ObservableObject {
             // Enter the connecting state synchronously so the very first frame is
             // the progress screen, not a flash of the empty form.
             status = .connecting("Reconnecting…")
+            launchedWithStoredSession = true
             connectTask = Task { [weak self] in await self?.reconnect() }
         }
     }

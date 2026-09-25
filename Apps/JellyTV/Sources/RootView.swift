@@ -48,6 +48,9 @@ struct RootView: View {
         ProcessInfo.processInfo.environment["JT_SHOW_PLAYER"] != nil ? .fixture : nil
     }()
 
+    /// Set when the launch splash has finished; it never comes back this launch.
+    @State private var splashDone = false
+
     private enum PlayerPresentation: Identifiable, Equatable {
         case fixture
         case request(PlaybackRequest)
@@ -58,6 +61,31 @@ struct RootView: View {
             case .request(let request): return request.id
             }
         }
+    }
+
+    // MARK: - Launch splash
+
+    /// `JT_SHOW_SPLASH=1` holds the splash up for screenshots — even with no
+    /// saved session — and never lets it finish. Inert unless set.
+    private static let holdsSplash = ProcessInfo.processInfo.environment["JT_SHOW_SPLASH"] == "1"
+
+    /// The animated mark covers the launch while a saved session is restored and
+    /// Home loads — once per launch, never again for a later reconnect.
+    private var showsSplash: Bool {
+        !splashDone && (server.launchedWithStoredSession || Self.holdsSplash)
+    }
+
+    /// Something to show: Home has loaded, or the reconnect gave up and the form
+    /// has a sentence to say.
+    private var splashReady: Bool {
+        if Self.holdsSplash { return false }
+        if server.isConnected { return appState.hasLoadedHome }
+        if case .connecting = server.status { return false }
+        return true
+    }
+
+    private var splashStatus: String {
+        server.isConnected ? "Loading your library" : "Reaching \(server.hostReadout)"
     }
 
     var body: some View {
@@ -93,7 +121,9 @@ struct RootView: View {
             .opacity(playerPresentation == nil ? 1 : 0)
             .animation(nil, value: playerPresentation == nil)
             .accessibilityHidden(playerPresentation != nil)
-            .environment(\.isObscured, playerPresentation != nil)
+            // The splash counts too: Home's hero rotation (the crumble shader) and its
+            // clocks have no business running under a screen nobody can see through.
+            .environment(\.isObscured, playerPresentation != nil || showsSplash)
 
             // **A same-`ZStack` overlay, not a `.fullScreenCover` — so Menu is ours.**
             // tvOS dismisses a SwiftUI cover on Menu at the system level, before any
@@ -111,6 +141,14 @@ struct RootView: View {
                 playerLayer(presentation)
                     .zIndex(10)
                     .transition(.opacity)
+            }
+
+            // Over everything, including a player an autoplay hook raised under it.
+            // Removed in one frame when it finishes (it fades its own mark first) —
+            // a full-screen fade is exactly what this hardware does badly.
+            if showsSplash {
+                LaunchSplash(isReady: splashReady, status: splashStatus) { splashDone = true }
+                    .zIndex(20)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: playerPresentation == nil)

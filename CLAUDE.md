@@ -499,6 +499,29 @@ column is what pins it; the strips then scroll as intended. The panel itself has
 mode: the scope moves to its own line and the five numbers become two rows, since
 "7.12 GB of…" truncated is worse than two lines.
 
+## Launch splash — the mark draws itself
+
+**A launch that restores a saved session opens on `LaunchSplash`**
+(`DesignSystem/JellyLoader.swift`), not on the setup form's progress log: the app mark
+drawn as line art — bell, face, cyan and violet tentacles, all vector paths traced off
+`AppMark` (`JellyMarkPaths`) and trimmed on like an SVG `stroke-dashoffset` — then, on a
+loop, a glint: a slanted band of white light run across the mark's *own lines* (the mark
+redrawn into a layer and the band filled `.sourceIn`, so light exists only where the lines
+do) with a four-point twinkle flaring on the bell as it passes. A comet arc sweeping over
+the bell, Disney+'s exact gesture, came first and was turned down — shine on the mark, not
+a thing flying past it.
+It holds for at least the intro (`JellyLoaderMark.introDuration`) so the drawing is never
+cut off half-made, leaves once Home has loaded (`hasLoadedHome`) or the reconnect gives up,
+and never comes back that launch. A sign-in from the form keeps its own progress log.
+The whole mark is one `Canvas` on one `TimelineView` clock, a layer a few percent of the
+frame; on the way out only the mark fades, and the full-screen page is removed in one
+frame. It sets `\.isObscured` on tvOS so Home's hero rotation doesn't run underneath.
+The clock starts in `onAppear`, not at view init: launch work in between ate the draw-in.
+`JT_SHOW_SPLASH=1` / `RT_SHOW_SPLASH=1` holds it up for screenshots; add `JT_SPLASH_T` /
+`RT_SPLASH_T=<seconds>` to freeze the mark at one moment (the glint crosses around 1.7–2.1),
+since timed `simctl` screenshots miss a sub-second glint entirely — they did, and the first
+check read it as not drawing at all.
+
 ## Home on tvOS
 
 **Every control on Home does something, or it isn't there.** The hero's Details button was an

@@ -64,6 +64,9 @@ struct RootView: View {
     /// gets a sheet instead of the drawer.
     @State private var isMorePresented = false
 
+    /// Set when the launch splash has finished; it never comes back this launch.
+    @State private var splashDone = false
+
     private enum PlayerPresentation: Identifiable, Equatable {
         case fixture
         case request(PlaybackRequest)
@@ -74,6 +77,31 @@ struct RootView: View {
             case .request(let request): return request.id
             }
         }
+    }
+
+    // MARK: - Launch splash
+
+    /// `RT_SHOW_SPLASH=1` holds the splash up for screenshots — even with no
+    /// saved session — and never lets it finish. Inert unless set.
+    private static let holdsSplash = ProcessInfo.processInfo.environment["RT_SHOW_SPLASH"] == "1"
+
+    /// The animated mark covers the launch while a saved session is restored and
+    /// Home loads — once per launch, never again for a later reconnect.
+    private var showsSplash: Bool {
+        !splashDone && (server.launchedWithStoredSession || Self.holdsSplash)
+    }
+
+    /// Something to show: Home has loaded, or the reconnect gave up and the form
+    /// has a sentence to say.
+    private var splashReady: Bool {
+        if Self.holdsSplash { return false }
+        if server.isConnected { return appState.hasLoadedHome }
+        if case .connecting = server.status { return false }
+        return true
+    }
+
+    private var splashStatus: String {
+        server.isConnected ? "Loading your library" : "Reaching \(server.hostReadout)"
     }
 
     var body: some View {
@@ -98,6 +126,12 @@ struct RootView: View {
             }
             if server.isConnected, tvLink.isSheetPresented {
                 TVRemoteSheet(onClose: { tvLink.isSheetPresented = false }).zIndex(31)
+            }
+
+            if showsSplash {
+                LaunchSplash(isReady: splashReady, status: splashStatus) { splashDone = true }
+                    .zIndex(40)
+                    .transition(.opacity)
             }
 
             // **The player cover hangs off this, not off the branch above.**
@@ -135,6 +169,7 @@ struct RootView: View {
         .preferredColorScheme(.dark)
         .animation(.easeOut(duration: 0.25), value: tvLink.isSheetPresented)
         .animation(.easeOut(duration: 0.25), value: tvLink.pendingBeacon)
+        .animation(.easeOut(duration: 0.3), value: showsSplash)
         .onChange(of: scenePhase) { _, phase in
             tvLink.setForeground(phase == .active)
         }

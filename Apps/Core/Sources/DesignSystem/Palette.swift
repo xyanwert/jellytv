@@ -91,6 +91,10 @@ enum Palette {
     static let chromeInk = Color(hex: "#06080E")
     /// The SCENES violet, on the player's tile and the remote's button alike.
     static let scenesViolet = Color(OKLCH(l: 0.58, c: 0.19, h: 292))
+    /// The app mark's two neon inks — the jellyfish's cyan bell and front tentacles,
+    /// and the violet ones behind (`AppMark`, `JellyLoaderMark`).
+    static let jellyCyan = Color(hex: "#5EE6F2")
+    static let jellyViolet = Color(hex: "#A45CF0")
 
     /// Translucent-white text tier, e.g. `Palette.text(0.55)`.
     static func text(_ opacity: Double) -> Color { .white.opacity(opacity) }
