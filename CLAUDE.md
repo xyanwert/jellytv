@@ -499,6 +499,96 @@ column is what pins it; the strips then scroll as intended. The panel itself has
 mode: the scope moves to its own line and the five numbers become two rows, since
 "7.12 GB of…" truncated is worse than two lines.
 
+## Poster Mode — the default style, Classic one switch away
+
+**Two styles, one foundation** (`AppStyle`, kit; `Theme.style`, persisted as `appStyle`,
+default `.poster`; Settings → Appearance → Style). Poster Mode is the anime key-visual
+look — Anton for display type (`Display.font`, bundled OFL, falls back to condensed
+heavy system), sticker name tags, grid paper, teal/coral stripes, ghost titles, white
+arrow pills — and it is drawn **over** the same foundations Classic uses: the full-bleed
+backdrops and the hero crumble are shared and must stay shared. Screens branch on
+`theme.isPoster` and leave the Classic branch byte-for-byte what it was. Parts live in
+`DesignSystem/PosterKit.swift`; Home's hero text is `PosterHeroView` (same inputs and
+focus tag as `HeroView`, so focus, rotation and the crumble don't notice the swap).
+`JT_STYLE` / `RT_STYLE` = `poster` | `classic` forces one for a screenshot without saving it.
+
+**Motion is game-like and small.** Cards lean at rest and snap straight under focus
+(`posterTilt`), the eyebrow sticker slaps in on each slide (`.posterSlap`) — card- and
+sticker-sized layers only, the same area `CardFocusStyle` already animates. Nothing
+full-screen moves (see "Movie Night" on area vs. effect). **Use the platform, not the
+mockup's HTML:** the ghost title is `.blendMode(.overlay)` into the art, which is plain
+compositing and free on the TV; a per-pixel shader goes only on small or static layers
+on tvOS. The grid paper and stripe band are one flattened `Canvas` each, never views
+per dot.
+
+**The movie page's cast is a lineup of cut-outs** (`PosterCastLineup`, tvOS; Classic
+keeps its coins in `CastLineup`). The same inputs, `MovieField.cast` focus tags,
+`PersonSheet` on Select and fact logic (`CastLineup.facts`) — only the drawing differs:
+the Vision busts stand shoulder to shoulder on the striped band, the focused person steps
+forward in colour with a white sticker outline, the name tag and role, and the fact chips
+beside the header follow them; everyone else is greyscale. The first fold is tightened
+(two-line synopsis, 118pt title slot) so the whole lineup, tags included, is on screen
+when the page opens. Neighbouring figures overlap 28pt, so a resting tag is capped to the
+figure's un-overlapped middle and a long name shrinks (`minimumScaleFactor`) rather than
+disappearing under the next person. Without a cut-out the headshot stands in as a tilted
+white-framed photo sticker. `JT_SHOW_DEMO=real-movie:<title>` opens a chosen film.
+`Scripts/seed-simulator-cutouts.sh` authenticates with `Authorization: MediaBrowser
+Token=` now — Jellyfin 10.11 answers the legacy `X-Emby-Token` header with 401.
+
+**Show pages open where the viewer is, and seasons are a dial** (`SeasonGuide`, kit, tested;
+`SeasonDial` / `SeasonRibbon` / `SeasonWall`, `Detail/SeasonDial.swift`). The page used to open on
+the *last* season for everyone: `Show.currentSeasonIndex` looked for an in-progress episode, but
+seasons arrive without episodes, so it always fell through. Now `loadDetail` fetches the seasons
+fresh (their `UserData` — `PlayedPercentage`, `UnplayedItemCount` — is progress known before any
+episode is fetched) alongside `/Shows/NextUp`, and `SeasonGuide.suggestedIndex` picks: next-up's
+season, else the first regular season in progress, else the first unfinished, never Specials by
+default. `primaryEpisode` (Resume/Continue) prefers next-up ("S14 · E4", not the season's E1);
+the shelf lands on it (`defaultFocus` + `scrollTo`) and it wears an UP NEXT sticker. The chip row
+(which ran South Park's 28 seasons off the screen) is gone: one big number with its readout
+("3 LEFT", "DONE", "28 OF 28") beside a ribbon of one tick per season, filled to its progress,
+Specials last. tvOS: the *whole bar* (~1300pt) is one focusable control — Left/Right step seasons
+(`onMoveCommand`), Select opens the poster wall of every season; the narrow dial alone, inside
+the header row's own `.focusSection()`, could not be reached from above (two stacked sections).
+Touch: ‹ › step, drag along the ribbon scrubs, tap the number for the wall (a sheet).
+**Driving the tvOS simulator: the first System Events key after a launch is swallowed** (the
+window taking focus) — send a throwaway key first, or a "focus can't get there" finding is the
+harness, not the app.
+
+**The tvOS show page in Poster Mode is a key visual.** The full-bleed backdrop stays, tinted teal
+with `.blendMode(.color)`; the title is printed huge in scanlines (`PosterScanlineTitle`, one
+masked `Canvas`, blended); and the backdrop's subject is cut out by the same Vision pipeline as
+the cast (`PosterSubjectCutout` → `PortraitCutoutCache`) and laid back over it at identical
+framing (the cut-out keeps the source's size), so the characters stand out of a tinted scene in
+front of their own title. The shelves sit on the ink band, which the figure stands behind; to keep
+a face above the band, backdrop *and* cut-out rise together by an offset measured from the
+cut-out's first opaque row (`subjectTop`, capped 260pt) — once, when it lands. Episode cards carry
+big Anton numbers, grey out with a check when watched (`Episode.isPlayed`, additive), and lean at
+rest. The simulator can't cut; `JT_PLAYER_LOG=1` logs `cutout: cutting <url>` so the file to seed
+is `Caches/cutouts/<sha256(url)>.png`, made on the Mac by `Scripts/segment-headshots.swift`.
+`JT_SHOW_DEMO=real-show:<title>` opens a chosen show.
+
+**Poster Mode on iPad and iPhone follows the TV pages.** `PosterCastLineup` is cross-platform
+now (sized per device; `CastFacts` and `MovieNightFact` moved out of the tvOS guards to share
+the fact chips): with no focus on touch, the lead starts in the spotlight, a tap moves it, and a
+tap on the spotlit figure is the Select. The iPad movie page is the TV pitch — tinted full-bleed
+backdrop, scanlined ghost title, tilted framed poster — over the cut-out lineup; the iPhone gets
+the same pitch under its key art. `PhoneShowKeyArt(posterTitle:)` dresses the phone key art for
+both pages: teal colour blend, scanlined title, and the art's subject cut out at the art's own
+framing (both are drawn at 1.3× then clipped) in front of it. The show pages take the key visual
+(`posterKeyVisual`, shared now) and a Poster title block / foot (RESUME S·E, Random, heart) on
+iPad; episode rows (`DrawerEpisodeRow`) get big numbers, a white frame and a grey-and-check when
+watched. **No cut-out figure on the iPad show page:** its dossier column and episode drawer leave
+no open ground, and Cartman landed squarely on the synopsis (verified) — tint and title only
+there. The iOS simulator can't cut either; copy the TV simulator's `Caches/cutouts/` across (the
+URLs, so the file names, are the same) to see the lineup as the device will.
+
+**Traps met on the way.** A `scaledToFill` backdrop inside a card grows its `ZStack`
+past the card, so a *bottom-leading* overlay lands off the card and is clipped — pin
+the overlay to the card's frame (`PhoneFeaturedCard.posterDressing`). A ghost title
+must `fixedSize()` and be clipped, never `minimumScaleFactor`/ellipsis. A row header
+competes with its rule for width — the title takes `fixedSize` + `layoutPriority`.
+Resting tilt is seeded from the item id's scalars, not `hashValue` (reseeded per launch).
+
 ## Launch splash — the mark draws itself
 
 **A launch that restores a saved session opens on `LaunchSplash`**

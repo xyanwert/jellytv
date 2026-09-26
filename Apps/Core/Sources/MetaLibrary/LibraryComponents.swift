@@ -553,9 +553,10 @@ struct LibraryFilterChip: View {
                 if let systemImage {
                     Image(systemName: systemImage).font(.system(size: 14, weight: .bold))
                 }
-                Text(label)
+                Text(theme.isPoster ? label.uppercased() : label)
             }
-            .font(Typography.font(17, .bold))
+            .font(theme.isPoster ? Display.font(DeviceClass.current == .tv ? 21 : 15) : Typography.font(17, .bold))
+            .tracking(theme.isPoster ? 0.8 : 0)
             .lineLimit(1)
         }
         .buttonStyle(FilterChipStyle(isOn: isOn, accent: effectiveAccent))
@@ -1056,6 +1057,15 @@ struct LibraryPosterCard: View {
     let item: MediaItem
     var onSelect: () -> Void = {}
 
+    @EnvironmentObject private var theme: Theme
+
+    /// Poster Mode's resting tilt, stable per title (Swift's `hashValue` is
+    /// reseeded every launch, so the grid would rearrange its lean each time).
+    private var restingTilt: Angle {
+        let seed = item.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        return .degrees([-1.8, 1.2, -0.8, 1.8, -1.3][seed % 5])
+    }
+
     private var isRemote: Bool { item.image?.hasPrefix("http") == true }
     private var dominant: Color {
         if let name = item.image, !isRemote { return DominantColor.of(name, fallback: Color(item.artwork.top)) }
@@ -1074,6 +1084,42 @@ struct LibraryPosterCard: View {
 
     var body: some View {
         Button { launchTick += 1; PageLaunch.then(onSelect) } label: {
+            if theme.isPoster { posterLabel } else { classicLabel }
+        }
+        .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.1))
+        .pageLaunchBeat(launchTick)
+        .focused($isFocusedCard)
+    }
+
+    /// Poster Mode: clean art in a white frame, leaning a little until the
+    /// remote straightens it. On TV that is all — the hero above names what is
+    /// focused. On touch the name rides a sticker across the foot, replacing
+    /// Classic's scrim, rating badge and caption.
+    private var posterLabel: some View {
+        ZStack(alignment: .bottomLeading) {
+            artwork
+            #if os(tvOS)
+            if item.image == nil { fallbackTitle }
+            #else
+            PosterStickerTag(name: item.title, sub: caption.isEmpty ? nil : caption,
+                             size: isPhone ? 11 : 15, tilt: .degrees(-4))
+                .padding(.leading, isPhone ? 4 : 8)
+                .padding(.bottom, isPhone ? 6 : 10)
+            #endif
+        }
+        #if os(iOS)
+        .frame(maxWidth: .infinity)
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        #else
+        .frame(width: 157, height: 235)
+        #endif
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(Color.white, lineWidth: isPhone ? 2.5 : 4))
+        .posterTilt(restingTilt)
+    }
+
+    private var classicLabel: some View {
             ZStack(alignment: .topLeading) {
                 artwork
                 #if os(tvOS)
@@ -1143,10 +1189,6 @@ struct LibraryPosterCard: View {
             .frame(width: 157, height: 235)
             #endif
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.1))
-        .pageLaunchBeat(launchTick)
-        .focused($isFocusedCard)
     }
 
     @FocusState private var isFocusedCard: Bool

@@ -82,6 +82,9 @@ actor PortraitCutoutCache {
         if let data = try? Data(contentsOf: diskURL), let image = UIImage(data: data) {
             return image
         }
+        // Names the image being cut, so a run that fails (the tvOS simulator
+        // always does) says which cache file to seed.
+        log("cutting \(urlString)")
         guard let url = URL(string: urlString), let data = try? Data(contentsOf: url) else {
             log("download failed \(urlString)")
             return nil

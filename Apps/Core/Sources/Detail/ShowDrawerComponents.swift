@@ -124,6 +124,8 @@ struct ShowFullBackdrop: View {
 /// sideways to be reached.
 struct DrawerEpisodeRow: View {
     let episode: Episode
+    /// Jellyfin's next-up episode — tagged so the list says where to start.
+    var isUpNext = false
     var action: () -> Void = {}
 
     @EnvironmentObject private var theme: Theme
@@ -134,13 +136,28 @@ struct DrawerEpisodeRow: View {
         Button(action: action) {
             HStack(spacing: 14) {
                 thumb
+                    // Bottom-leading: the row's thumb already carries its
+                    // episode number top-left and its runtime bottom-right.
+                    .overlay(alignment: .bottomLeading) {
+                        if isUpNext {
+                            Text("UP NEXT")
+                                .font(Display.font(9))
+                                .tracking(0.8)
+                                .foregroundStyle(Palette.posterInk)
+                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                .background(Color(hex: "#F0525F"), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                .rotationEffect(.degrees(-4))
+                                .padding(4)
+                        }
+                    }
                 // Number and runtime live on the thumb, so the whole text
                 // column is the title's — two lines of it before anything
                 // truncates.
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(episode.title)
-                        .font(Typography.font(16, .bold))
-                        .foregroundStyle(episode.isCurrent ? Palette.textPrimary : Palette.text(0.86))
+                    Text(theme.isPoster ? episode.title.uppercased() : episode.title)
+                        .font(theme.isPoster ? Display.font(17) : Typography.font(16, .bold))
+                        .foregroundStyle(episode.isPlayed && theme.isPoster ? Palette.text(0.5)
+                                         : (episode.isCurrent ? Palette.textPrimary : Palette.text(0.86)))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -193,12 +210,33 @@ struct DrawerEpisodeRow: View {
             }
         }
         .frame(width: 124, height: 70)
-        .overlay(alignment: .topLeading) { numberBadge }
+        .grayscale(theme.isPoster && episode.isPlayed ? 0.9 : 0)
+        .overlay(alignment: .topLeading) {
+            // Poster Mode: the episode's number set big into the still, the
+            // key visual's numbered strip; Classic keeps its small chip.
+            if theme.isPoster {
+                Text(episode.numberLabel)
+                    .font(Display.font(30))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.7), radius: 6, y: 2)
+                    .padding(.leading, 6)
+            } else {
+                numberBadge
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if theme.isPoster, episode.isPlayed {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Palette.posterInk, Palette.posterTeal)
+                    .padding(4)
+            }
+        }
         .overlay(alignment: .bottomTrailing) { runtimeLabel }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Palette.text(0.08), lineWidth: 1)
+                .strokeBorder(theme.isPoster ? Color.white : Palette.text(0.08), lineWidth: theme.isPoster ? 3 : 1)
         )
     }
 

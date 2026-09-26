@@ -263,26 +263,32 @@ struct LateNightLibraryView: View {
     /// used to hang off is gone.
     private var header: some View {
         LibraryHeaderLayout {
-            VStack(alignment: .leading, spacing: 4) {
-                #if os(iOS)
-                HStack(spacing: 10) {
-                    Text("LIBRARY // LATE NIGHT")
-                        .font(Mono.font(15, .bold))
-                        .tracking(2.6)
-                        .foregroundStyle(Palette.text(0.5))
-                    AdultBadge(accent: Self.accent)
-                }
-                #endif
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    #if os(tvOS)
-                    AdultBadge(accent: Self.accent)
-                    #endif
-                    Text("Late Night")
-                        .font(Typography.font(34, .black))
-                        .foregroundStyle(Palette.textPrimary)
-                    Text(LibraryChrome.countLabel(shown: filtered.count, total: allItems.count, noun: "titles"))
-                        .font(Typography.font(20, .semibold))
-                        .foregroundStyle(Palette.text(0.4))
+            Group {
+                if theme.isPoster {
+                    PosterLibraryTitle(title: "Late Night", shown: filtered.count, total: allItems.count, badgeColor: Palette.posterBlush, isAdult: true)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        #if os(iOS)
+                        HStack(spacing: 10) {
+                            Text("LIBRARY // LATE NIGHT")
+                                .font(Mono.font(15, .bold))
+                                .tracking(2.6)
+                                .foregroundStyle(Palette.text(0.5))
+                            AdultBadge(accent: Self.accent)
+                        }
+                        #endif
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            #if os(tvOS)
+                            AdultBadge(accent: Self.accent)
+                            #endif
+                            Text("Late Night")
+                                .font(Typography.font(34, .black))
+                                .foregroundStyle(Palette.textPrimary)
+                            Text(LibraryChrome.countLabel(shown: filtered.count, total: allItems.count, noun: "titles"))
+                                .font(Typography.font(20, .semibold))
+                                .foregroundStyle(Palette.text(0.4))
+                        }
+                    }
                 }
             }
             .libraryTitleBlockSizing()

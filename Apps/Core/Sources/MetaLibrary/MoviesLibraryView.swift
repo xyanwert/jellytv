@@ -318,20 +318,26 @@ struct MoviesLibraryView: View {
     /// on the screen and the only one that did nothing.
     private var header: some View {
         LibraryHeaderLayout {
-            VStack(alignment: .leading, spacing: 4) {
-                #if os(iOS)
-                Text("LIBRARY // MOVIES")
-                    .font(Mono.font(15, .bold))
-                    .tracking(2.6)
-                    .foregroundStyle(Palette.text(0.5))
-                #endif
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("Movies")
-                        .font(Typography.font(34, .black))
-                        .foregroundStyle(Palette.textPrimary)
-                    Text(LibraryChrome.countLabel(shown: filtered.count, total: allMovies.count, noun: "titles"))
-                        .font(Typography.font(20, .semibold))
-                        .foregroundStyle(Palette.text(0.4))
+            Group {
+                if theme.isPoster {
+                    PosterLibraryTitle(title: "Movies", shown: filtered.count, total: allMovies.count)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        #if os(iOS)
+                        Text("LIBRARY // MOVIES")
+                            .font(Mono.font(15, .bold))
+                            .tracking(2.6)
+                            .foregroundStyle(Palette.text(0.5))
+                        #endif
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text("Movies")
+                                .font(Typography.font(34, .black))
+                                .foregroundStyle(Palette.textPrimary)
+                            Text(LibraryChrome.countLabel(shown: filtered.count, total: allMovies.count, noun: "titles"))
+                                .font(Typography.font(20, .semibold))
+                                .foregroundStyle(Palette.text(0.4))
+                        }
+                    }
                 }
             }
             .libraryTitleBlockSizing()

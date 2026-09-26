@@ -106,7 +106,7 @@ struct HeroView: View {
     /// length read as a balanced two-line poster title. Single-word titles
     /// can't be split without breaking the word, so those return `nil` for
     /// the second line and stay one line.
-    private static func titleLines(_ title: String) -> (String, String?) {
+    static func titleLines(_ title: String) -> (String, String?) {
         let words = title.split(separator: " ")
         guard words.count > 1 else { return (title, nil) }
 

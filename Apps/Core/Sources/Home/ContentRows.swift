@@ -3,6 +3,7 @@ import JellyTVKit
 
 /// Continue Watching row.
 struct ContinueWatchingRow: View {
+    @EnvironmentObject private var theme: Theme
     let items: [ContinueWatchingItem]
     var firstCardFocus: FocusState<HomeFocus?>.Binding?
     var firstCardTag: HomeFocus?
@@ -11,7 +12,11 @@ struct ContinueWatchingRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SectionHeader(title: "Continue Watching")
+            if theme.isPoster {
+                PosterSectionHeader(title: "Continue Watching", count: items.count)
+            } else {
+                SectionHeader(title: "Continue Watching")
+            }
             ScrollView(.horizontal, showsIndicators: false) {
                 // .top — without this, HStack centers each card by its total
                 // height (image + caption), so a card whose episode label
@@ -23,12 +28,15 @@ struct ContinueWatchingRow: View {
                             item: item,
                             focus: index == 0 ? firstCardFocus : nil,
                             focusTag: index == 0 ? firstCardTag : nil,
+                            shelfIndex: index,
                             onSelect: { onSelect(item) }
                         )
                     }
                 }
                 .padding(.horizontal, DeviceClass.current == .phone ? 20 : 56)
-                .padding(.vertical, 16)
+                // Poster Mode's sticker tags hang below the art and its cards
+                // tilt, so the row needs more air than Classic's.
+                .padding(.vertical, theme.isPoster ? 26 : 16)
             }
             .scrollClipDisabled()
             #if os(tvOS)
@@ -45,6 +53,7 @@ struct ContinueWatchingRow: View {
 
 /// Recommended for You poster row. Selecting a poster opens its Show view.
 struct RecommendedRow: View {
+    @EnvironmentObject private var theme: Theme
     let items: [MediaItem]
     /// Optional focus binding so the first poster can be targeted (e.g.
     /// default focus when there's no hero and no Continue Watching item to
@@ -54,7 +63,11 @@ struct RecommendedRow: View {
     var onSelect: (MediaItem) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SectionHeader(title: "Recommended for You")
+            if theme.isPoster {
+                PosterSectionHeader(title: "Recommended for You")
+            } else {
+                SectionHeader(title: "Recommended for You")
+            }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: DeviceClass.current == .phone ? 12 : 20) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -62,12 +75,15 @@ struct RecommendedRow: View {
                             item: item,
                             focus: index == 0 ? firstCardFocus : nil,
                             focusTag: index == 0 ? firstCardTag : nil,
-                            onSelect: { onSelect(item) }
+                            onSelect: { onSelect(item) },
+                            shelfIndex: index
                         )
                     }
                 }
                 .padding(.horizontal, DeviceClass.current == .phone ? 20 : 56)
-                .padding(.vertical, 16)
+                // Poster Mode's sticker tags hang below the art and its cards
+                // tilt, so the row needs more air than Classic's.
+                .padding(.vertical, theme.isPoster ? 26 : 16)
             }
             .scrollClipDisabled()
             #if os(tvOS)

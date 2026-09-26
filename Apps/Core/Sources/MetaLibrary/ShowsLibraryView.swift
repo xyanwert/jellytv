@@ -286,20 +286,26 @@ struct ShowsLibraryView: View {
     /// See `MoviesLibraryView.header` — no eyebrow on tvOS, no Play anywhere.
     private var header: some View {
         LibraryHeaderLayout {
-            VStack(alignment: .leading, spacing: 4) {
-                #if os(iOS)
-                Text("LIBRARY // TV SHOWS")
-                    .font(Mono.font(15, .bold))
-                    .tracking(2.6)
-                    .foregroundStyle(Palette.text(0.5))
-                #endif
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("TV Shows")
-                        .font(Typography.font(34, .black))
-                        .foregroundStyle(Palette.textPrimary)
-                    Text(LibraryChrome.countLabel(shown: filtered.count, total: allShows.count, noun: "titles"))
-                        .font(Typography.font(20, .semibold))
-                        .foregroundStyle(Palette.text(0.4))
+            Group {
+                if theme.isPoster {
+                    PosterLibraryTitle(title: "TV Shows", shown: filtered.count, total: allShows.count)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        #if os(iOS)
+                        Text("LIBRARY // TV SHOWS")
+                            .font(Mono.font(15, .bold))
+                            .tracking(2.6)
+                            .foregroundStyle(Palette.text(0.5))
+                        #endif
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text("TV Shows")
+                                .font(Typography.font(34, .black))
+                                .foregroundStyle(Palette.textPrimary)
+                            Text(LibraryChrome.countLabel(shown: filtered.count, total: allShows.count, noun: "titles"))
+                                .font(Typography.font(20, .semibold))
+                                .foregroundStyle(Palette.text(0.4))
+                        }
+                    }
                 }
             }
             .libraryTitleBlockSizing()

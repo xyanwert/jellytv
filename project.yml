@@ -54,6 +54,8 @@ targets:
         UIUserInterfaceStyle: Dark
         UIAppFonts:
           - SchibstedGrotesk.ttf
+          # Poster Mode's display face (SIL OFL 1.1, licence beside it).
+          - Anton-Regular.ttf
         # Local-network discovery of Jellyfin servers (unicast /24 sweep).
         NSLocalNetworkUsageDescription: "Why.So.Jelly? scans your local network to find your Jellyfin server automatically."
         NSAppTransportSecurity:
@@ -109,6 +111,8 @@ targets:
         # silently falling back to the system font everywhere.
         UIAppFonts:
           - SchibstedGrotesk.ttf
+          # Poster Mode's display face (SIL OFL 1.1, licence beside it).
+          - Anton-Regular.ttf
         # Opts out of iPad's resizable/multitasking window presentation —
         # without this, a landscape-only app can get windowed/letterboxed at
         # an arbitrary (even portrait-ish) size instead of taking over the

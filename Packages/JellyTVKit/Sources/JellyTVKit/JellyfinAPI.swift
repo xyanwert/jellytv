@@ -248,6 +248,10 @@ public enum JellyfinAPI {
         public let played: Bool?
         public let isFavorite: Bool?
         public let lastPlayedDate: String?
+        /// On a folder (a season, a series): how much of it has been watched,
+        /// 0–100, and how many of its episodes haven't. Absent on a leaf item.
+        public let playedPercentage: Double?
+        public let unplayedItemCount: Int?
 
         enum CodingKeys: String, CodingKey {
             case playbackPositionTicks = "PlaybackPositionTicks"
@@ -255,16 +259,21 @@ public enum JellyfinAPI {
             case played = "Played"
             case isFavorite = "IsFavorite"
             case lastPlayedDate = "LastPlayedDate"
+            case playedPercentage = "PlayedPercentage"
+            case unplayedItemCount = "UnplayedItemCount"
         }
 
         public init(playbackPositionTicks: Int64? = nil, playCount: Int? = nil,
                     played: Bool? = nil, isFavorite: Bool? = nil,
-                    lastPlayedDate: String? = nil) {
+                    lastPlayedDate: String? = nil, playedPercentage: Double? = nil,
+                    unplayedItemCount: Int? = nil) {
             self.playbackPositionTicks = playbackPositionTicks
             self.playCount = playCount
             self.played = played
             self.isFavorite = isFavorite
             self.lastPlayedDate = lastPlayedDate
+            self.playedPercentage = playedPercentage
+            self.unplayedItemCount = unplayedItemCount
         }
     }
 

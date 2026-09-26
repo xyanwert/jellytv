@@ -39,6 +39,26 @@ enum Typography {
     static var badge: Font { font(17, .heavy) }
 }
 
+/// Poster Mode's display face: Anton, a condensed grotesque set in capitals for
+/// titles, stickers and buttons — the voice of an anime key visual. Falls back
+/// to the heavy system face if the bundled font ever fails to register, so a
+/// missing file degrades to "bold" rather than to nothing.
+enum Display {
+    private static let resolvedName: String? = {
+        #if canImport(UIKit)
+        for name in ["Anton-Regular", "Anton"] where UIFont(name: name, size: 12) != nil {
+            return name
+        }
+        #endif
+        return nil
+    }()
+
+    static func font(_ size: CGFloat) -> Font {
+        if let name = resolvedName { return .custom(name, size: size) }
+        return .system(size: size, weight: .black, design: .default).width(.condensed)
+    }
+}
+
 /// Monospaced type for the technical "readout" voice in the design (eyebrows,
 /// status lines, port/host, API keys). Uses the system monospaced face — the
 /// design's Space Mono isn't bundled.

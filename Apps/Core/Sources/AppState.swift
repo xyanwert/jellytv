@@ -1262,9 +1262,11 @@ final class AppState: ObservableObject {
     /// its own `@State` and re-calls this when the sort chip changes.
     func loadShows(sortBy: String = "SortName", sortOrder: String = "Ascending") async -> [MediaItem] {
         guard let client else { return [] }
-        let showLibs = visibleLibraries.filter {
-            metaCategory(for: $0)?.collectionType == "tvshows"
-        }
+        // The *shows* category, not every `tvshows` collection: Anime and
+        // Late Night libraries are `tvshows` on Jellyfin too, and matching the
+        // collection type put their series on this screen — Late Night's the
+        // moment the TV's adult door was opened. Same rule as `loadMovies`.
+        let showLibs = visibleLibraries.filter { metaCategory(for: $0) == .shows }
         var results: [JellyfinAPI.JellyfinItem] = []
         for lib in showLibs {
             guard let items = try? await client.fetchItems(
@@ -1314,8 +1316,10 @@ final class AppState: ObservableObject {
     /// A series' real seasons (episodes start empty — fetched separately, per
     /// selection). Cached by series id; `nil` before the server is up or on
     /// failure, so the caller can keep whatever it already has.
-    func seasons(for seriesId: String) async -> [Season]? {
-        if let cached = seasonsCache[seriesId] { return cached }
+    /// `fresh` skips the cache: a show page opening wants today's progress on
+    /// every season, not the progress from the first time it was opened.
+    func seasons(for seriesId: String, fresh: Bool = false) async -> [Season]? {
+        if !fresh, let cached = seasonsCache[seriesId] { return cached }
         guard let client else { return nil }
         guard let items = try? await client.fetchSeasons(userId: userId, seriesId: seriesId) else { return nil }
         let seasons = items.map { $0.toSeason(imageBaseURL: imageBaseURL) }.sorted { $0.number < $1.number }
@@ -1323,10 +1327,18 @@ final class AppState: ObservableObject {
         return seasons
     }
 
+    /// The series' next-up episode — id and season — straight from Jellyfin's
+    /// own tracking. Deliberately uncached: it moves every time an episode is
+    /// finished, and a show page is exactly where a stale answer would show.
+    func nextUp(seriesId: String) async -> (episodeId: String, seasonId: String?)? {
+        guard let client, let item = try? await client.fetchNextUp(userId: userId, seriesId: seriesId) else { return nil }
+        return (item.id, item.seasonId)
+    }
+
     /// One season's real episodes (thumbnail, runtime, resume state). Cached
     /// by season id — switching back to an already-viewed season is instant.
-    func episodes(seriesId: String, seasonId: String) async -> [Episode]? {
-        if let cached = episodesCache[seasonId] { return cached }
+    func episodes(seriesId: String, seasonId: String, fresh: Bool = false) async -> [Episode]? {
+        if !fresh, let cached = episodesCache[seasonId] { return cached }
         guard let client else { return nil }
         guard let items = try? await client.fetchEpisodes(userId: userId, seriesId: seriesId, seasonId: seasonId) else { return nil }
         let episodes = items.map { $0.toEpisode(imageBaseURL: imageBaseURL, seriesId: seriesId) }.sorted { $0.number < $1.number }
@@ -1724,13 +1736,13 @@ final class AppState: ObservableObject {
                 .map { ($0.id, "Movie") }
 
         case .shows:
-            // Mirrors `loadShows`: every tvshows-collection library the door
-            // is currently open on — filtered at the source rather than after
-            // the fetch, since a queue has no reason to download what it must
-            // then discard.
-            return visibleLibraries.filter {
-                metaCategory(for: $0)?.collectionType == "tvshows"
-            }.map { ($0.id, "Episode") }
+            // Mirrors `loadShows`: the shows-category libraries only — an
+            // Anime or Late Night library is a `tvshows` collection too, and a
+            // TV Shows shuffle must not reach into either. Filtered at the
+            // source rather than after the fetch, since a queue has no reason
+            // to download what it must then discard.
+            return visibleLibraries.filter { metaCategory(for: $0) == .shows }
+                .map { ($0.id, "Episode") }
 
         case .anime:
             // The Anime screen is two loaders shown as one library, so its

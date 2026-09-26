@@ -1,7 +1,6 @@
 import SwiftUI
 import JellyTVKit
 
-#if os(tvOS)
 /// One chip of the movie-night facts row.
 struct MovieNightFact: Identifiable, Equatable {
     enum Style: Equatable {
@@ -18,6 +17,8 @@ struct MovieNightFact: Identifiable, Equatable {
     var style: Style = .solid
 }
 
+// The row itself is the TV's; the fact is shared (cast chips on every device).
+#if os(tvOS)
 /// The row of answers to "is this the one tonight?" — when it ends, how it
 /// ranks among the films you own, what it won, what language it is in, who
 /// made it and what else of theirs is here, where it sits in its series. Each

@@ -303,15 +303,21 @@ struct VideosLibraryView: View {
 
     private var header: some View {
         LibraryHeaderLayout {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                if isAdult { AdultBadge(accent: accent) }
-                Text(title)
-                    .font(Typography.font(34, .black))
-                    .foregroundStyle(Palette.textPrimary)
-                if hasLoaded {
-                    Text(LibraryChrome.countLabel(shown: filtered.count, total: items.count, noun: "videos"))
-                        .font(Typography.font(20, .semibold))
-                        .foregroundStyle(Palette.text(0.4))
+            Group {
+                if theme.isPoster {
+                    PosterLibraryTitle(title: title, shown: filtered.count, total: items.count, noun: "videos", badgeColor: isAdult ? Palette.posterBlush : Color(hex: "#F0525F"), isAdult: isAdult, hasLoaded: hasLoaded)
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        if isAdult { AdultBadge(accent: accent) }
+                        Text(title)
+                            .font(Typography.font(34, .black))
+                            .foregroundStyle(Palette.textPrimary)
+                        if hasLoaded {
+                            Text(LibraryChrome.countLabel(shown: filtered.count, total: items.count, noun: "videos"))
+                                .font(Typography.font(20, .semibold))
+                                .foregroundStyle(Palette.text(0.4))
+                        }
+                    }
                 }
             }
             .libraryTitleBlockSizing()

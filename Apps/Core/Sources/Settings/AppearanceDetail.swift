@@ -1,15 +1,30 @@
 import SwiftUI
 import JellyTVKit
 
-/// Settings → Appearance: accent color picker. The visual "theme" in this
-/// single-accent design is just the four brand colors — no full-skin switcher
-/// like v1's Jelly/Neon/TV themes.
+/// Settings → Appearance: the style (Poster or Classic — see `AppStyle`) and
+/// the accent color. Switching style keeps everything the two share: the
+/// full-bleed backdrops, the hero crumble, the accent.
 struct AppearanceDetail: View {
     @EnvironmentObject private var theme: Theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DetailHeader(title: "Appearance")
+
+            DetailRow(label: "Style", description: "Poster is the anime key-visual look; Classic is the original neon") {
+                SegmentedControl(
+                    options: AppStyle.allCases.map(\.displayName),
+                    selection: Binding(
+                        get: { theme.style.displayName },
+                        set: { name in
+                            if let match = AppStyle.allCases.first(where: { $0.displayName == name }) {
+                                theme.style = match
+                            }
+                        }
+                    )
+                )
+            }
+            DetailDivider()
 
             DetailRow(label: "Accent color", description: "Tint used for focus rings, highlights, and active states") {
                 AccentSwatchPicker(selection: $theme.option)

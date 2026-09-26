@@ -191,6 +191,15 @@ final class SampleCatalogTests: XCTestCase {
         XCTAssertEqual(HeroRotation.s30.seconds, 30)
     }
 
+    func testAppStyle() {
+        // Poster is the default; Classic stays selectable, and the raw values
+        // are what `Theme` persists, so renaming a case would reset everyone.
+        XCTAssertEqual(AppStyle.default, .poster)
+        XCTAssertEqual(AppStyle.allCases, [.poster, .classic])
+        XCTAssertEqual(AppStyle(rawValue: "classic"), .classic)
+        XCTAssertEqual(AppStyle(rawValue: "poster"), .poster)
+    }
+
     func testSleepTimer() {
         XCTAssertEqual(SleepTimer.allCases.count, 3)
         XCTAssertEqual(SleepTimer.default, .h2)

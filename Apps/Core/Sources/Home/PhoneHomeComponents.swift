@@ -14,12 +14,26 @@ struct PhoneHomeHeader: View {
     let initial: String
     let onOpenSettings: () -> Void
 
+    @EnvironmentObject private var theme: Theme
+
     var body: some View {
         HStack(spacing: 12) {
-            Text("Home")
-                .font(Typography.font(30, .black))
-                .tracking(-0.9)
-                .foregroundStyle(Palette.textPrimary)
+            if theme.isPoster {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("///")
+                        .font(Display.font(30))
+                        .tracking(-4)
+                        .foregroundStyle(Palette.posterTeal)
+                    Text("HOME")
+                        .font(Display.font(40))
+                        .foregroundStyle(Palette.textPrimary)
+                }
+            } else {
+                Text("Home")
+                    .font(Typography.font(30, .black))
+                    .tracking(-0.9)
+                    .foregroundStyle(Palette.textPrimary)
+            }
             Spacer(minLength: 0)
             Button(action: onOpenSettings) {
                 Avatar(initial: initial, size: 34)
@@ -44,6 +58,35 @@ private struct PhoneLibraryPill: View {
 
     var body: some View {
         Button(action: action) {
+            if theme.isPoster { posterLabel } else { classicLabel }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Poster Mode: the active pill is ink with the teal "»" disc, the rest are
+    /// translucent capsules, all set in the display face.
+    private var posterLabel: some View {
+        HStack(spacing: 8) {
+            if isActive {
+                Image(systemName: "chevron.forward.2")
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundStyle(Palette.posterInk)
+                    .frame(width: 26, height: 26)
+                    .background(Palette.posterTeal, in: Circle())
+            }
+            Text(label.uppercased())
+                .font(Display.font(16))
+                .lineLimit(1)
+        }
+        .foregroundStyle(Palette.textPrimary)
+        .padding(.leading, isActive ? 6 : 16)
+        .padding(.trailing, 16)
+        .frame(height: 38)
+        .background(Capsule().fill(isActive ? Palette.posterInk : Palette.text(0.1)))
+        .overlay(Capsule().stroke(isActive ? Palette.posterTeal.opacity(0.6) : Palette.text(0.12), lineWidth: 1.5))
+    }
+
+    private var classicLabel: some View {
             HStack(spacing: 7) {
                 if let systemImage {
                     Image(systemName: systemImage).font(.system(size: 13, weight: .bold))
@@ -64,8 +107,6 @@ private struct PhoneLibraryPill: View {
                         .overlay(Capsule().stroke(Palette.text(0.1), lineWidth: 1))
                 }
             }
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -155,21 +196,71 @@ struct PhoneFeaturedCard: View {
     let hero: HeroFeature
     let onSelect: () -> Void
 
+    @EnvironmentObject private var theme: Theme
+
     var body: some View {
         Button(action: onSelect) {
             ZStack(alignment: .bottom) {
                 artwork
                 scrim
-                textBlock
+                if theme.isPoster { posterDressing } else { textBlock }
             }
             .frame(width: PhoneFeaturedCarousel.cardSize.width,
                    height: PhoneFeaturedCarousel.cardSize.height)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(.white.opacity(0.1), lineWidth: 1))
+                .strokeBorder(theme.isPoster ? Color.white : .white.opacity(0.1),
+                              lineWidth: theme.isPoster ? 5 : 1))
             .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
         }
         .buttonStyle(FocusScaleStyle(scale: 1.02, cornerRadius: 18))
+    }
+
+    /// Poster Mode: the card becomes a printed key visual — grid-paper dots
+    /// and the ghost title blended into the art, stripes across the top
+    /// corner, and the text set left in the display face over sticker chips.
+    private var posterDressing: some View {
+        ZStack(alignment: .bottomLeading) {
+            PosterPaper(dotColor: .white.opacity(0.1), spacing: 16, radius: 1)
+            PosterGhostTitle(text: hero.title, size: 150)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 20)
+            PosterAccentStripes(angle: .degrees(52), length: 260, scale: 0.5)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .offset(x: 70, y: -40)
+            VStack(alignment: .leading, spacing: 8) {
+                if !hero.eyebrow.isEmpty {
+                    Text(hero.eyebrow.uppercased())
+                        .font(Display.font(13))
+                        .tracking(1)
+                        .foregroundStyle(Palette.posterTeal)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .rotationEffect(.degrees(-2))
+                }
+                Text(hero.title.uppercased())
+                    .font(Display.font(40))
+                    .foregroundStyle(Palette.textPrimary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.6)
+                    .shadow(color: .black.opacity(0.5), radius: 12)
+                HStack(spacing: 6) {
+                    if !hero.certification.isEmpty { PosterChip(text: hero.certification, inverted: true, size: 12) }
+                    ForEach([hero.year, hero.genre].filter { !$0.isEmpty }, id: \.self) {
+                        PosterChip(text: $0, size: 12)
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 20)
+        }
+        // Pinned to the card: `artwork` fills past the card's bounds
+        // (`scaledToFill`), which grows the enclosing ZStack, and a
+        // bottom-*leading* block would be placed off the visible card and
+        // clipped — Classic's centred text never showed it.
+        .frame(width: PhoneFeaturedCarousel.cardSize.width,
+               height: PhoneFeaturedCarousel.cardSize.height)
     }
 
     @ViewBuilder private var artwork: some View {

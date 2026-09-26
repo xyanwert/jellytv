@@ -5,7 +5,8 @@ import JellyTVKit
 private enum ShowField: Hashable {
     /// tvOS's hero Resume/Play button — the default-focus target there.
     case resume
-    case season(Int)
+    /// The season dial — one control for every season (`SeasonDial`).
+    case seasonDial
     case episode(String)
 }
 
@@ -46,6 +47,16 @@ struct ShowView: View {
     /// value; reverted on a failed write. Shared by iPhone's quick action and
     /// tvOS's hero icon button.
     @State private var favoriteOverride: Bool?
+    /// Where `SeasonGuide` says this viewer is: the season to open on (and to
+    /// mark UP NEXT) and the exact episode Jellyfin has next.
+    @State private var suggestedSeason: Int?
+    @State private var nextUpEpisodeId: String?
+    /// Every season at once, as posters — `SeasonWall`.
+    @State private var showSeasonWall = false
+    /// Poster Mode (tvOS): how far the backdrop and its cut-out rise together
+    /// so the subject's face clears the shelf band — measured from the
+    /// cut-out, once. 0 until there is one.
+    @State private var keyVisualLift: CGFloat = 0
     #if os(iOS)
     /// Phone only — which of the EPISODES/DETAILS/CAST tabs is showing.
     @State private var phoneTab: PhoneShowTab = .episodes
@@ -77,7 +88,7 @@ struct ShowView: View {
         #if os(tvOS)
         .resume
         #else
-        .season(selectedSeason)
+        .seasonDial
         #endif
     }
 
@@ -110,7 +121,12 @@ struct ShowView: View {
         .onChange(of: show.seasons.isEmpty) { _, isEmpty in
             guard !isEmpty, !hasEstablishedFocus else { return }
             hasEstablishedFocus = true
-            focus = .season(selectedSeason)
+            focus = .seasonDial
+        }
+        .sheet(isPresented: $showSeasonWall) {
+            seasonWall
+                .presentationDetents([.large])
+                .presentationBackground(Palette.pageBase)
         }
         #endif
         #if os(tvOS)
@@ -128,6 +144,7 @@ struct ShowView: View {
     private var padTVBody: some View {
         ZStack {
             ShowFullBackdrop(image: show.keyArt, artwork: show.artwork)
+            if theme.isPoster { posterKeyVisual }
             HStack(spacing: 0) {
                 DetailSpine(genreLabel: show.genreLabel, markerTop: "EP",
                             markerBottom: currentEpisode?.numberLabel ?? "—", onBack: onDismiss)
@@ -153,8 +170,8 @@ struct ShowView: View {
     private var phoneBody: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 0) {
-                PhoneShowKeyArt(image: show.keyArt, artwork: show.artwork, onClose: onDismiss)
-                phoneIdentity
+                PhoneShowKeyArt(image: show.keyArt, artwork: show.artwork, onClose: onDismiss, posterTitle: show.title)
+                Group { if theme.isPoster { posterPhoneIdentity } else { phoneIdentity } }
                     .padding(.top, 18)
                     .padding(.horizontal, 20)
 
@@ -164,7 +181,7 @@ struct ShowView: View {
                         .padding(.horizontal, 20)
                 }
 
-                phoneContinueButton
+                Group { if theme.isPoster { posterPhoneContinue } else { phoneContinueButton } }
                     .padding(.top, 14)
                     .padding(.horizontal, 20)
 
@@ -396,7 +413,8 @@ struct ShowView: View {
             } else if let season {
                 LazyVStack(spacing: 8) {
                     ForEach(season.episodes) { ep in
-                        DrawerEpisodeRow(episode: ep, action: { play(episode: ep, in: season) })
+                        DrawerEpisodeRow(episode: ep, isUpNext: ep.id == nextUpEpisodeId,
+                                         action: { play(episode: ep, in: season) })
                     }
                 }
             }
@@ -472,13 +490,20 @@ struct ShowView: View {
     private func loadDetail() async {
         guard let s = await appState.enrichedShow(initialShow) else { return }
         detail = s
-        if let seasons = await appState.seasons(for: s.id), !seasons.isEmpty {
+        // Seasons fresh (their progress moves every time an episode ends)
+        // alongside Jellyfin's next-up, then open where the viewer is — see
+        // `SeasonGuide.suggestedIndex`. This used to open on the *last*
+        // season for everyone.
+        async let seasonsFetch = appState.seasons(for: s.id, fresh: true)
+        async let nextFetch = appState.nextUp(seriesId: s.id)
+        let (fetched, next) = await (seasonsFetch, nextFetch)
+        if let seasons = fetched, !seasons.isEmpty {
             detail?.seasons = seasons
-            let index = detail?.currentSeasonIndex ?? 0
+            nextUpEpisodeId = next?.episodeId
+            let index = SeasonGuide.suggestedIndex(seasons: seasons, nextUpSeasonId: next?.seasonId)
+            suggestedSeason = index
             selectedSeason = index
-            if index < seasons.count {
-                await loadEpisodes(for: seasons[index])
-            }
+            await loadEpisodes(for: seasons[index], fresh: true)
         }
         if let enrichment = await appState.omdbEnrichment(imdbId: s.imdbId) {
             detail?.externalRatings = enrichment.ratings
@@ -489,11 +514,11 @@ struct ShowView: View {
     /// Fetches one season's episodes and merges them in place; if any episode
     /// is genuinely in progress, derives the resume card from it (real data
     /// only — never the sample's fake "S3 · E4" placeholder).
-    private func loadEpisodes(for season: Season) async {
+    private func loadEpisodes(for season: Season, fresh: Bool = false) async {
         guard let seriesId = detail?.id else { return }
         episodesLoadingSeasonId = season.id
         defer { episodesLoadingSeasonId = nil }
-        guard let episodes = await appState.episodes(seriesId: seriesId, seasonId: season.id) else { return }
+        guard let episodes = await appState.episodes(seriesId: seriesId, seasonId: season.id, fresh: fresh) else { return }
         guard let index = detail?.seasons.firstIndex(where: { $0.id == season.id }) else { return }
         detail?.seasons[index].episodes = episodes
         if let current = episodes.first(where: \.isCurrent) {
@@ -522,7 +547,7 @@ struct ShowView: View {
     /// this whole composition for `tvBody`.
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            titleBlock
+            Group { if theme.isPoster { posterIPadTitleBlock } else { titleBlock } }
 
             if !show.cast.isEmpty {
                 castStrip
@@ -531,7 +556,7 @@ struct ShowView: View {
 
             Spacer(minLength: 24)
 
-            foot
+            Group { if theme.isPoster { posterFoot } else { foot } }
         }
         .padding(.init(top: Self.contentTopPadding, leading: 64, bottom: 34, trailing: 40))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -586,43 +611,151 @@ struct ShowView: View {
     }
     #endif
 
+    /// The season dial and its ribbon (`SeasonDial`) — compact in the iPad
+    /// drawer and on the phone, where it stacks, wide on the TV.
     private var seasonSelector: some View {
-        // A plain HStack lets a squeezed-for-space parent compress each
-        // button below its label's natural width, which wraps "S04"/"S07"
-        // onto two lines while identical-length neighbors happen to survive
-        // (a rounding artifact of how the compression gets distributed —
-        // worse the more seasons there are). A ScrollView gives every
-        // button its true intrinsic size; once there's not enough room, the
-        // row scrolls instead of squeezing.
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 5) {
-                ForEach(Array(show.seasons.enumerated()), id: \.element.id) { index, s in
-                    let active = index == selectedSeason
-                    Button { selectedSeason = index } label: {
-                        Text(s.shortLabel)
-                            .font(Typography.font(16, .bold)).tracking(1)
-                            .fixedSize()
-                            .foregroundStyle(active ? Palette.screen : Palette.text(0.6))
-                            .padding(.horizontal, 20).padding(.vertical, 9)
-                            .background(active ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                    .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 8))
-                    .focused($focus, equals: .season(index))
-                }
-            }
-            .padding(5)
-        }
-        .background(Palette.text(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Palette.text(0.1), lineWidth: 1))
-        // Without this, pressing Left at the row's edge lets the tvOS focus
-        // engine search the whole screen for the geometrically-nearest
-        // focusable view (the back button, far to the left) and jump there
-        // — reading as "the season selection just disappeared." This keeps
-        // Left/Right contained to S01…S10; Up/Down still cross normally.
-        #if os(tvOS)
-        .focusSection()
-        #endif
+        SeasonDial(seasons: show.seasons, selected: $selectedSeason, suggested: suggestedSeason,
+                   compact: DeviceClass.current != .tv,
+                   focus: $focus, focusValue: ShowField.seasonDial,
+                   onOpenAll: { showSeasonWall = true })
+        // No `.focusSection()` of its own: the tvOS header row it sits in is
+        // one already, and two stacked sections blocked Down from Play
+        // reaching the dial at all (verified).
     }
+
+    private var seasonWall: some View {
+        SeasonWall(seasons: show.seasons, fallbackImage: show.keyArt, selected: selectedSeason,
+                   suggested: suggestedSeason,
+                   onPick: { index in
+                       selectedSeason = index
+                       showSeasonWall = false
+                       #if os(tvOS)
+                       focus = .seasonDial
+                       #endif
+                   },
+                   onClose: {
+                       showSeasonWall = false
+                       #if os(tvOS)
+                       focus = .seasonDial
+                       #endif
+                   })
+    }
+
+    // MARK: - Poster Mode on touch
+
+    #if os(iOS)
+    /// The studio | SEASONS n sticker bar the TV hero opens with.
+    private func posterSeasonsBar(size: CGFloat) -> some View {
+        HStack(spacing: 10) {
+            Text("///").font(Display.font(size * 1.2)).tracking(-3).foregroundStyle(Palette.posterTeal)
+            HStack(spacing: 10) {
+                Text((show.studios.first ?? "Series").uppercased())
+                Rectangle().fill(Palette.posterTeal).frame(width: 2, height: size)
+                Text("SEASONS")
+                Text("\(show.seasonCount ?? show.seasons.count)")
+                    .foregroundStyle(Palette.posterInk)
+                    .padding(.horizontal, 5)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            }
+            .font(Display.font(size)).tracking(1)
+            .foregroundStyle(Palette.textPrimary)
+            .lineLimit(1)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+    }
+
+    private func posterShowTitle(_ size: CGFloat) -> some View {
+        Group {
+            if let logo = show.logoArt, let url = URL(string: logo) {
+                AsyncImage(url: url) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().scaledToFit()
+                            .frame(maxWidth: size * 5, maxHeight: size * 1.3, alignment: .leading)
+                            .shadow(color: .black.opacity(0.6), radius: 14, y: 3)
+                            .accessibilityLabel(show.title)
+                    } else {
+                        posterShowTitleType(size)
+                    }
+                }
+                .frame(height: size * 1.3, alignment: .bottomLeading)
+            } else {
+                posterShowTitleType(size)
+            }
+        }
+    }
+
+    private func posterShowTitleType(_ size: CGFloat) -> some View {
+        Text(show.title.uppercased())
+            .font(Display.font(size)).foregroundStyle(Palette.textPrimary)
+            .lineLimit(2).minimumScaleFactor(0.5)
+            .shadow(color: .black.opacity(0.45), radius: 12, y: 3)
+    }
+
+    private var posterShowChips: some View {
+        HStack(spacing: 7) {
+            if !show.certification.isEmpty { PosterChip(text: show.certification, inverted: true) }
+            if !show.rating.isEmpty { PosterChip(text: "★ \(show.rating)") }
+            if !show.years.isEmpty { PosterChip(text: show.years) }
+            if !genreTail.isEmpty { PosterChip(text: genreTail) }
+        }
+    }
+
+    /// iPad: the dossier column's title block in Poster Mode.
+    private var posterIPadTitleBlock: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            posterSeasonsBar(size: 16)
+            posterShowTitle(64)
+            posterShowChips
+            HStack(spacing: 10) {
+                RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
+                if show.awards?.academyAwardsLabel != nil { AwardsBadge(awards: show.awards) }
+            }
+            if !show.synopsis.isEmpty {
+                Text(show.synopsis)
+                    .font(Typography.font(18, .semibold)).foregroundStyle(Palette.text(0.8))
+                    .lineSpacing(5).lineLimit(4)
+                    .frame(maxWidth: 520, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: 620, alignment: .leading)
+    }
+
+    /// iPad: the foot in Poster Mode — the episode to watch named on the
+    /// primary pill (Classic's bar only shuffles), then Random and the heart.
+    private var posterFoot: some View {
+        HStack(spacing: 12) {
+            Button(action: resumePrimaryEpisode) { PosterArrowPill(title: resumeLabel) }
+                .buttonStyle(FocusScaleStyle(scale: 1.03, cornerRadius: 999))
+                .disabled(primaryEpisode == nil)
+            Button(action: shufflePlay) { PosterOutlinePill(title: shuffleInFlight ? "Shuffling…" : "Random") }
+                .buttonStyle(FocusScaleStyle(scale: 1.03, cornerRadius: 999))
+            Button(action: toggleFavorite) {
+                PosterRoundButton(systemImage: effectiveIsFavorite ? "heart.fill" : "heart",
+                                  tint: effectiveIsFavorite ? theme.accent : Palette.textPrimary)
+            }
+            .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 999))
+            .accessibilityLabel(effectiveIsFavorite ? "Remove from favourites" : "Add to favourites")
+        }
+    }
+
+    /// iPhone: left-aligned, under the dressed key art.
+    private var posterPhoneIdentity: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            posterSeasonsBar(size: 12)
+            posterShowTitle(40)
+            posterShowChips
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, -34)
+    }
+
+    private var posterPhoneContinue: some View {
+        Button(action: resumePrimaryEpisode) { PosterArrowPill(title: resumeLabel, fullWidth: true) }
+            .buttonStyle(FocusScaleStyle(scale: 1.02, cornerRadius: 999))
+            .disabled(primaryEpisode == nil)
+    }
+    #endif
 
     // MARK: - iPad (design 2a-drawer)
 
@@ -771,13 +904,18 @@ struct ShowView: View {
             if season == nil || episodesLoadingSeasonId == season?.id {
                 drawerLoading
             } else if let season {
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: 6) {
-                        ForEach(season.episodes) { ep in
-                            DrawerEpisodeRow(episode: ep, action: { play(episode: ep, in: season) })
+                ScrollViewReader { proxy in
+                    ScrollView(showsIndicators: false) {
+                        LazyVStack(spacing: 6) {
+                            ForEach(season.episodes) { ep in
+                                DrawerEpisodeRow(episode: ep, isUpNext: ep.id == nextUpEpisodeId,
+                                                 action: { play(episode: ep, in: season) })
+                                    .id(ep.id)
+                            }
                         }
+                        .padding(.vertical, 18)
                     }
-                    .padding(.vertical, 18)
+                    .onAppear { if let id = nextUpEpisodeId { proxy.scrollTo(id, anchor: .center) } }
                 }
             }
         }
@@ -860,6 +998,14 @@ struct ShowView: View {
     /// a fresh show gets "PLAY S1 · E1", not a dead button. Shared by
     /// iPhone's quick actions and tvOS's hero Resume button.
     private var primaryEpisode: (episode: Episode, season: Season)? {
+        // Jellyfin's next-up first: it is the in-progress episode when there
+        // is one and the next unwatched one otherwise — "S14 · E4", not the
+        // selected season's first episode.
+        if let id = nextUpEpisodeId,
+           let s = show.seasons.first(where: { $0.episodes.contains { $0.id == id } }),
+           let episode = s.episodes.first(where: { $0.id == id }) {
+            return (episode, s)
+        }
         if let current = currentEpisode,
            let s = show.seasons.first(where: { se in se.episodes.contains { $0.id == current.id } }) {
             return (current, s)
@@ -928,6 +1074,69 @@ struct ShowView: View {
         }
     }
 
+    // MARK: - Poster Mode: the key visual (TV and iPad)
+
+    /// The show as a key visual: the full-bleed backdrop (Classic's own,
+    /// scrims and all) tinted toward teal with a blend — so the scene recedes
+    /// — the title printed huge in scanlines across it, and the show's subject
+    /// cut out of that same backdrop by Vision and laid back over it in full
+    /// colour, in front of its own title. Static layers only; blends are
+    /// compositing, not shaders.
+    private var posterKeyVisual: some View {
+        let isTV = DeviceClass.current == .tv
+        return GeometryReader { geo in
+            ZStack(alignment: .topTrailing) {
+                Palette.posterTeal.opacity(0.32).blendMode(.color)
+                PosterPaper(dotColor: .white.opacity(0.06))
+                // Pinned to the screen's width and clipped there. A flexible
+                // frame grows to fit an oversized child, and a long title
+                // (Mrs. Maisel's is ~4500pt at this size) widened the whole
+                // page and pushed it off the left edge (verified).
+                PosterScanlineTitle(text: show.title, size: isTV ? 290 : 190)
+                    .padding(.top, isTV ? 60 : 50)
+                    .padding(.trailing, isTV ? 40 : 30)
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .topTrailing)
+                    .clipped()
+                // Rises with the backdrop (same offset), so the two stay aligned.
+                // TV only: the iPad page has no open ground for a figure — its
+                // dossier column fills the left and the episode drawer the
+                // right, and a cut-out landed squarely over the synopsis and
+                // cast (verified). The phone gets its figure in the key art.
+                if isTV {
+                    PosterSubjectCutout(imageURL: show.keyArt, visibleFromX: 0.38, visibleToY: 0.9,
+                                        onSubjectTop: { top in
+                        // Put the top of the subject ~60pt from the top of the
+                        // screen, lifting at most 260pt (the shelf band covers
+                        // what comes up behind).
+                        keyVisualLift = min(260, max(0, top * geo.size.height - 60))
+                    })
+                    .offset(y: -keyVisualLift)
+                }
+                PosterAccentStripes(angle: .degrees(58), length: isTV ? 700 : 460)
+                    .offset(x: isTV ? 250 : 170, y: isTV ? -120 : -90)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    /// The genre tail of `genreLabel` ("TV Shows / Sci-Fi Drama" → "Sci-Fi
+    /// Drama") for the hero's one-line metadata row.
+    private var genreTail: String {
+        show.genreLabel.split(separator: "/").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? show.genreLabel
+    }
+
+    private var resumeLabel: String {
+        guard let (episode, season) = primaryEpisode else { return "Play" }
+        let verb = episode.isCurrent ? "Resume" : "Play"
+        return "\(verb) S\(season.number) · E\(episode.number)"
+    }
+
+    private func resumePrimaryEpisode() {
+        guard let (episode, season) = primaryEpisode else { return }
+        play(episode: episode, in: season)
+    }
+
     #if os(tvOS)
 
     // MARK: - tvOS (the show page as Netflix / Apple TV / Disney+ / Max shelve it)
@@ -957,13 +1166,128 @@ struct ShowView: View {
     private var tvBody: some View {
         ZStack(alignment: .topLeading) {
             ShowFullBackdrop(image: show.keyArt, artwork: show.artwork)
+                .offset(y: theme.isPoster ? -keyVisualLift : 0)
+            if theme.isPoster { posterKeyVisual }
             VStack(alignment: .leading, spacing: 0) {
-                tvHero
-                    .frame(height: Self.heroHeight, alignment: .bottomLeading)
+                Group {
+                    if theme.isPoster { posterTVHero } else { tvHero }
+                }
+                .frame(height: Self.heroHeight, alignment: .bottomLeading)
                 tvShelves
+                    // Poster Mode: the shelves stand on the ink band — which is
+                    // also what the cut-out figure stands *behind*, so its body
+                    // disappears into the band instead of under a translucent
+                    // season bar.
+                    .background(alignment: .top) {
+                        if theme.isPoster {
+                            VStack(spacing: 0) {
+                                Rectangle().fill(Palette.posterTeal).frame(height: 10)
+                                Rectangle().fill(Color(hex: "#F0525F")).frame(height: 4).padding(.top, 5)
+                                PosterStripeBand()
+                            }
+                            .ignoresSafeArea()
+                        }
+                    }
+            }
+            // Out of the focus pool while the wall is up, or Menu and the
+            // arrows reach through it.
+            .disabled(showSeasonWall)
+
+            if showSeasonWall {
+                seasonWall
+                    .transition(.opacity)
+                    .zIndex(3)
             }
         }
         .ignoresSafeArea()
+    }
+
+    private var posterTVHero: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Spacer(minLength: 0)
+            HStack(spacing: 12) {
+                Text("///")
+                    .font(Display.font(30)).tracking(-4)
+                    .foregroundStyle(Palette.posterTeal)
+                HStack(spacing: 14) {
+                    Text((show.studios.first ?? "Series").uppercased())
+                    Rectangle().fill(Palette.posterTeal).frame(width: 3, height: 24)
+                    Text("SEASONS")
+                    Text("\(show.seasonCount ?? show.seasons.count)")
+                        .foregroundStyle(Palette.posterInk)
+                        .padding(.horizontal, 7)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                }
+                .font(Display.font(24))
+                .tracking(1)
+                .foregroundStyle(Palette.textPrimary)
+                .padding(.horizontal, 14).padding(.vertical, 6)
+                .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+
+            if let logo = show.logoArt, let url = URL(string: logo) {
+                AsyncImage(url: url) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().scaledToFit()
+                            .frame(maxWidth: 560, maxHeight: 112, alignment: .leading)
+                            .shadow(color: .black.opacity(0.6), radius: 20, y: 2)
+                            .accessibilityLabel(show.title)
+                    } else {
+                        posterTitleText
+                    }
+                }
+            } else {
+                posterTitleText
+            }
+
+            HStack(spacing: 10) {
+                if !show.certification.isEmpty { PosterChip(text: show.certification, inverted: true) }
+                if !show.rating.isEmpty { PosterChip(text: "★ \(show.rating)") }
+                if !show.years.isEmpty { PosterChip(text: show.years) }
+                if !genreTail.isEmpty { PosterChip(text: genreTail) }
+                RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
+            }
+
+            if !show.synopsis.isEmpty {
+                Text(show.synopsis)
+                    .font(Typography.font(20, .semibold)).foregroundStyle(Palette.text(0.82))
+                    .lineLimit(2).lineSpacing(4)
+                    // Held left of where the cut-out figure starts showing.
+                    .frame(maxWidth: 640, alignment: .leading)
+            }
+
+            HStack(spacing: 18) {
+                Button(action: resumePrimaryEpisode) {
+                    PosterArrowPill(title: resumeLabel)
+                }
+                .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 999))
+                .focused($focus, equals: .resume)
+                .disabled(primaryEpisode == nil)
+
+                Button(action: shufflePlay) {
+                    PosterOutlinePill(title: shuffleInFlight ? "Shuffling…" : "Random")
+                }
+                .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 999))
+
+                Button(action: toggleFavorite) {
+                    PosterRoundButton(systemImage: effectiveIsFavorite ? "heart.fill" : "heart",
+                                      tint: effectiveIsFavorite ? theme.accent : Palette.textPrimary)
+                }
+                .buttonStyle(FocusScaleStyle(scale: 1.1, cornerRadius: 999))
+            }
+            .focusSection()
+            .padding(.top, 4)
+        }
+        .padding(.leading, 80)
+        .padding(.bottom, 34)
+        .frame(maxWidth: 1100, alignment: .leading)
+    }
+
+    private var posterTitleText: some View {
+        Text(show.title.uppercased())
+            .font(Display.font(104)).foregroundStyle(Palette.textPrimary)
+            .lineLimit(1).minimumScaleFactor(0.5)
+            .shadow(color: .black.opacity(0.5), radius: 20)
     }
 
     private var tvHero: some View {
@@ -1055,12 +1379,6 @@ struct ShowView: View {
             .shadow(color: .black.opacity(0.5), radius: 20)
     }
 
-    /// The genre tail of `genreLabel` ("TV Shows / Sci-Fi Drama" → "Sci-Fi
-    /// Drama") for the hero's one-line metadata row.
-    private var genreTail: String {
-        show.genreLabel.split(separator: "/").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? show.genreLabel
-    }
-
     private var metaDot: some View { Text("·").foregroundStyle(Palette.text(0.4)) }
 
     /// Resume/Play (the primary, default-focus action), Random (this show's
@@ -1113,17 +1431,6 @@ struct ShowView: View {
         .focusSection()
     }
 
-    private var resumeLabel: String {
-        guard let (episode, season) = primaryEpisode else { return "Play" }
-        let verb = currentEpisode != nil ? "Resume" : "Play"
-        return "\(verb) S\(season.number) · E\(episode.number)"
-    }
-
-    private func resumePrimaryEpisode() {
-        guard let (episode, season) = primaryEpisode else { return }
-        play(episode: episode, in: season)
-    }
-
     /// Everything below the hero, on the page colour: season selector, the
     /// episode shelf, the cast row. Each strip pads its own content to the
     /// 80pt page margin rather than this container padding for them, so the
@@ -1134,11 +1441,7 @@ struct ShowView: View {
             HStack(alignment: .firstTextBaseline, spacing: 20) {
                 Text("EPISODES")
                     .font(Typography.font(15, .heavy)).tracking(2).foregroundStyle(Palette.text(0.55))
-                // `.fixedSize()`: the ScrollView inside `seasonSelector` was
-                // built for a fixed-width drawer column and otherwise soaks up
-                // the row's leftover width instead of hugging its chips.
                 seasonSelector
-                    .fixedSize()
                 Spacer(minLength: 0)
                 if let season, episodesLoadingSeasonId != season.id, !season.episodes.isEmpty {
                     Text("\(season.episodes.count) EPISODES")
@@ -1146,14 +1449,10 @@ struct ShowView: View {
                 }
             }
             .padding(.horizontal, 80)
-            // The whole full-width header row is a focus section, not just
-            // the chips inside it. tvOS's focus engine needs horizontal
-            // overlap to move Up, and a section's *frame* stands in for its
-            // content — so Up from any episode card (including one scrolled
-            // far right of the season chips, which otherwise has nothing
-            // above it and goes nowhere) finds this row and lands on a chip.
-            // Confirmed by hand: without it, Up from card 3 was a dead end.
-            .focusSection()
+            // No focus section needed any more: the season bar is one
+            // ~1300pt control, so Up from any episode card overlaps it. (The
+            // section that used to make the narrow chip row reachable from
+            // far-right cards blocked Down from Play reaching the dial.)
 
             tvEpisodeShelf
 
@@ -1181,18 +1480,30 @@ struct ShowView: View {
             .frame(height: TVEpisodeCard.height + 24, alignment: .leading)
             .padding(.horizontal, 80)
         } else if let season {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 24) {
-                    ForEach(season.episodes) { ep in
-                        TVEpisodeCard(episode: ep, action: { play(episode: ep, in: season) })
-                            .focused($focus, equals: .episode(ep.id))
+            // Opens scrolled to the next-up episode, and Down into the shelf
+            // lands on it — not on episode 1 of a season half watched.
+            let upNext = season.episodes.first { $0.id == nextUpEpisodeId }?.id
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 24) {
+                        ForEach(Array(season.episodes.enumerated()), id: \.element.id) { index, ep in
+                            TVEpisodeCard(episode: ep, isUpNext: ep.id == upNext, shelfIndex: index,
+                                          action: { play(episode: ep, in: season) })
+                                .focused($focus, equals: .episode(ep.id))
+                                .id(ep.id)
+                        }
                     }
+                    .padding(.horizontal, 80)
+                    .padding(.vertical, 12)
                 }
-                .padding(.horizontal, 80)
-                .padding(.vertical, 12)
+                .horizontalEdgeFade()
+                .focusSection()
+                .defaultFocus($focus, upNext.map { ShowField.episode($0) } ?? .episode(season.episodes.first?.id ?? ""))
+                // Anchored a little in from the edge, so the up-next card lands
+                // at the page margin rather than hard against the screen edge.
+                .onAppear { if let upNext { proxy.scrollTo(upNext, anchor: UnitPoint(x: 0.05, y: 0.5)) } }
+                .onChange(of: season.id) { _, _ in if let upNext { proxy.scrollTo(upNext, anchor: UnitPoint(x: 0.05, y: 0.5)) } }
             }
-            .horizontalEdgeFade()
-            .focusSection()
         }
     }
 

@@ -67,6 +67,14 @@ final class Theme: ObservableObject {
     static let transitionKey = "heroTransition"
     static let rotationKey = "heroRotation"
     static let libraryBackdropKey = "libraryBackdropEffect"
+    static let styleKey = "appStyle"
+
+    /// Poster or Classic — see `AppStyle`. Screens branch on `isPoster`.
+    @Published var style: AppStyle {
+        didSet { UserDefaults.standard.set(style.rawValue, forKey: Self.styleKey) }
+    }
+
+    var isPoster: Bool { style == .poster }
 
     @Published var option: AccentOption {
         didSet { UserDefaults.standard.set(option.rawValue, forKey: Self.storageKey) }
@@ -88,6 +96,13 @@ final class Theme: ObservableObject {
     }
 
     init() {
+        // `JT_STYLE` / `RT_STYLE` = poster | classic forces a style for a
+        // screenshot without touching the saved preference. Inert unless set.
+        let env = ProcessInfo.processInfo.environment
+        let forced = (env["JT_STYLE"] ?? env["RT_STYLE"]).flatMap(AppStyle.init(rawValue:))
+        let s = UserDefaults.standard.string(forKey: Self.styleKey)
+        style = forced ?? s.flatMap(AppStyle.init(rawValue:)) ?? .default
+
         let raw = UserDefaults.standard.string(forKey: Self.storageKey)
         option = raw.flatMap(AccentOption.init(rawValue:)) ?? .default
 

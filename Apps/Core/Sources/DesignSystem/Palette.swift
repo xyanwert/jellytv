@@ -96,6 +96,16 @@ enum Palette {
     static let jellyCyan = Color(hex: "#5EE6F2")
     static let jellyViolet = Color(hex: "#A45CF0")
 
+    // Poster Mode (`AppStyle.poster`) — see `PosterKit.swift`.
+    /// Grid paper: the light ground of a poster screen.
+    static let posterPaper = Color(hex: "#E6E5EA")
+    /// The ink of stickers, bars and bands.
+    static let posterInk = Color(hex: "#121317")
+    /// The key-visual teal of stripes and panels (a shade deeper than `jellyCyan`).
+    static let posterTeal = Color(hex: "#4FDCE6")
+    /// The pastel ground of the sticker shelf and the Late Night door.
+    static let posterBlush = Color(hex: "#F6A5C0")
+
     /// Translucent-white text tier, e.g. `Palette.text(0.55)`.
     static func text(_ opacity: Double) -> Color { .white.opacity(opacity) }
 

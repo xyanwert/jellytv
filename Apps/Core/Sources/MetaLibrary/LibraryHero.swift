@@ -113,6 +113,8 @@ struct LibraryHero: View {
     /// "Starring" for live action; "Voice cast" where the names are seiyuu.
     var castLabel: String = "Starring"
 
+    @EnvironmentObject private var theme: Theme
+
     static let height: CGFloat = 340
     /// One slot for every logo, whatever its proportions, so a wide wordmark
     /// and a square badge leave the meta line in the same place.
@@ -135,6 +137,13 @@ struct LibraryHero: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Self.height, alignment: .bottomLeading)
+        // Poster Mode: the title again, enormous and blended into the art.
+        .background(alignment: .topTrailing) {
+            if theme.isPoster {
+                PosterGhostTitle(text: content.title, size: 300)
+                    .offset(y: -30)
+            }
+        }
         .libraryContentMargin()
         .animation(.easeOut(duration: 0.25), value: content.isLoading)
         .id(content.id)
@@ -167,7 +176,21 @@ struct LibraryHero: View {
         }
     }
 
-    private var titleText: some View {
+    @ViewBuilder private var titleText: some View {
+        if theme.isPoster {
+            Text(content.title.uppercased())
+                .font(Display.font(92))
+                .foregroundStyle(Palette.textPrimary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.5)
+                .frame(maxWidth: Self.textWidth, alignment: .leading)
+                .shadow(color: .black.opacity(0.55), radius: 14, y: 2)
+        } else {
+            classicTitleText
+        }
+    }
+
+    private var classicTitleText: some View {
         Text(content.title)
             .font(Typography.font(60, .black))
             .foregroundStyle(Palette.textPrimary)
@@ -192,6 +215,10 @@ struct LibraryHero: View {
                 .fontWeight(.heavy)
                 .foregroundStyle(accent)
             }
+            if theme.isPoster {
+                if let cert = content.certification, !cert.isEmpty { PosterChip(text: cert, inverted: true) }
+                ForEach(facts, id: \.self) { PosterChip(text: $0) }
+            } else {
             if let cert = content.certification, !cert.isEmpty {
                 Text(cert)
                     .font(Typography.font(15, .bold))
@@ -204,6 +231,7 @@ struct LibraryHero: View {
             if !facts.isEmpty {
                 Text(facts.joined(separator: "  ·  "))
                     .lineLimit(1)
+            }
             }
             if let rt = content.externalRatings?.rottenTomatoes {
                 score(icon: "circle.fill", tint: Self.freshness(rt), text: "\(rt)%")

@@ -33,7 +33,10 @@ d = plistlib.load(open(prefs, "rb"))
 host, port, key, uid = d["jelly:server.host"], d.get("jelly:server.port"), d["jelly:auth.apiKey"], d["jelly:auth.userId"]
 base = f"http://{host}:{port}" if port else f"http://{host}"
 def get(path):
-    req = urllib.request.Request(base + path, headers={"X-Emby-Token": key})
+    # The `Authorization: MediaBrowser Token=` form the app itself sends —
+    # Jellyfin 10.11 turned the legacy `X-Emby-Token` header (and `api_key=`)
+    # off by default, and they now answer 401.
+    req = urllib.request.Request(base + path, headers={"Authorization": f'MediaBrowser Token="{key}"'})
     return json.load(urllib.request.urlopen(req, timeout=30))
 movies = get(f"/Users/{uid}/Items?includeItemTypes=Movie&recursive=true&fields=People")["Items"]
 seen, todo, skipped = set(), [], 0

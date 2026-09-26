@@ -16,6 +16,8 @@ struct ContinueCard: View {
     var focusTag: HomeFocus?
     /// Resumes directly into the player — no intermediate detail screen.
     var onSelect: () -> Void = {}
+    /// Position on its shelf, for Poster Mode's alternating resting tilt.
+    var shelfIndex = 0
 
     @EnvironmentObject private var theme: Theme
     // Dominant color of the actual downloaded artwork (remote images only —
@@ -26,10 +28,12 @@ struct ContinueCard: View {
     init(item: ContinueWatchingItem,
          focus: FocusState<HomeFocus?>.Binding? = nil,
          focusTag: HomeFocus? = nil,
+         shelfIndex: Int = 0,
          onSelect: @escaping () -> Void = {}) {
         self.item = item
         self.focus = focus
         self.focusTag = focusTag
+        self.shelfIndex = shelfIndex
         self.onSelect = onSelect
     }
 
@@ -41,7 +45,9 @@ struct ContinueCard: View {
     }
 
     var body: some View {
-        let card = Button { launchTick += 1; PageLaunch.then(onSelect) } label: { label }
+        let card = Button { launchTick += 1; PageLaunch.then(onSelect) } label: {
+            if theme.isPoster { posterLabel } else { label }
+        }
             .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.16))
             .pageLaunchBeat(launchTick)
             .task(id: item.image) {
@@ -131,6 +137,38 @@ struct ContinueCard: View {
         .frame(width: cardWidth)
     }
 
+    /// Poster Mode: the still in a white frame with the progress bar at its
+    /// foot, the show on a sticker tag hanging off the bottom edge (instead of
+    /// burned into the art and repeated beneath it), tilted at rest.
+    private var posterLabel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .bottomLeading) {
+                artwork
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(Color.black.opacity(0.35))
+                        Rectangle().fill(Color(hex: "#F0525F")).frame(width: geo.size.width * item.progress)
+                    }
+                }
+                .frame(height: isPhone ? 4 : 7)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+            }
+            .frame(width: cardWidth, height: cardHeight)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white, lineWidth: isPhone ? 3 : 5))
+
+            // A home video's "episode label" is its own title again — say it once.
+            PosterStickerTag(name: item.title, sub: item.episodeLabel == item.title ? nil : item.episodeLabel,
+                             size: isPhone ? 13 : (DeviceClass.current == .tv ? 26 : 17))
+                .frame(maxWidth: cardWidth - 10, alignment: .leading)
+                .padding(.leading, 8)
+                .padding(.top, isPhone ? -12 : -18)
+        }
+        .frame(width: cardWidth, alignment: .leading)
+        .posterTilt(index: shelfIndex)
+    }
+
     @ViewBuilder private var artwork: some View {
         if let image = item.image, isRemote, let url = URL(string: image) {
             ZStack {
@@ -169,6 +207,10 @@ struct PosterCard: View {
     var focus: FocusState<HomeFocus?>.Binding?
     var focusTag: HomeFocus?
     var onSelect: () -> Void = {}
+    /// Position on its shelf, for Poster Mode's alternating resting tilt.
+    var shelfIndex = 0
+
+    @EnvironmentObject private var theme: Theme
 
     private var isRemote: Bool { item.image?.hasPrefix("http") == true }
     private var dominant: Color {
@@ -186,6 +228,48 @@ struct PosterCard: View {
 
     var body: some View {
         let card = Button { launchTick += 1; PageLaunch.then(onSelect) } label: {
+            if theme.isPoster { posterLabel } else { classicLabel }
+        }
+        .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.18))
+        .pageLaunchBeat(launchTick)
+        .focused($isFocusedCard)
+        if let focus, let focusTag {
+            card.focused(focus, equals: focusTag)
+        } else {
+            card
+        }
+    }
+
+    @ViewBuilder private var art: some View {
+        if let image = item.image, isRemote, let url = URL(string: image) {
+            JellyfinAsyncImage(url: url, fallback: item.artwork.gradient)
+        } else if let name = item.image {
+            Image(name).resizable().scaledToFill()
+        } else {
+            item.artwork.gradient
+        }
+    }
+
+    /// Poster Mode: clean art in a white frame (the poster carries its own
+    /// title), the name on a sticker tag across the foot, tilted at rest.
+    private var posterLabel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            art
+                .frame(width: cardWidth, height: cardHeight)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white, lineWidth: isPhone ? 3 : 5))
+            PosterStickerTag(name: item.title, sub: nil,
+                             size: isPhone ? 12 : (DeviceClass.current == .tv ? 20 : 16))
+                .frame(maxWidth: cardWidth + 6, alignment: .leading)
+                .padding(.leading, -4)
+                .padding(.top, isPhone ? -10 : -16)
+        }
+        .frame(width: cardWidth, alignment: .leading)
+        .posterTilt(index: shelfIndex)
+    }
+
+    private var classicLabel: some View {
             VStack(spacing: isPhone ? 6 : 10) {
                 ZStack(alignment: .bottomLeading) {
                     if let image = item.image, isRemote, let url = URL(string: image) {
@@ -213,15 +297,6 @@ struct PosterCard: View {
                     .frame(maxWidth: .infinity)
             }
             .frame(width: cardWidth)
-        }
-        .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.18))
-        .pageLaunchBeat(launchTick)
-        .focused($isFocusedCard)
-        if let focus, let focusTag {
-            card.focused(focus, equals: focusTag)
-        } else {
-            card
-        }
     }
 
     @FocusState private var isFocusedCard: Bool

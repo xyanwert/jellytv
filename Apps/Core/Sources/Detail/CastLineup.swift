@@ -172,45 +172,11 @@ struct CastLineup: View {
 
     @ViewBuilder
     private func factChips(for member: CastMember, person: Person?) -> some View {
-        let facts = Self.facts(for: member, person: person, releaseYear: releaseYear,
+        let facts = CastFacts.facts(for: member, person: person, releaseYear: releaseYear,
                                otherCredits: creditCounts[member.id])
         if !facts.isEmpty {
             MovieNightFactsRow(facts: facts, tint: tint)
         }
-    }
-
-    /// The card's chips, in the order a viewer cares: how old they were in
-    /// it, where they are from, whether they are still with us, what else of
-    /// theirs is on this TV, and the Oscar.
-    static func facts(for member: CastMember, person: Person?, releaseYear: Int?,
-                      otherCredits: Int?) -> [MovieNightFact] {
-        var facts: [MovieNightFact] = []
-        if let age = MovieNightFacts.ageAtRelease(birthDate: person?.birthDate, releaseYear: releaseYear) {
-            facts.append(MovieNightFact(id: "age", icon: "calendar", text: "AGE \(age) AT RELEASE"))
-        }
-        if let place = person?.birthplace, !place.isEmpty {
-            facts.append(MovieNightFact(id: "born", icon: "mappin", text: "BORN \(Self.shortPlace(place).uppercased())"))
-        }
-        if person?.deathDate != nil,
-           let span = MovieNightFacts.lifespan(birthDate: person?.birthDate, deathDate: person?.deathDate) {
-            facts.append(MovieNightFact(id: "life", icon: "leaf", text: span))
-        }
-        if let otherCredits, otherCredits > 0 {
-            facts.append(MovieNightFact(id: "credits", icon: "film.stack",
-                                        text: otherCredits == 1 ? "1 MORE IN YOUR LIBRARY" : "\(otherCredits) MORE IN YOUR LIBRARY"))
-        }
-        if member.wonOscar {
-            facts.append(MovieNightFact(id: "oscar", icon: "trophy.fill", text: "ACADEMY AWARD WINNER"))
-        }
-        return facts
-    }
-
-    /// "Toronto, Ontario, Canada" → "Toronto, Canada": city and country, the
-    /// two parts a chip has room for.
-    static func shortPlace(_ place: String) -> String {
-        let parts = place.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        guard parts.count > 2, let first = parts.first, let last = parts.last else { return place }
-        return "\(first), \(last)"
     }
 
     private func load(_ member: CastMember) async {
@@ -283,3 +249,42 @@ private struct FigureButtonStyle: ButtonStyle {
     }
 }
 #endif
+
+/// The cast fact chips, shared by both lineups (`CastLineup` on the TV's
+/// Classic page, `PosterCastLineup` everywhere in Poster Mode).
+enum CastFacts {
+    /// The card's chips, in the order a viewer cares: how old they were in
+    /// it, where they are from, whether they are still with us, what else of
+    /// theirs is on this TV, and the Oscar.
+    static func facts(for member: CastMember, person: Person?, releaseYear: Int?,
+                      otherCredits: Int?) -> [MovieNightFact] {
+        var facts: [MovieNightFact] = []
+        if let age = MovieNightFacts.ageAtRelease(birthDate: person?.birthDate, releaseYear: releaseYear) {
+            facts.append(MovieNightFact(id: "age", icon: "calendar", text: "AGE \(age) AT RELEASE"))
+        }
+        if let place = person?.birthplace, !place.isEmpty {
+            facts.append(MovieNightFact(id: "born", icon: "mappin", text: "BORN \(shortPlace(place).uppercased())"))
+        }
+        if person?.deathDate != nil,
+           let span = MovieNightFacts.lifespan(birthDate: person?.birthDate, deathDate: person?.deathDate) {
+            facts.append(MovieNightFact(id: "life", icon: "leaf", text: span))
+        }
+        if let otherCredits, otherCredits > 0 {
+            facts.append(MovieNightFact(id: "credits", icon: "film.stack",
+                                        text: otherCredits == 1 ? "1 MORE IN YOUR LIBRARY" : "\(otherCredits) MORE IN YOUR LIBRARY"))
+        }
+        if member.wonOscar {
+            facts.append(MovieNightFact(id: "oscar", icon: "trophy.fill", text: "ACADEMY AWARD WINNER"))
+        }
+        return facts
+    }
+
+    /// "Toronto, Ontario, Canada" → "Toronto, Canada": city and country, the
+    /// two parts a chip has room for.
+    static func shortPlace(_ place: String) -> String {
+        let parts = place.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard parts.count > 2, let first = parts.first, let last = parts.last else { return place }
+        return "\(first), \(last)"
+    }
+
+}

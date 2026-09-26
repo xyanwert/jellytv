@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 import JellyTVKit
 
 #if os(iOS)
@@ -31,6 +34,12 @@ struct PhoneShowKeyArt: View {
     let image: String?
     let artwork: Artwork
     let onClose: () -> Void
+    /// Poster Mode: the title printed in scanlines across the art, with the
+    /// art's subject cut out and laid back over it in front of the title.
+    var posterTitle: String? = nil
+
+    @EnvironmentObject private var theme: Theme
+    @State private var cutout: UIImage?
 
     static let height: CGFloat = 296
 
@@ -42,9 +51,26 @@ struct PhoneShowKeyArt: View {
                     .frame(width: geo.size.width, height: Self.height)
                     .clipped()
                     .overlay { topScrim }
+                    // Poster Mode draws *over* the art's fixed frame, never
+                    // beside it in a stack: the scanlined title is far wider
+                    // than the phone (a long title is ~2000pt), and as a stack
+                    // sibling it widened the stack and slid the picture off
+                    // the left edge — the key art showed as a flat teal block
+                    // (verified on The Marvelous Mrs. Maisel).
+                    .overlay(alignment: .bottomLeading) {
+                        if theme.isPoster, let posterTitle {
+                            posterDressing(title: posterTitle, width: geo.size.width)
+                        }
+                    }
+                    .clipped()
                     .mask(bottomFade)
             }
             .frame(height: Self.height)
+            .task(id: image) {
+                guard theme.isPoster, posterTitle != nil, PortraitCutoutCache.isSupported,
+                      let image, image.hasPrefix("http") else { return }
+                cutout = await PortraitCutoutCache.shared.cutout(for: image)
+            }
 
             closeButton
                 .padding(.top, 56)
@@ -52,6 +78,32 @@ struct PhoneShowKeyArt: View {
         }
         .frame(height: Self.height)
         .ignoresSafeArea(edges: .top)
+    }
+
+    private func posterDressing(title: String, width: CGFloat) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            Palette.posterTeal.opacity(0.3).blendMode(.color)
+            PosterPaper(dotColor: .white.opacity(0.08), spacing: 16, radius: 1)
+            PosterScanlineTitle(text: title, size: 120)
+                .padding(.leading, 12)
+                .padding(.bottom, 64)
+                .frame(width: width, height: Self.height, alignment: .bottomLeading)
+                .clipped()
+            // The subject, at the art's exact framing (the cut-out keeps the
+            // source's size), in front of its title.
+            if let cutout {
+                Image(uiImage: cutout)
+                    .resizable().scaledToFill()
+                    .frame(width: width * 1.3, height: Self.height * 1.3)
+                    .frame(width: width, height: Self.height)
+                    .clipped()
+                    .shadow(color: .black.opacity(0.5), radius: 16, x: -6, y: 6)
+            }
+            PosterAccentStripes(angle: .degrees(58), length: 320, scale: 0.5)
+                .frame(width: width, height: Self.height, alignment: .topTrailing)
+                .offset(x: 110, y: -30)
+        }
+        .frame(width: width, height: Self.height)
     }
 
     @ViewBuilder private var art: some View {

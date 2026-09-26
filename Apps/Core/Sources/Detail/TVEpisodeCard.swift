@@ -14,6 +14,10 @@ import JellyTVKit
 /// focus ring read as an enormous empty rectangle.
 struct TVEpisodeCard: View {
     let episode: Episode
+    /// Jellyfin's next-up episode — tagged so the shelf says where to start.
+    var isUpNext = false
+    /// Position on the shelf, for Poster Mode's alternating resting tilt.
+    var shelfIndex = 0
     var action: () -> Void = {}
 
     @EnvironmentObject private var theme: Theme
@@ -33,8 +37,89 @@ struct TVEpisodeCard: View {
 
     var body: some View {
         Button(action: action) {
+            if theme.isPoster { posterLabel } else { classicLabel }
+        }
+        .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.08))
+    }
+
+    /// Poster Mode: the still in a white frame with the episode's number set
+    /// big into its corner (the key visual's numbered strip), the title in the
+    /// display face, a watched episode gone grey with a check — and the card
+    /// leaning until the remote straightens it.
+    private var posterLabel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            thumb
+                .grayscale(episode.isPlayed ? 0.9 : 0)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.white, lineWidth: 5))
+                .overlay(alignment: .bottomLeading) {
+                    Text(episode.numberLabel)
+                        .font(Display.font(64))
+                        .foregroundStyle(episode.isPlayed ? Palette.text(0.7) : Color.white)
+                        .shadow(color: .black.opacity(0.7), radius: 10, y: 3)
+                        .padding(.leading, 14)
+                        .padding(.bottom, 2)
+                }
+                .overlay(alignment: .topLeading) { upNextSticker }
+                .overlay(alignment: .topTrailing) {
+                    if episode.isPlayed {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(Palette.posterInk, Palette.posterTeal)
+                            .padding(10)
+                    }
+                }
+            Text(episode.title.uppercased())
+                .font(Display.font(27))
+                .foregroundStyle(episode.isPlayed ? Palette.text(0.55) : Palette.textPrimary)
+                .lineLimit(1)
+            Text(episode.overview ?? "")
+                .font(Typography.font(16, .medium))
+                .foregroundStyle(Palette.text(0.58))
+                .lineSpacing(3)
+                .lineLimit(2, reservesSpace: true)
+            HStack(spacing: 8) {
+                Text(episode.runtime)
+                if episode.isCurrent, !episode.resumeRemaining.isEmpty {
+                    Text("·").foregroundStyle(Palette.text(0.3))
+                    Text(episode.resumeRemaining).foregroundStyle(Color(hex: "#F0525F"))
+                }
+            }
+            .font(Mono.font(13, .bold))
+            .foregroundStyle(Palette.text(0.45))
+        }
+        .frame(width: Self.thumbWidth, alignment: .leading)
+        .posterTilt(index: shelfIndex, degrees: 1.6)
+    }
+
+    @ViewBuilder private var upNextSticker: some View {
+        if isUpNext {
+            Text("UP NEXT")
+                .font(Display.font(18))
+                .tracking(0.8)
+                .foregroundStyle(Palette.posterInk)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Color(hex: "#F0525F"), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .rotationEffect(.degrees(-4))
+                .padding(9)
+        }
+    }
+
+    private var classicLabel: some View {
             VStack(alignment: .leading, spacing: 10) {
                 thumb
+                    .overlay(alignment: .topLeading) {
+                        if isUpNext {
+                            Text("UP NEXT")
+                                .font(Display.font(18))
+                                .tracking(0.8)
+                                .foregroundStyle(Palette.posterInk)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Color(hex: "#F0525F"), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                .rotationEffect(.degrees(-4))
+                                .padding(9)
+                        }
+                    }
 
                 Text("\(episode.number). \(episode.title)")
                     .font(Typography.font(21, .heavy))
@@ -61,8 +146,6 @@ struct TVEpisodeCard: View {
                 .foregroundStyle(Palette.text(0.45))
             }
             .frame(width: Self.thumbWidth, alignment: .leading)
-        }
-        .buttonStyle(CardFocusStyle(glow: dominant, scale: 1.08))
     }
 
     private var thumb: some View {

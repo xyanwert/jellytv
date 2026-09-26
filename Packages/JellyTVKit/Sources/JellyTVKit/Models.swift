@@ -284,7 +284,11 @@ extension JellyfinAPI.JellyfinItem {
     /// view's header image can be season-specific.
     public func toSeason(imageBaseURL: URL? = nil) -> Season {
         Season(id: id, number: indexNumber ?? 0, name: name ?? "Season \(indexNumber ?? 0)",
-               episodes: [], image: primaryImageURLString(imageBaseURL))
+               episodes: [], image: primaryImageURLString(imageBaseURL),
+               playedPercentage: userData?.playedPercentage,
+               unplayedCount: userData?.unplayedItemCount,
+               episodeCount: childCount,
+               isPlayed: userData?.played ?? false)
     }
 
     /// An episode (from `GET /Shows/{id}/Episodes`) — its own thumbnail (not
@@ -306,7 +310,8 @@ extension JellyfinAPI.JellyfinItem {
             resumePositionTicks: userData?.playbackPositionTicks,
             isFavorite: userData?.isFavorite ?? false,
             seriesId: seriesId,
-            overview: overview
+            overview: overview,
+            isPlayed: userData?.played ?? false
         )
     }
 
@@ -828,15 +833,19 @@ public struct Episode: Equatable, Sendable, Hashable, Identifiable {
     /// with no overview doesn't read as "this is what the whole show is
     /// about."
     public var overview: String?
+    /// Watched to the end (Jellyfin `UserData.Played`).
+    public var isPlayed: Bool
 
     public init(id: String, number: Int, title: String, runtime: String,
                 isCurrent: Bool = false, image: String? = nil, artwork: Artwork,
                 resumeProgress: Double = 0, resumeRemaining: String = "",
                 runtimeTicks: Int64? = nil, resumePositionTicks: Int64? = nil,
-                isFavorite: Bool = false, seriesId: String? = nil, overview: String? = nil) {
+                isFavorite: Bool = false, seriesId: String? = nil, overview: String? = nil,
+                isPlayed: Bool = false) {
         self.id = id
         self.number = number
         self.title = title
+        self.isPlayed = isPlayed
         self.runtime = runtime
         self.isCurrent = isCurrent
         self.image = image
@@ -883,13 +892,26 @@ public struct Season: Equatable, Sendable, Hashable, Identifiable {
     /// The season's own poster (Jellyfin `Primary` image) — falls back to the
     /// show's `keyArt` when a season doesn't have its own.
     public var image: String?
+    /// The user's progress through this season, from the season item's own
+    /// `UserData` — known before a single episode is fetched, which is what
+    /// lets the picker show progress on every season and pick where to open.
+    public var playedPercentage: Double?
+    public var unplayedCount: Int?
+    public var episodeCount: Int?
+    public var isPlayed: Bool
 
-    public init(id: String, number: Int, name: String, episodes: [Episode], image: String? = nil) {
+    public init(id: String, number: Int, name: String, episodes: [Episode], image: String? = nil,
+                playedPercentage: Double? = nil, unplayedCount: Int? = nil,
+                episodeCount: Int? = nil, isPlayed: Bool = false) {
         self.id = id
         self.number = number
         self.name = name
         self.episodes = episodes
         self.image = image
+        self.playedPercentage = playedPercentage
+        self.unplayedCount = unplayedCount
+        self.episodeCount = episodeCount
+        self.isPlayed = isPlayed
     }
 
     /// Short segmented-control label, e.g. "S03" / "SPECIALS".

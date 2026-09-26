@@ -102,7 +102,11 @@ struct MovieDetailView: View {
     #if os(iOS)
     /// iPad: the one-sheet layout — poster panel, title/spec column, cast
     /// band, over a `PosterBloom` colour wash taken from the poster itself.
-    private var iPadBody: some View {
+    @ViewBuilder private var iPadBody: some View {
+        if theme.isPoster { posterIPadBody } else { classicIPadBody }
+    }
+
+    private var classicIPadBody: some View {
         ZStack {
             PosterBloom(image: posterImage, artwork: movie.artwork, tint: tint)
             HStack(spacing: 0) {
@@ -323,7 +327,132 @@ struct MovieDetailView: View {
     /// The page: the pitch (poster + column) first, then the cast lineup,
     /// the scenes, and what else here is like it. Each fold is its own focus
     /// section; Down from the Play bar walks them and the scroll view follows.
-    private var contentTV: some View {
+    @ViewBuilder private var contentTV: some View {
+        if theme.isPoster { posterContentTV } else { classicContentTV }
+    }
+
+    // MARK: - Poster Mode (tvOS)
+
+    /// Poster Mode's page: the pitch on the left, the poster tilted in a white
+    /// frame on the right, the title again enormous and blended into the art
+    /// behind them — and the cast, cut out and standing on the band, starting
+    /// right under the pitch so it is on screen from the first frame. The
+    /// folds after it are Classic's own (scenes, similar), and the focus
+    /// fields are the same, so Down from Play walks the page exactly as before.
+    private var posterContentTV: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 48) {
+                    posterInfoTV
+                    Spacer(minLength: 0)
+                    OneSheetPoster(image: posterImage, artwork: movie.artwork, height: 380)
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.white, lineWidth: 8))
+                        .rotationEffect(.degrees(3))
+                        .padding(.top, 24)
+                        .padding(.trailing, 30)
+                }
+                .background(alignment: .bottomTrailing) {
+                    PosterGhostTitle(text: movie.title, size: 330)
+                        .offset(x: 120, y: 90)
+                }
+
+                if !movie.cast.isEmpty {
+                    PosterCastLineup(cast: movie.cast, releaseYear: Int(movie.year), currentItemId: movie.id,
+                                     tint: tint, focusedMemberId: focusedCastId, focus: $focus,
+                                     onSelect: { presentedPerson = $0 })
+                        .padding(.top, 8)
+                }
+
+                if scenes.count >= 3 {
+                    ScenesStrip(chapters: scenes, tint: tint, focus: $focus, onSelect: play(from:))
+                        .padding(.top, 44)
+                }
+
+                if !similar.isEmpty {
+                    SimilarRow(items: similar, focus: $focus, onOpen: onOpenItem)
+                        .padding(.top, 44)
+                }
+            }
+            .padding(.init(top: 36, leading: 64, bottom: 96, trailing: 64))
+        }
+    }
+
+    private var posterInfoTV: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Text("///")
+                    .font(Display.font(30)).tracking(-4)
+                    .foregroundStyle(Palette.posterTeal)
+                Text((movie.tagline?.isEmpty == false ? movie.tagline! : movie.studioLine).uppercased())
+                    .font(Display.font(26))
+                    .tracking(1)
+                    .foregroundStyle(Palette.textPrimary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+
+            posterTitleTV
+
+            HStack(spacing: 10) {
+                if !movie.certification.isEmpty { PosterChip(text: movie.certification, inverted: true) }
+                ForEach([movie.year, movie.runtime].filter { !$0.isEmpty }, id: \.self) { PosterChip(text: $0) }
+                RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
+                if movie.awards?.academyAwardsLabel != nil { AwardsBadge(awards: movie.awards) }
+            }
+
+            MovieNightFactsRow(facts: movieNightFacts, tint: tint)
+
+            Text(movie.synopsis)
+                .font(Typography.font(22, .semibold)).foregroundStyle(Palette.text(0.8))
+                .lineSpacing(4).lineLimit(2)
+                .frame(maxWidth: 980, alignment: .leading)
+
+            Button(action: play) {
+                PosterArrowPill(title: movie.resumeProgress > 0 ? "Resume" : "Play",
+                                detail: playTime, discColor: tint)
+            }
+            .buttonStyle(FocusScaleStyle(scale: 1.06, cornerRadius: 999))
+            .focused($focus, equals: .play)
+            .padding(.top, 6)
+        }
+        .frame(maxWidth: 1080, alignment: .leading)
+    }
+
+    /// Logo art where the server has it, as everywhere; the title in the
+    /// display face otherwise.
+    @ViewBuilder private var posterTitleTV: some View {
+        if let logo = movie.logoArt, let url = URL(string: logo) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFit()
+                        .frame(maxWidth: 700, maxHeight: 118, alignment: .bottomLeading)
+                        .shadow(color: .black.opacity(0.6), radius: 16, y: 4)
+                        .accessibilityLabel(movie.title)
+                case .failure:
+                    posterTitleText
+                default:
+                    Color.clear
+                }
+            }
+            .frame(height: 118, alignment: .bottomLeading)
+        } else {
+            posterTitleText.frame(height: 118, alignment: .bottomLeading)
+        }
+    }
+
+    private var posterTitleText: some View {
+        Text(movie.title.uppercased())
+            .font(Display.font(118))
+            .foregroundStyle(Palette.textPrimary)
+            .lineLimit(1).minimumScaleFactor(0.4)
+            .shadow(color: .black.opacity(0.4), radius: 14, y: 4)
+    }
+
+    private var classicContentTV: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 64) {
@@ -611,6 +740,167 @@ struct MovieDetailView: View {
         }
     }
 
+    // MARK: - Poster Mode on touch (iPad and iPhone)
+
+    #if os(iOS)
+    /// The iPad page in Poster Mode — the TV page's shape at arm's length: the
+    /// full-bleed backdrop tinted toward teal, grid dots and the title printed
+    /// in scanlines across it, the pitch on the left, the poster tilted in a
+    /// white frame on the right, and the cast cut out and standing on the
+    /// band below. A tap spotlights a figure (there's no focus to do it).
+    private var posterIPadBody: some View {
+        ZStack {
+            ShowFullBackdrop(image: movie.keyArt ?? posterImage, artwork: movie.artwork)
+            posterTexture(titleSize: 190)
+            HStack(spacing: 0) {
+                DetailSpine(genreLabel: movie.genreLabel, markerTop: "FILM",
+                            markerBottom: "001", onBack: onDismiss, accent: tint)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top, spacing: 36) {
+                            posterPitch(titleSize: 72, synopsisWidth: 560)
+                            Spacer(minLength: 0)
+                            OneSheetPoster(image: posterImage, artwork: movie.artwork, height: 300)
+                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(Color.white, lineWidth: 6))
+                                .rotationEffect(.degrees(3))
+                                .padding(.top, 12)
+                        }
+                        if !movie.cast.isEmpty {
+                            PosterCastLineup(cast: movie.cast, releaseYear: Int(movie.year), currentItemId: movie.id,
+                                             tint: tint, focusedMemberId: nil, focus: $focus, onSelect: { _ in })
+                        }
+                    }
+                    .padding(.init(top: 44, leading: 48, bottom: 40, trailing: 48))
+                }
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    /// The printed layer over the art: a teal colour blend (the scene
+    /// recedes), grid dots, the title in scanlines, the corner stripes.
+    private func posterTexture(titleSize: CGFloat) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Palette.posterTeal.opacity(0.28).blendMode(.color)
+            PosterPaper(dotColor: .white.opacity(0.06))
+            // Clipped to the screen: an oversized child grows a flexible
+            // frame, and a long title would widen the whole page.
+            GeometryReader { geo in
+                PosterScanlineTitle(text: movie.title, size: titleSize)
+                    .padding(.top, titleSize * 0.3)
+                    .padding(.trailing, 24)
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .topTrailing)
+                    .clipped()
+            }
+            PosterAccentStripes(angle: .degrees(58), length: 460)
+                .offset(x: 170, y: -90)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    /// Tagline sticker, the title (logo art where the server has it), chips,
+    /// synopsis, the PLAY arrow pill.
+    private func posterPitch(titleSize: CGFloat, synopsisWidth: CGFloat, fullWidthPlay: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            let line = (movie.tagline?.isEmpty == false ? movie.tagline! : movie.studioLine)
+            if !line.isEmpty {
+                HStack(spacing: 8) {
+                    Text("///").font(Display.font(titleSize * 0.28)).tracking(-3)
+                        .foregroundStyle(Palette.posterTeal)
+                    Text(line.uppercased())
+                        .font(Display.font(titleSize * 0.24)).tracking(1)
+                        .foregroundStyle(Palette.textPrimary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+            }
+            if let logo = movie.logoArt, let url = URL(string: logo) {
+                AsyncImage(url: url) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().scaledToFit()
+                            .frame(maxWidth: titleSize * 5, maxHeight: titleSize * 1.1, alignment: .leading)
+                            .shadow(color: .black.opacity(0.6), radius: 14, y: 3)
+                            .accessibilityLabel(movie.title)
+                    } else {
+                        posterTitleType(titleSize)
+                    }
+                }
+                .frame(height: titleSize * 1.1, alignment: .bottomLeading)
+            } else {
+                posterTitleType(titleSize)
+            }
+            HStack(spacing: 7) {
+                if !movie.certification.isEmpty { PosterChip(text: movie.certification, inverted: true) }
+                ForEach([movie.year, movie.runtime].filter { !$0.isEmpty }, id: \.self) { PosterChip(text: $0) }
+                // A phone row has no room for the score cards (they squeezed
+                // until "7.8" wrapped); one rating chip says it.
+                if DeviceClass.current == .phone {
+                    if let imdbRating { PosterChip(text: String(format: "★ %.1f", imdbRating)) }
+                } else {
+                    RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
+                }
+            }
+            Text(movie.synopsis)
+                .font(Typography.font(DeviceClass.current == .phone ? 14 : 17, .semibold))
+                .foregroundStyle(Palette.text(0.8))
+                .lineSpacing(4).lineLimit(DeviceClass.current == .phone ? 4 : 3)
+                .frame(maxWidth: synopsisWidth, alignment: .leading)
+            Button(action: play) {
+                PosterArrowPill(title: movie.resumeProgress > 0 ? "Continue" : "Play",
+                                detail: movie.runtime, discColor: tint, fullWidth: fullWidthPlay)
+            }
+            .buttonStyle(FocusScaleStyle(scale: 1.03, cornerRadius: 999))
+            .padding(.top, 4)
+        }
+    }
+
+    private func posterTitleType(_ size: CGFloat) -> some View {
+        Text(movie.title.uppercased())
+            .font(Display.font(size))
+            .foregroundStyle(Palette.textPrimary)
+            .lineLimit(2).minimumScaleFactor(0.5)
+            .shadow(color: .black.opacity(0.45), radius: 12, y: 3)
+    }
+
+    /// The iPhone page in Poster Mode: the key art dressed as a poster, the
+    /// pitch left-aligned beneath it, the cast lineup, then the tabs.
+    private var posterPhoneBody: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                PhoneShowKeyArt(image: movie.keyArt, artwork: movie.artwork, onClose: onDismiss,
+                                posterTitle: movie.title)
+                posterPitch(titleSize: 46, synopsisWidth: .infinity, fullWidthPlay: true)
+                    .padding(.top, -26)
+                    .padding(.horizontal, 20)
+                if !movie.cast.isEmpty {
+                    PosterCastLineup(cast: movie.cast, releaseYear: Int(movie.year), currentItemId: movie.id,
+                                     tint: tint, focusedMemberId: nil, focus: $focus, onSelect: { _ in })
+                        .padding(.top, 26)
+                        .padding(.horizontal, 20)
+                }
+                phoneTabBar
+                    .padding(.top, 26)
+                    .padding(.horizontal, 20)
+                phoneTabContent
+                    .padding(.top, 18)
+                    .padding(.horizontal, 20)
+                if !movie.moreLikeThis.isEmpty {
+                    phoneMoreLikeThis
+                        .padding(.top, 28)
+                        .padding(.horizontal, 20)
+                }
+            }
+            .padding(.bottom, 50)
+            .phoneTabBarClearance()
+        }
+        .background(Color(hex: "#07080C").ignoresSafeArea())
+        .ignoresSafeArea(edges: .top)
+    }
+    #endif
+
     // MARK: - iOS/iPad (design 1b-onesheet)
 
     #if os(iOS)
@@ -723,7 +1013,11 @@ struct MovieDetailView: View {
     // shelf below the tabs — real, already-fetched data (`movie.moreLikeThis`)
     // that neither iPad's one-sheet nor this phone layout should drop.
 
-    private var phoneBody: some View {
+    @ViewBuilder private var phoneBody: some View {
+        if theme.isPoster { posterPhoneBody } else { classicPhoneBody }
+    }
+
+    private var classicPhoneBody: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 0) {
                 PhoneShowKeyArt(image: movie.keyArt, artwork: movie.artwork, onClose: onDismiss)

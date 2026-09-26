@@ -282,6 +282,24 @@ public struct JellyfinClient: Sendable {
         return response.items
     }
 
+    /// The series' next-up episode, per Jellyfin's own watch tracking — the
+    /// in-progress episode, else the first unwatched one after the last watched.
+    /// `nil` for a show with nothing next (finished, or never started and
+    /// Jellyfin chooses not to suggest). One lean request.
+    public func fetchNextUp(userId: String, seriesId: String) async throws -> JellyfinAPI.JellyfinItem? {
+        let query = [
+            URLQueryItem(name: "userId", value: userId),
+            URLQueryItem(name: "seriesId", value: seriesId),
+            URLQueryItem(name: "limit", value: "1"),
+            URLQueryItem(name: "fields", value: "UserData"),
+        ]
+        guard let url = buildURL(path: "/Shows/NextUp", query: query) else {
+            throw URLError(.badURL)
+        }
+        let response: JellyfinAPI.ItemsResponse<JellyfinAPI.JellyfinItem> = try await request(url: url)
+        return response.items.first
+    }
+
     public func imageURL(itemId: String, type: String, tag: String? = nil,
                           maxWidth: Int? = nil, maxHeight: Int? = nil,
                           quality: Int = 90) -> URL? {

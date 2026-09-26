@@ -59,7 +59,7 @@ struct PersonSheet: View {
                             .foregroundStyle(tint)
                     }
 
-                    let facts = CastLineup.facts(for: member, person: person, releaseYear: releaseYear,
+                    let facts = CastFacts.facts(for: member, person: person, releaseYear: releaseYear,
                                                  otherCredits: credits.count)
                     if !facts.isEmpty {
                         MovieNightFactsRow(facts: facts, tint: tint)

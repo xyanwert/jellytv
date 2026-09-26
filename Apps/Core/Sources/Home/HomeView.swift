@@ -154,24 +154,31 @@ struct HomeView: View {
         // enrichment path a tapped poster already uses — for verifying
         // detail-screen layout against real, busy artwork instead of
         // SampleCatalog's flat gradients.
-        case "real-show":
+        // `real-show:<title substring>` picks the show, like `real-movie:`.
+        case let value? where value == "real-show" || value.hasPrefix("real-show:"):
+            let wanted = value.hasPrefix("real-show:") ? String(value.dropFirst("real-show:".count)) : "House of the Dragon"
             Task {
                 // `refresh()`'s `/UserViews` fetch (which populates the
                 // libraries `loadShows` filters against) races this same
                 // `.onAppear` — retry until it's landed.
                 for _ in 0..<25 {
                     let items = await appState.loadShows()
-                    if let target = items.first(where: { $0.title.contains("House of the Dragon") }) ?? items.first {
+                    if let target = items.first(where: { $0.title.localizedCaseInsensitiveContains(wanted) }) ?? items.first {
                         presentedDetail = .show(SampleCatalog.show(for: target))
                         return
                     }
                     try? await Task.sleep(for: .milliseconds(200))
                 }
             }
-        case "real-movie":
+        // `real-movie:<title substring>` opens a particular film instead of
+        // the first — for shooting a page with a known cast.
+        case let value? where value == "real-movie" || value.hasPrefix("real-movie:"):
+            let wanted = value.hasPrefix("real-movie:") ? String(value.dropFirst("real-movie:".count)) : nil
             Task {
                 for _ in 0..<25 {
-                    if let target = await appState.loadMovies().first {
+                    let movies = await appState.loadMovies()
+                    let pick = wanted.flatMap { w in movies.first { $0.title.localizedCaseInsensitiveContains(w) } }
+                    if let target = pick ?? movies.first {
                         presentedDetail = .movie(SampleCatalog.movie(for: target))
                         return
                     }
@@ -191,8 +198,12 @@ struct HomeView: View {
             // the full-bleed hero `Home.dc.html` replaces with a contained
             // featured-card carousel — see `content`'s phone branch.
             if DeviceClass.current != .phone {
-                HomeSonar()
+                // Poster Mode keeps the full-bleed backdrop and its crumble —
+                // they are the foundation both styles share — and swaps only
+                // the Classic sonar rings for the poster's own texture.
+                if !theme.isPoster { HomeSonar() }
                 heroBackdropLayer
+                if theme.isPoster { posterTextureLayer }
             }
             HStack(spacing: 0) {
                 NavRail(
@@ -441,9 +452,15 @@ struct HomeView: View {
                        slideStartTime: slideStartTime, rotationSeconds: theme.rotationInterval.seconds)
 
                 if let hero = currentHero {
-                    HeroView(hero: hero, resumeFocus: $focus, onDetails: { presentDetails(for: hero) })
-                        .padding(.horizontal, 56)
-                        .padding(.top, 4)
+                    Group {
+                        if theme.isPoster {
+                            PosterHeroView(hero: hero, resumeFocus: $focus, onDetails: { presentDetails(for: hero) })
+                        } else {
+                            HeroView(hero: hero, resumeFocus: $focus, onDetails: { presentDetails(for: hero) })
+                        }
+                    }
+                    .padding(.horizontal, 56)
+                    .padding(.top, 4)
                 } else if homeLoadFailed {
                     homeLoadErrorState
                 } else {
@@ -805,6 +822,20 @@ struct HomeView: View {
             ],
             startPoint: .top, endPoint: .bottom
         )
+    }
+
+    /// Poster Mode's texture over the art: grid-paper dots across the whole
+    /// screen, faint enough to read as printed stock rather than a pattern,
+    /// and the teal/coral stripes cutting the top-trailing corner. Static —
+    /// two flattened layers, nothing on a clock.
+    private var posterTextureLayer: some View {
+        ZStack(alignment: .topTrailing) {
+            PosterPaper(dotColor: .white.opacity(0.07))
+            PosterAccentStripes(angle: .degrees(58), length: DeviceClass.current == .tv ? 700 : 460)
+                .offset(x: DeviceClass.current == .tv ? 250 : 170, y: DeviceClass.current == .tv ? -120 : -90)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 
     // MARK: - Ambient background
