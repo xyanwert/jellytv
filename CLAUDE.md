@@ -662,6 +662,18 @@ stage band, sized to the band and allowed off the screen's edge rather than cut 
 rectangle (the shelf-edge second mascot went — it sat on the key-art card's corner); on iPad and
 iPhone the figure rides on the stage, right of the card and partly off the edge.
 
+**Characters are staged in the scene, not stuck on it** (`AnimeScene.swift`). The white-paper
+sticker border read as "pasted" ("simple AF"), so figures are baked `StickerCut.Style.inked` — a
+thin manga ink line only — and `AnimeSceneFigure` lights them: the silhouette in white a plate
+off register up-left (the lit edge), a halftone ink shadow down-right. Behind: `AnimeSpeedLines`
+(one static `Canvas` burst in the slash colour, running off the screen's edge, feathered under
+the header) and `AnimeHalftoneDisc`. In front: a katakana SFX (`AnimeSFX` — ドドド, ドン!, バーン!;
+ドキッ! on Late Night), die-cut and slapped on 0.3s after the figure lands. The figure runs ~7%
+past the shelf line and is masked there, so it stands *behind the counter* and the art's own
+crop line is never seen. A `.softLight` palette wash over the art was tried and dropped — it
+bleached the characters. The idle mascot gets the same staging, its burst capped so it never
+crosses the key-art card.
+
 **`StickerCut` bakes a sticker that reads as printed, not pasted.** Vision's matte is a soft,
 colour-fringed ramp; the alpha is firmed (a short knee around 50%), eroded a pixel to drop the
 fringe, and only then grown by morphology — a border dilated from a soft mask is a blurry border,

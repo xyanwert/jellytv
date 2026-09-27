@@ -227,7 +227,7 @@ struct LateNightLibraryView: View {
             .pageBehind(presentedShow != nil)
 
             if theme.isPoster && DeviceClass.current == .tv && presentedShow == nil && !allItems.isEmpty {
-                AnimeFigureLayer(lead: focusLead, mascots: mascots)
+                AnimeFigureLayer(variant: .lateNight, lead: focusLead, mascots: mascots)
             }
 
             if let presentedShow {

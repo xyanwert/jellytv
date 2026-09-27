@@ -614,8 +614,7 @@ struct AnimeSkinStage: View {
             if DeviceClass.current != .tv, lead == nil, let figure {
                 let phone = DeviceClass.current == .phone
                 let s = AnimeSize.pick(tv: 1, pad: 0.62, phone: 0.5)
-                DieCutSticker(image: figure, height: AnimeSkinLayout.stageHeight * (phone ? 0.7 : 0.82), tilt: 0,
-                              shadow: phone ? 6 : 9)
+                AnimeSceneFigure(image: figure, height: AnimeSkinLayout.stageHeight * (phone ? 0.7 : 0.82))
                     .offset(x: phone ? 226 : 1300 * s + 12, y: phone ? 96 : 0)
                     .transition(.opacity)
             }
@@ -638,6 +637,7 @@ struct AnimeSkinStage: View {
 /// visual (`AnimeKeyVisual`): its character on the shelf line under a disc of
 /// its own colour, its title in scanlines behind.
 struct AnimeFigureLayer: View {
+    var variant: AnimeSkinVariant = .anime
     let lead: AnimeLead?
     let mascots: [UIImage]
 
@@ -648,14 +648,37 @@ struct AnimeFigureLayer: View {
             let bandTop = h * AnimeSkinLayout.bandTop
             ZStack(alignment: .topLeading) {
                 if let lead {
-                    AnimeKeyVisual(lead: lead, size: geo.size, shelfY: shelfY, bandTop: bandTop)
+                    AnimeKeyVisual(variant: variant, lead: lead, size: geo.size, shelfY: shelfY, bandTop: bandTop)
                         .id(lead.item.id)
                         .transition(.opacity)
                 } else if let first = mascots.first {
-                    let mh = (shelfY - bandTop) * 0.96
-                    DieCutSticker(image: first, height: mh, tilt: 2.5, shadow: 14)
-                        .position(x: w * 0.915, y: shelfY - 6 - mh / 2)
-                        .transition(.opacity)
+                    // Standing behind the shelf's lip like the title focus's
+                    // figure, so the art's own crop line is never seen.
+                    // The same staging as a title focus, quieter: the burst
+                    // and the disc in the variant's own colours.
+                    let mh = (shelfY - bandTop) * 1.02
+                    let palette = AnimeKeyPalette.standard(variant)
+                    let center = CGPoint(x: w * 0.915, y: shelfY + mh * 0.06 - mh * 0.62)
+                    ZStack {
+                        AnimeSpeedLines(color: palette.slash.opacity(0.6), seed: 7)
+                            .frame(width: mh * 1.3, height: mh * 1.3) // never reaches the key-art card
+                            .position(center)
+                        AnimeHalftoneDisc(color: palette.disc, diameter: mh * 0.72)
+                            .position(center)
+                        AnimeSceneFigure(image: first, height: mh)
+                            .position(x: w * 0.915, y: shelfY + mh * 0.06 - mh / 2)
+                    }
+                    .frame(width: w, height: h)
+                    .mask(alignment: .top) {
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
+                                .frame(height: bandTop * 0.8)
+                            Rectangle()
+                        }
+                        .frame(width: w + 800, height: shelfY - bandTop * 0.5)
+                        .offset(y: bandTop * 0.5)
+                    }
+                    .transition(.opacity)
                 }
             }
             .frame(width: w, height: h, alignment: .topLeading)
@@ -673,22 +696,28 @@ struct AnimeFigureLayer: View {
 /// own coordinates so the three parts line up with each other and with the
 /// shelf, whatever the figure's proportions.
 private struct AnimeKeyVisual: View {
+    let variant: AnimeSkinVariant
     let lead: AnimeLead
     let size: CGSize
     let shelfY: CGFloat
     let bandTop: CGFloat
 
     @State private var arrived = false
+    @State private var lettered = false
 
     var body: some View {
         // Sized to the band, and capped in width: a wide duo or trio must not
-        // reach back over the column, so it stands shorter instead.
+        // reach back over the column, so it stands shorter instead. It runs
+        // on past the shelf line and the shelf hides the rest — the figure
+        // stands *behind the counter*, so the art's own crop (most cuts end
+        // at the waist or the knee) is never an edge anyone sees.
         let ratio = lead.figure.size.width / max(1, lead.figure.size.height)
-        let height = min(shelfY - bandTop - 12, 560, size.width * 0.36 / max(ratio, 0.01))
+        let height = min(shelfY - bandTop + 20, 600, size.width * 0.38 / max(ratio, 0.01))
         let width = height * ratio
-        let bottom = shelfY - 4, top = bottom - height
+        let bottom = shelfY + height * 0.07, top = bottom - height
         let cx = size.width * 0.83
         let disc = height * 0.86
+        let discCenter = CGPoint(x: cx + height * 0.06, y: top + height * 0.38)
         ZStack {
             PosterScanlineTitle(text: AnimeText.ghost(lead.item.title), size: height * 0.48,
                                 ink: .white.opacity(lead.palette.ghostOpacity), blend: .overlay)
@@ -704,21 +733,49 @@ private struct AnimeKeyVisual: View {
                 }
                 .position(x: size.width * 0.53 + size.width * 0.235, y: top + height * 0.30)
                 .opacity(arrived ? 1 : 0)
-            Circle()
-                .fill(lead.palette.disc)
-                .frame(width: disc, height: disc)
-                .shadow(color: Palette.posterInk.opacity(0.9), radius: 0, x: 10, y: 10)
+            // The burst the character lands in.
+            AnimeSpeedLines(color: lead.palette.slash.opacity(0.75), seed: lead.item.id.count)
+                .frame(width: disc * 2.3, height: disc * 2.3)
+                .scaleEffect(arrived ? 1 : 0.5)
+                .opacity(arrived ? 1 : 0)
+                .position(discCenter)
+            AnimeHalftoneDisc(color: lead.palette.disc, diameter: disc)
                 .scaleEffect(arrived ? 1 : 0.6)
                 .opacity(arrived ? 1 : 0)
-                .position(x: cx + height * 0.06, y: top + height * 0.38)
-            DieCutSticker(image: lead.figure, height: height, tilt: 0, shadow: 14)
-                .frame(width: width, height: height)
+                .position(discCenter)
+            AnimeSceneFigure(image: lead.figure, height: height, arrived: arrived)
                 .offset(x: arrived ? 0 : 70)
                 .opacity(arrived ? 1 : 0)
                 .position(x: cx, y: bottom - height / 2)
+            // Lettered into the panel over the shoulder, slapped on last.
+            DieCutText(text: AnimeSFX.word(for: lead.item.id, variant: variant),
+                       font: .system(size: height * 0.17, weight: .black),
+                       fill: lead.palette.slash, stroke: Palette.posterInk, width: height * 0.012,
+                       shadow: height * 0.012)
+                .rotationEffect(.degrees(-12))
+                .scaleEffect(lettered ? 1 : 1.8)
+                .opacity(lettered ? 1 : 0)
+                .position(x: cx - width / 2 - height * 0.02, y: top + height * 0.16)
+        }
+        .frame(width: size.width, height: size.height)
+        // The shelf is in front: nothing of the visual crosses onto the row
+        // the remote walks, and the burst stays out of the header. Wider than
+        // the layer, so the burst runs off the screen's edge rather than
+        // stopping at an invisible one.
+        .mask(alignment: .top) {
+            // Feathered at the top: a burst stopped by a ruled line reads as
+            // a clipping bug.
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
+                    .frame(height: bandTop * 0.8)
+                Rectangle()
+            }
+            .frame(width: size.width + 800, height: shelfY - bandTop * 0.5)
+            .offset(y: bandTop * 0.5)
         }
         .onAppear {
             withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) { arrived = true }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.55).delay(0.3)) { lettered = true }
         }
     }
 }

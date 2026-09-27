@@ -33,6 +33,10 @@ actor StickerCut {
         /// Ink around the subject, a thin white keyline outside — for a logo,
         /// whose own type is often white and would vanish into white paper.
         case outline
+        /// Only a thin ink line around the subject — manga linework. For a
+        /// character meant to stand *in* a scene rather than be stuck on it:
+        /// white paper is what makes a cut-out read as pasted.
+        case inked
     }
 
     private var memory: [String: UIImage] = [:]
@@ -62,6 +66,7 @@ actor StickerCut {
         switch style {
         case .sticker: (inner, outer) = (clamp(height * 0.028, 10, 44), clamp(height * 0.007, 2.5, 10))
         case .outline: (inner, outer) = (clamp(height * 0.030, 5, 16), clamp(height * 0.012, 2, 8))
+        case .inked: (inner, outer) = (clamp(height * 0.0055, 2.5, 8), 0)
         }
         let pad = ceil(inner + outer + 4)
         input = input.transformed(by: CGAffineTransform(translationX: pad, y: pad))
@@ -112,6 +117,8 @@ actor StickerCut {
         case .outline:
             composed = subject.composited(over: silhouette(ink, grow: inner))
                 .composited(over: silhouette(.white, grow: inner + outer))
+        case .inked:
+            composed = subject.composited(over: silhouette(ink, grow: inner))
         }
         guard let out = context.createCGImage(composed, from: canvas) else { return nil }
         return UIImage(cgImage: out)

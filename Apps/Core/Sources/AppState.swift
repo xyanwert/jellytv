@@ -976,7 +976,7 @@ final class AppState: ObservableObject {
         // run Vision. (`Scripts/seed-anime-figures.sh` is the other way: it
         // cuts the real art on the Mac into the simulator's cache.)
         if let path = Self.debugEnv("ANIME_CUTOUT"), let image = UIImage(contentsOfFile: path),
-           let sticker = await StickerCut.shared.sticker(image, key: "debug-\(path)") {
+           let sticker = await StickerCut.shared.sticker(image, key: "debug-\(path)", style: .inked) {
             return TitleFigure(sticker: sticker, hue: DominantColor.hue(of: image), score: 1)
         }
         #endif
@@ -1002,7 +1002,7 @@ final class AppState: ObservableObject {
                 }
             }
         }
-        guard let best, let sticker = await StickerCut.shared.sticker(best.image, key: "figure-\(item.id)") else {
+        guard let best, let sticker = await StickerCut.shared.sticker(best.image, key: "figure-\(item.id)", style: .inked) else {
             PlayerDiagnostics.log("figure: none for \(item.title)")
             titleFigureMisses.insert(item.id)
             return nil
@@ -1053,7 +1053,7 @@ final class AppState: ObservableObject {
             var seeded: [UIImage] = []
             for path in list.split(separator: ",").map(String.init) {
                 if let image = UIImage(contentsOfFile: path),
-                   let sticker = await StickerCut.shared.sticker(image, key: "debug-\(path)") {
+                   let sticker = await StickerCut.shared.sticker(image, key: "debug-\(path)", style: .inked) {
                     seeded.append(sticker)
                 }
             }
@@ -1086,7 +1086,7 @@ final class AppState: ObservableObject {
             guard let results = try? await client.search(.animeArt(title: title, sketchy: sketchy)),
                   let url = results.prefix(4).randomElement()?.fullImageURL,
                   let figure = await FigureCutoutCache.shared.figure(for: url.absoluteString),
-                  let sticker = await StickerCut.shared.sticker(figure.image, key: "mascot-\(url.absoluteString)")
+                  let sticker = await StickerCut.shared.sticker(figure.image, key: "mascot-\(url.absoluteString)", style: .inked)
             else { continue }
             found.append(sticker)
         }
