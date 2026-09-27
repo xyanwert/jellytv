@@ -91,7 +91,6 @@ struct PlayerSkipButton: View {
                 .buttonStyle(StickerButtonStyle(cornerRadius: posterHeight / 2, lift: PosterPlayerSize.lift * 1.6,
                                                 focusScale: 1.08))
                 .remoteFocus($focus, equals: .skipSegment)
-                .transition(.posterSlap)
         } else {
             Button(action: onSkip) { label.contentShape(shape) }
             #if os(tvOS)
@@ -100,17 +99,31 @@ struct PlayerSkipButton: View {
                 .buttonStyle(.plain)
             #endif
                 .remoteFocus($focus, equals: .skipSegment)
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
         }
     }
+
+    /// In from the edge it lives on, and back out the same way, fading as
+    /// it goes — driven by `arrival`'s spring in `PlayerChrome`. It used to
+    /// arrive with Poster's sticker slap (1.45× and 9° snapped down inside a
+    /// 0.3s ease) and leave as a bare fade: loud on the way in, abrupt on the
+    /// way out, and neither half matched the other.
+    /// A fixed glide rather than `.move(edge:)`: the chrome inserts this
+    /// inside a full-screen frame, where "move off the edge" would sweep it
+    /// in from the far side of the screen. Applied at that insertion site.
+    static var glide: AnyTransition {
+        .offset(x: DeviceClass.current == .tv ? 120 : 60).combined(with: .opacity)
+    }
+
+    /// Soft and unhurried with no overshoot: a control that turns up
+    /// uninvited over a playing picture should glide in, not bounce.
+    static let arrival: Animation = .spring(response: 0.55, dampingFraction: 0.92)
 
     // MARK: - Poster Mode
 
     private var posterHeight: CGFloat { DeviceClass.current == .tv ? 118 : (isPhone ? 52 : 72) }
 
     /// The white arrow pill: SKIP INTRO in the display face, the ink disc
-    /// with the skip glyph at its end. It arrives with the sticker slap —
-    /// one small layer, and the thing on screen that most needs noticing.
+    /// with the skip glyph at its end.
     private var posterLabel: some View {
         let h = posterHeight
         return HStack(spacing: h * 0.26) {

@@ -1251,6 +1251,14 @@ in `MediaSegmentTests` from bytes captured off this server). The envelope is the
 `ItemsResponse<T>` every list endpoint uses. YSOJ forwards it untouched, so nothing was needed
 server-side.
 
+**Only episodes ask** — TV shows and anime series, i.e. an item with a `seriesId`
+(`PlayerEngine.loadSegments`). A film's opening titles and end credits are part of the film and
+a home video has neither, so neither gets the button — nor Night mode's auto-skip, which reads the
+same list. The button **glides** in from its corner and back out (`PlayerSkipButton.glide`, a
+fixed offset plus fade, on a soft no-overshoot spring, `arrival`), applied at the chrome's
+insertion site: Poster's sticker slap (1.45× and 9° snapped down in 0.3s) arriving and a bare fade
+leaving read as jumpy on the TV.
+
 **Jellyfin merges segment providers; it never falls back between them.**
 `RunSegmentPluginProviders` loops every enabled provider with no early exit, and
 `MediaSegmentProviderOrder` only sorts which runs first — so two providers that both know an

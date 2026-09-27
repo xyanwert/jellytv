@@ -325,6 +325,7 @@ struct PlayerChrome: View {
                            alignment: .bottomTrailing)
                     .padding(.trailing, skipButtonInset.horizontal)
                     .padding(.bottom, skipButtonInset.vertical)
+                    .transition(PlayerSkipButton.glide)
             }
 
             // Last in the stack on purpose: while the lock is on it takes
@@ -342,7 +343,7 @@ struct PlayerChrome: View {
             }
         }
         .animation(.easeInOut(duration: 0.9), value: night.isOn)
-        .animation(Self.fadeAnimation, value: controller.activeSegment)
+        .animation(PlayerSkipButton.arrival, value: controller.activeSegment)
         // Night mode skips intros and credits by itself — the lock makes the
         // button unreachable, and someone asleep with a season queued should
         // not be woken by a theme tune the app could have jumped. Driven from
