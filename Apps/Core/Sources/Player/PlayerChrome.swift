@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import JellyTVKit
 
 /// Focusable fields across the whole chrome — one `@FocusState` shared by
@@ -154,6 +155,19 @@ struct PlayerChrome: View {
     /// underneath it. Keeping it here lets the whole chrome subtree be gated
     /// on `!scenesOpen`, which makes that write harmless.
     @State private var scenesOpen = false
+    /// Set by a press on Skip intro / credits while the button animates
+    /// away; the skip itself runs when that animation completes. Cleared
+    /// when the segment it was offering goes (`activeSegment` changes).
+    @State private var skipLeaving = false
+    /// The VHS fast-forward a skip plays while its seek happens underneath.
+    @State private var fastForward: FastForwardRun?
+
+    private struct FastForwardRun: Equatable {
+        let frames: [UIImage]
+        let from: Double
+        let to: Double
+        let started: Date
+    }
     /// Same reasoning as `scenesOpen` — and the same gate, since the tags
     /// panel pauses playback too.
     @State private var tagsOpen = false
@@ -207,6 +221,21 @@ struct PlayerChrome: View {
         ZStack {
             if night.isOn {
                 NightVeil(windDown: night.windDown, ended: night.phase == .ended)
+                    .transition(.opacity)
+            }
+
+            // The next video loading — after the natural advance, or after
+            // a credits skip's tape has landed there. Not under the chrome
+            // (it has its own spinner in the play button), not in Night mode
+            // (a bright disc in a dark room), not over the tape.
+            if controller.isLoading, !visible, fastForward == nil, !night.isOn, !isFailed {
+                PlayerNextLoading()
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
+
+            if let run = fastForward {
+                VHSFastForward(frames: run.frames, from: run.from, to: run.to,
+                               runtime: controller.duration, started: run.started)
                     .transition(.opacity)
             }
 
@@ -316,10 +345,16 @@ struct PlayerChrome: View {
             // the skip happens by itself (`autoSkipIfNightMode`), so a button
             // would only flash for a tick before the jump it was offering
             // already happened.
-            if let segment = controller.activeSegment,
+            //
+            // `!visible`: **the button and the chrome never share the
+            // screen.** Showing the controls puts the button away; it comes
+            // back (still offering the same segment) when they hide. And
+            // `!skipLeaving`: a press first lets the button finish leaving,
+            // *then* skips (`skipSegment`).
+            if let segment = controller.activeSegment, !visible, !skipLeaving,
                !night.isOn, !scenesOpen, !tagsOpen, !isFailed {
                 PlayerSkipButton(segment: segment, accent: accent,
-                                 onSkip: { interact(); controller.skipActiveSegment() },
+                                 onSkip: skipSegment,
                                  focus: $focus)
                     .frame(maxWidth: .infinity, maxHeight: .infinity,
                            alignment: .bottomTrailing)
@@ -344,13 +379,21 @@ struct PlayerChrome: View {
         }
         .animation(.easeInOut(duration: 0.9), value: night.isOn)
         .animation(PlayerSkipButton.arrival, value: controller.activeSegment)
+        .animation(.easeOut(duration: 0.25), value: controller.isLoading)
         // Night mode skips intros and credits by itself — the lock makes the
         // button unreachable, and someone asleep with a season queued should
         // not be woken by a theme tune the app could have jumped. Driven from
         // the same `activeSegment` change the button is, so the two can never
         // disagree about what is on offer.
-        .onChange(of: controller.activeSegment) { _, _ in
+        .onChange(of: controller.activeSegment) { _, segment in
+            skipLeaving = false
             controller.autoSkipIfNightMode(night.isOn)
+            // Warm the frames a press would fast-forward through.
+            if let segment, !night.isOn {
+                let from = max(controller.currentTime, segment.startSeconds)
+                let to = controller.skipTarget(for: segment)
+                Task { await controller.prefetchFrames(from: from, to: to) }
+            }
         }
         // A segment can already be active when Night mode is switched on
         // mid-sequence; `activeSegment` hasn't changed, so the line above
@@ -402,6 +445,12 @@ struct PlayerChrome: View {
             }
             // The chrome now shows the heart and the clock for real.
             if v { glanceTimer.cancel(); glance = nil }
+            // The controls going away brings a pending Skip button back
+            // (it never shares the screen with them) — already focused, so
+            // it is still one Select press.
+            if !v, controller.activeSegment != nil, !night.isOn, !scenesOpen, !tagsOpen {
+                focus = .skipSegment
+            }
             #endif
         }
         .task {
@@ -429,6 +478,27 @@ struct PlayerChrome: View {
                 return
             }
             #endif
+            // `JT_TRY_SKIP` / `RT_TRY_SKIP` = seconds: seeks into the
+            // credits (else the intro) that long in, waits for the
+            // button, lets the chrome hide, and presses Skip — the whole
+            // hide-then-skip-into-the-next-episode path, readable in the
+            // `JT_PLAYER_LOG` lines without a remote.
+            if let raw = env["JT_TRY_SKIP"] ?? env["RT_TRY_SKIP"], let delay = Double(raw) {
+                try? await Task.sleep(for: .seconds(delay))
+                // The credits if the episode has them, else its intro.
+                let segments = controller.skippableSegments
+                guard !Task.isCancelled,
+                      let target = segments.first(where: { $0.kind == .outro }) ?? segments.first else {
+                    PlayerDiagnostics.log("try-skip: no skippable segment on this item")
+                    return
+                }
+                await controller.seek(to: target.startSeconds + 1)
+                if visible { withAnimation(Self.fadeAnimation) { visible = false } }
+                try? await Task.sleep(for: .seconds(3))
+                PlayerDiagnostics.log("try-skip: segment=\(controller.activeSegment?.kind.rawValue ?? "none") visible=\(visible)")
+                skipSegment()
+                return
+            }
             if let raw = env["JT_TRY_JUMP"] ?? env["RT_TRY_JUMP"], let delay = Double(raw) {
                 try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
@@ -506,7 +576,7 @@ struct PlayerChrome: View {
         .onChange(of: controller.isPlaying) { _, playing in
             if playing {
                 armIdleTimer()
-            } else if !controller.isLoading {
+            } else if !controller.isLoading, !endingIntoNext {
                 // The `isLoading` guard is the whole fix for "auto-advance
                 // pops the chrome up": `setItem` (queue advance, retry, the
                 // engine's own end-of-item skip) always dips `isPlaying`
@@ -582,19 +652,13 @@ struct PlayerChrome: View {
         // Diagonally opposite BACK, clear of the centred foot row,
         // and inert — it names the thing playing, it isn't a control.
         //
-        // **It yields that corner to the skip button.** The mark is here
-        // precisely because nobody needs to act on it, which is also what
-        // makes it the thing to drop when something actionable needs the same
-        // space for a minute. Stacking them instead was tried and is worse:
-        // the button lands on top of the title and the episode line reads
-        // through it.
+        // It used to yield this corner to the skip button; it no longer
+        // needs to, because that button never shares the screen with the
+        // chrome at all (it waits for the controls to go away).
         .overlay(alignment: .bottomTrailing) {
-            if controller.activeSegment == nil {
-                PlayerIdentityMark(item: controller.currentItem)
-                    .padding(.trailing, 56)
-                    .padding(.bottom, 44)
-                    .transition(.opacity)
-            }
+            PlayerIdentityMark(item: controller.currentItem)
+                .padding(.trailing, 56)
+                .padding(.bottom, 44)
         }
     }
 
@@ -710,7 +774,7 @@ struct PlayerChrome: View {
             .padding(.horizontal, 30)
         }
         .overlay(alignment: .bottomTrailing) {
-            if controller.activeSegment == nil, let parts = controller.currentItem?.posterEpisodeParts,
+            if let parts = controller.currentItem?.posterEpisodeParts,
                !parts.title.isEmpty {
                 PosterStickerTag(name: parts.title, sub: parts.code, paper: Color(hex: "#F2E14C"), size: 13)
                     .frame(maxWidth: 150, alignment: .trailing)
@@ -818,6 +882,50 @@ struct PlayerChrome: View {
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.25)) { stampedTag = nil }
         }
+    }
+
+    /// Skip intro / credits, in order: the button leaves first, and only
+    /// once it is gone does the playhead jump. The chrome is *not* summoned —
+    /// a press on this button is "get me past this", and the controls
+    /// flashing up over the next scene (or the next episode) was the clutter
+    /// it caused.
+    private func skipSegment() {
+        guard !skipLeaving else { return }
+        guard let segment = controller.activeSegment else { return }
+        PlayerDiagnostics.log("skip: button leaving")
+        // The frames are gathered while the button leaves, so the tape is
+        // ready the moment it has gone. (The sheets were warmed when the
+        // button appeared; this is crops out of memory.)
+        let from = controller.currentTime
+        let to = controller.skipTarget(for: segment)
+        let frames = Task { await controller.fastForwardFrames(from: from, to: to, steps: VHSFastForward.frameCount) }
+        withAnimation(PlayerSkipButton.departure) {
+            skipLeaving = true
+        } completion: {
+            Task { await playFastForward(from: from, to: to, frames: await frames.value) }
+        }
+    }
+
+    /// The fast-forward, then the landing: the seek starts with the tape, so
+    /// by the time the second is up the picture is already there — at the
+    /// end of the intro, or a second from the end for the credits, where the
+    /// ordinary end-of-item advance takes it into the next episode.
+    private func playFastForward(from: Double, to: Double, frames: [UIImage]) async {
+        PlayerDiagnostics.log("skip: button gone — fast-forward \(Int(from))s → \(Int(to))s over \(frames.count) frames")
+        fastForward = FastForwardRun(frames: frames, from: from, to: to, started: .now)
+        controller.skipActiveSegment()
+        try? await Task.sleep(for: .seconds(VHSFastForward.duration))
+        withAnimation(.easeOut(duration: 0.12)) { fastForward = nil }
+        PlayerDiagnostics.log("skip: fast-forward done")
+    }
+
+    /// At the very end of an item with another queued behind it: the stop
+    /// there is the queue about to move on (a credits skip lands a second
+    /// before the end), not a viewer pausing — so it must not reveal the
+    /// chrome over the next episode's first frame.
+    private var endingIntoNext: Bool {
+        controller.hasNext && controller.duration > 0
+            && controller.duration - controller.currentTime < 2.5
     }
 
     private func interact() {

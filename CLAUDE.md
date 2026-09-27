@@ -1312,6 +1312,44 @@ fixed offset plus fade, on a soft no-overshoot spring, `arrival`), applied at th
 insertion site: Poster's sticker slap (1.45× and 9° snapped down in 0.3s) arriving and a bare fade
 leaving read as jumpy on the TV.
 
+**A press hides the button first, then skips** (`PlayerChrome.skipSegment`: `skipLeaving` under a
+0.28s ease-in, the seek in its `completion`), and it does **not** summon the chrome — skipping the
+credits used to reveal the controls over the next episode's first frame. That had a second cause:
+the credits skip lands a second before the end, the item stops there before the queue starts
+loading, and the paused-reveal rule read that stop as the viewer pausing; `endingIntoNext` (last
+2.5s with a next item queued) now exempts it. `JT_TRY_SKIP` / `RT_TRY_SKIP=<seconds>` seeks into
+the last minute and presses Skip; the log reads `skip: button leaving` → `skip: button gone —
+skipping` → the next episode's `segments` line, with no `chrome: visible -> true` between.
+
+**Then the tape fast-forwards** (`VHSFastForward`, one second — 3 and then 1.8 were tried on the TV and both felt long): the flow is press → the button
+leaves → a VCR fast-forward → the landing → (credits) the ordinary end-of-item advance into the
+next episode. The picture is the episode's own trickplay frames from the playhead to the landing
+(`PlayerController.fastForwardFrames`, 45 of them, repeats kept — an intro only has two or three
+real frames at a 10s interval and the *flip rate* is what reads as speed). The flips are a steady
+15 a second, but where the tape *is* eases in and out (`VHSFastForward.travel`, cubic): it pulls
+away slowly, races through the middle skipping most of the span, and settles onto the landing —
+the counter rides the same curve. Each flip is knocked sideways
+and rolled, with a red/cyan fringe, static scanlines, tracking bands sliding down, the
+head-switching strip at the foot, and the deck's OSD (▶▶ FF, SP, a counter racing to the landing).
+The real seek starts *with* the tape, so the picture is there when it fades. The frames are
+warmed when the button appears (`prefetchFrames`). No shader: two copies of one small image, a few
+rectangles, one static `Canvas`, and a sliver redrawn per frame — for one second. Night mode's
+auto-skip stays silent, no tape. `JT_FF_SECONDS` / `RT_FF_SECONDS` (DEBUG) stretches it so the
+simulator can capture it; judge the real one on the Apple TV.
+
+**The next video loading shows an hourglass** (`PlayerNextLoading`): turned over (half a turn,
+a rest) inside a disc of the theme's colour — a teal sticker in Poster Mode — centre screen while
+the engine is `.loading` with the chrome hidden: after the natural advance, and after a credits
+skip's tape lands there. Not over the tape, not under the chrome (its play button has a spinner),
+not in Night mode.
+
+**A skipped segment stays gone past its landing** (`PlayerController.activeSegment`): the credits
+skip lands a second short of the end, still inside the credits, and the button came straight back
+over the tape. Seeking back into it on purpose offers it again. **Never index past the last real
+frame** (`TrickplayClient.thumbnail(…runtimeSeconds:)`): the last sheet is padded to its full
+grid with black, so frame 130 of a 1296s episode is a black tile *inside* the bitmap, not out of
+bounds — rounding to the nearest frame reached it and the tape played black.
+
 **Jellyfin merges segment providers; it never falls back between them.**
 `RunSegmentPluginProviders` loops every enabled provider with no early exit, and
 `MediaSegmentProviderOrder` only sorts which runs first — so two providers that both know an
@@ -1327,11 +1365,11 @@ an ad break in a recording has no reliable end.
 point — the theme starts, it appears over the picture, one press and you're past it; needing to
 summon the chrome first would make it slower than the ⏩ circle it replaces. It sits bottom-right
 rather than in the centred column, because that column is for controls you go looking for and a
-live target under the play button is a press meant for pause. **`PlayerIdentityMark` yields that
-corner while it is up** — the mark is there precisely because nobody acts on it, so it is the
-thing to drop when something actionable needs the space; stacking them was tried and the title
-reads straight through the button. On tvOS the button takes focus when it appears *while the
-chrome is hidden* (one Select press, the convention every TV app follows) — seeded in `onAppear`
+live target under the play button is a press meant for pause. **The button and the chrome never
+share the screen**: showing the controls puts the button away and it returns when they hide, so
+`PlayerIdentityMark` no longer gives up its corner (stacking the two was tried once, and the title
+read straight through the button). On tvOS the button takes focus when it appears *while the
+chrome is hidden*, and again when the chrome hides with a segment still on offer (one Select press, the convention every TV app follows) — seeded in `onAppear`
 as well as `onChange`, since `onChange` never fires for a segment that was already active on the
 first frame. Fetching is fire-and-forget off `setItem` and the 4Hz observer is what decides
 whether it shows; an empty list is the common case and must read as "no button", never as an

@@ -118,6 +118,10 @@ struct PlayerSkipButton: View {
     /// uninvited over a playing picture should glide in, not bounce.
     static let arrival: Animation = .spring(response: 0.55, dampingFraction: 0.92)
 
+    /// The way out after a press: quick and accelerating away, since the
+    /// skip waits for it to finish.
+    static let departure: Animation = .easeIn(duration: 0.28)
+
     // MARK: - Poster Mode
 
     private var posterHeight: CGFloat { DeviceClass.current == .tv ? 118 : (isPhone ? 52 : 72) }

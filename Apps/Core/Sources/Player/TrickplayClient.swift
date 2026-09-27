@@ -93,7 +93,8 @@ actor TrickplayClient {
     /// sheet that 404s, a frame past the end of the grid, a decode failure —
     /// so the caller renders an empty cell rather than a wrong one.
     func thumbnail(forSeconds timeSeconds: Double, itemId: String, widthKey: String,
-                   info: JellyfinAPI.TrickplayInfo, mediaSourceId: String) async -> UIImage? {
+                   info: JellyfinAPI.TrickplayInfo, mediaSourceId: String,
+                   runtimeSeconds: Double? = nil) async -> UIImage? {
         let perSheet = info.thumbsPerTile
         guard perSheet > 0, info.interval > 0 else {
             Self.log.warning("degenerate geometry tile=\(info.tileWidth)x\(info.tileHeight) interval=\(info.interval)")
@@ -105,7 +106,15 @@ actor TrickplayClient {
         }
 
         // Which frame, which sheet, and where in that sheet's grid.
-        let globalIndex = Self.frameIndex(forSeconds: timeSeconds, interval: info.interval)
+        var globalIndex = Self.frameIndex(forSeconds: timeSeconds, interval: info.interval)
+        // **Never past the last real frame.** The last sheet is padded out to
+        // its full grid with black, so an index beyond the item's end is not
+        // out of the bitmap's bounds — it is a black tile, and rounding to
+        // the nearest frame near the end reaches exactly there (1295s of a
+        // 1296s episode rounded to frame 130; frame 129 is the last).
+        if let runtimeSeconds, runtimeSeconds > 0 {
+            globalIndex = min(globalIndex, max(0, Int((runtimeSeconds * 1000 - 1) / Double(info.interval))))
+        }
         let tileIndex = globalIndex / perSheet
         let inTile = globalIndex % perSheet
         let col = inTile % info.tileWidth

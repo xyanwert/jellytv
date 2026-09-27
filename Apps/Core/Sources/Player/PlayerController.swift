@@ -137,10 +137,22 @@ final class PlayerController {
     /// `UserDefaults` bool, this is called at 4Hz at most, and caching it
     /// would mean a change in Settings mid-film didn't take until the next
     /// launch.
+    ///
+    /// **A segment just skipped stays gone for the rest of it.** A credits
+    /// skip lands a second short of the end (`skipTarget`) — still *inside*
+    /// the credits — so without this the button came straight back over the
+    /// fast-forward for the segment it had just skipped. Only from the
+    /// landing point on, though: seeking back into an intro on purpose
+    /// offers it again.
     var activeSegment: MediaSegment? {
-        guard Self.skipSegmentsEnabled else { return nil }
-        return engine.activeSegment
+        guard Self.skipSegmentsEnabled, let segment = engine.activeSegment else { return nil }
+        if autoSkipped.contains(segment.id), currentTime >= skipTarget(for: segment) - 1.5 { return nil }
+        return segment
     }
+
+    /// Every intro / credits marker the current item has — what a test
+    /// hook needs to find one to land in.
+    var skippableSegments: [MediaSegment] { engine.segments.filter { $0.kind.isSkippable } }
 
     /// Jump to the end of `activeSegment`.
     ///
@@ -414,6 +426,39 @@ final class PlayerController {
         return await trickplayThumbnail(at: seconds, widthKey: geometry.widthKey, info: geometry.info)
     }
 
+    /// The frames a skip fast-forwards through: `steps` moments evenly
+    /// spaced from `from` to `to`, cut from the trickplay sheets. Repeats
+    /// are kept on purpose — a 15-second intro only has two or three real
+    /// frames at a 10s interval, and the flip rate is what reads as speed.
+    /// Empty when the item has no trickplay.
+    func fastForwardFrames(from: Double, to: Double, steps: Int) async -> [UIImage] {
+        guard steps > 1, let geometry = await resolveTrickplay() else { return [] }
+        var frames: [UIImage] = []
+        for i in 0..<steps {
+            let t = from + (to - from) * Double(i) / Double(steps - 1)
+            if let frame = await trickplayThumbnail(at: t, widthKey: geometry.widthKey, info: geometry.info) {
+                frames.append(frame)
+            }
+        }
+        return frames
+    }
+
+    /// Warm the sheets a segment spans, the moment its Skip button appears,
+    /// so the fast-forward starts on frames instead of waiting on a fetch.
+    func prefetchFrames(from: Double, to: Double) async {
+        guard to > from, let geometry = await resolveTrickplay() else { return }
+        let step = Double(geometry.info.interval) / 1000
+        let times = Array(stride(from: from, through: to, by: max(step, 1)))
+        await prefetchScenes(at: times, widthKey: geometry.widthKey, info: geometry.info)
+    }
+
+    /// Where a skip of `segment` lands — the same clamp `PlayerEngine.skip`
+    /// applies (a second short of the end, so credits don't trip
+    /// end-of-item mid-seek).
+    func skipTarget(for segment: MediaSegment) -> Double {
+        duration > 0 ? min(segment.endSeconds, duration - 1) : segment.endSeconds
+    }
+
     /// Warm the sheets behind these moments (the scenes panel's neighbouring
     /// pages) so a swipe lands on frames instead of spinners.
     func prefetchScenes(at seconds: [Double], widthKey: String,
@@ -432,7 +477,8 @@ final class PlayerController {
               let mediaSourceId = engine.currentMediaSourceId else { return nil }
         return await engine.trickplayClient.thumbnail(
             forSeconds: seconds, itemId: itemId, widthKey: widthKey,
-            info: info, mediaSourceId: mediaSourceId
+            info: info, mediaSourceId: mediaSourceId,
+            runtimeSeconds: duration > 0 ? duration : nil
         )
     }
 
