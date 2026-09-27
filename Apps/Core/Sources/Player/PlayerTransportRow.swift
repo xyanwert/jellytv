@@ -3,7 +3,7 @@ import JellyTVKit
 
 /// The transport circles, one row, biggest in the middle:
 ///
-///     ↺30  ·  play/pause  ·  ↻30  ·  ↻1min
+///     ↺10  ·  play/pause  ·  ↻10  ·  ↻1min      (the 10 climbs to 60 under a run of taps)
 ///
 /// Nothing is written under them — the glyph is the label. That is what buys
 /// full-size targets in one row rather than three plus a strip of seven small
@@ -122,6 +122,11 @@ struct PlayerTransportRow: View {
         #endif
     }
 
+    /// The live step of each jump circle (`PlayerController.jumpStep`): 10 at
+    /// rest, climbing while a run of taps is on.
+    private var backStep: Int { Int(controller.jumpStep(forward: false)) }
+    private var forwardStep: Int { Int(controller.jumpStep(forward: true)) }
+
     // MARK: - Poster Mode
 
     /// The design's row on every device: a phantom slot, ↺30, PLAY, ↻30, 1M —
@@ -130,12 +135,12 @@ struct PlayerTransportRow: View {
     private var posterRow: some View {
         HStack(spacing: PosterPlayerSize.transportGap) {
             Color.clear.frame(width: PosterPlayerSize.jump, height: 1)
-            posterJump(field: .back30, forward: false, number: "30", label: "30 seconds back") {
-                controller.jump(by: -30)
+            posterJump(field: .back30, forward: false, number: "\(backStep)", label: "\(backStep) seconds back") {
+                controller.jump(forward: false)
             }
             posterPlay
-            posterJump(field: .forward30, forward: true, number: "30", label: "30 seconds ahead") {
-                controller.jump(by: 30)
+            posterJump(field: .forward30, forward: true, number: "\(forwardStep)", label: "\(forwardStep) seconds ahead") {
+                controller.jump(forward: true)
             }
             posterJump(field: .forwardMinute, forward: true, number: "1M", label: "One minute ahead") {
                 controller.jump(by: 60)
@@ -227,21 +232,21 @@ struct PlayerTransportRow: View {
     private var phoneRow: some View {
         HStack(spacing: gap) {
             circle(
-                field: .back30, diameter: jump, glyph: "gobackward.30", glyphSize: jumpGlyphSize,
+                field: .back30, diameter: jump, glyph: "gobackward.\(backStep)", glyphSize: jumpGlyphSize,
                 fill: .black.opacity(0.52), stroke: Palette.text(0.20), tint: .white,
-                label: "30 seconds back"
+                label: "\(backStep) seconds back"
             ) {
-                controller.jump(by: -30)
+                controller.jump(forward: false)
             }
 
             playCircle
 
             circle(
-                field: .forward30, diameter: jump, glyph: "goforward.30", glyphSize: jumpGlyphSize,
+                field: .forward30, diameter: jump, glyph: "goforward.\(forwardStep)", glyphSize: jumpGlyphSize,
                 fill: .black.opacity(0.52), stroke: Palette.text(0.20), tint: .white,
-                label: "30 seconds ahead"
+                label: "\(forwardStep) seconds ahead"
             ) {
-                controller.jump(by: 30)
+                controller.jump(forward: true)
             }
         }
     }
@@ -258,21 +263,21 @@ struct PlayerTransportRow: View {
             Color.clear.frame(width: Size.edge, height: 1)
 
             circle(
-                field: .back30, diameter: jump, glyph: "gobackward.30", glyphSize: jumpGlyphSize,
+                field: .back30, diameter: jump, glyph: "gobackward.\(backStep)", glyphSize: jumpGlyphSize,
                 fill: .black.opacity(0.52), stroke: Palette.text(0.20), tint: .white,
-                label: "30 seconds back"
+                label: "\(backStep) seconds back"
             ) {
-                controller.jump(by: -30)
+                controller.jump(forward: false)
             }
 
             playCircle
 
             circle(
-                field: .forward30, diameter: jump, glyph: "goforward.30", glyphSize: jumpGlyphSize,
+                field: .forward30, diameter: jump, glyph: "goforward.\(forwardStep)", glyphSize: jumpGlyphSize,
                 fill: .black.opacity(0.52), stroke: Palette.text(0.20), tint: .white,
-                label: "30 seconds ahead"
+                label: "\(forwardStep) seconds ahead"
             ) {
-                controller.jump(by: 30)
+                controller.jump(forward: true)
             }
 
             circle(

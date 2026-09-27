@@ -460,7 +460,7 @@ struct PlayerChrome: View {
             // automation. Inert unless set, like the other hooks.
             //
             // `JT_TRY_JUMP` / `RT_TRY_JUMP` = seconds: shows the chrome and
-            // pauses and mashes ↻30 that long in — so the
+            // pauses and mashes ↻ that long in (the ramp: 10, 15, 30, 45, then 60 s a tap) — so the
             // jump preview can be seen where tap injection into the rotated
             // player is unreliable.
             let env = ProcessInfo.processInfo.environment
@@ -509,7 +509,7 @@ struct PlayerChrome: View {
                 // A mash: eighteen taps ~0.2s apart hold the target pending
                 // for ~4s, long enough for a slow simulator screenshot.
                 for _ in 0..<18 where !Task.isCancelled {
-                    controller.jump(by: 30)
+                    controller.jump(forward: true)
                     try? await Task.sleep(for: .milliseconds(220))
                 }
                 return
@@ -1021,10 +1021,10 @@ struct PlayerChrome: View {
             Task { await controller.toggleFavorite() }
             showGlance(.favorite)
         case .left, .right:
-            let delta: Double = direction == .left ? -30 : 30
-            PlayerDiagnostics.log("chrome: hidden \(direction == .left ? "←" : "→") — \(Int(delta))s")
             night.noteInteraction()
-            controller.jump(by: delta)
+            let step = controller.jump(forward: direction == .right)
+            let delta = direction == .left ? -step : step
+            PlayerDiagnostics.log("chrome: hidden \(direction == .left ? "←" : "→") — \(Int(delta))s")
             showGlance(.seek(delta))
         case .down:
             interact()

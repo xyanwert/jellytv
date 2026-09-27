@@ -77,21 +77,37 @@ struct PlayerJumpPreview: View {
         return (env["JT_TRY_JUMP"] ?? env["RT_TRY_JUMP"]) == nil ? 1.3 : 30
     }()
 
+    @EnvironmentObject private var theme: Theme
     @State private var target: Double?
     @State private var forward = true
     @State private var hide: Task<Void, Never>?
+    /// How far this run of taps has come, snapshotted per tap (read live it
+    /// would drift while the frame lingers after the seek).
+    @State private var travel: Double = 0
 
     var body: some View {
         Color.clear
             .overlay(alignment: forward ? .trailing : .leading) {
                 if let target {
-                    PlayerSceneFrame(controller: controller, time: target, width: width)
-                        // Pinned to the row's edge, then pushed its own width
-                        // past it. Alignment guides were tried first and the
-                        // overlay ignored them: the frame sat on top of ↻30
-                        // and 1M (seen on the iPad).
-                        .offset(x: forward ? width + gap : -(width + gap), y: lift)
-                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    VStack(alignment: forward ? .trailing : .leading, spacing: width * 0.05) {
+                        PlayerSceneFrame(controller: controller, time: target, width: width)
+                        // The run's total, so a spammer sees the distance
+                        // grow with the taps: "+2:15", not just a moving clock.
+                        Text(Self.travelLabel(travel))
+                            .font(theme.isPoster ? Display.font(width * 0.14) : Mono.font(width * 0.1, .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(theme.isPoster ? Palette.posterInk : .white)
+                            .padding(.horizontal, width * 0.06).padding(.vertical, width * 0.02)
+                            .background(theme.isPoster ? Palette.posterTeal : Color.black.opacity(0.55),
+                                        in: RoundedRectangle(cornerRadius: width * 0.03, style: .continuous))
+                            .opacity(abs(travel) >= 1 ? 1 : 0)
+                    }
+                    // Pinned to the row's edge, then pushed its own width
+                    // past it. Alignment guides were tried first and the
+                    // overlay ignored them: the frame sat on top of ↻30
+                    // and 1M (seen on the iPad).
+                    .offset(x: forward ? width + gap : -(width + gap), y: lift)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
                 }
             }
             .allowsHitTesting(false)
@@ -99,6 +115,7 @@ struct PlayerJumpPreview: View {
                 if let pending {
                     hide?.cancel()
                     let heading = pending >= controller.currentTime
+                    travel = controller.jumpBurstTravel ?? (pending - controller.currentTime)
                     withAnimation(.easeOut(duration: 0.15)) {
                         forward = heading
                         target = pending
@@ -112,6 +129,13 @@ struct PlayerJumpPreview: View {
                 }
             }
             .onDisappear { hide?.cancel() }
+    }
+
+    /// "+45s", "−2:15" — the run's distance, in the sign of its direction.
+    static func travelLabel(_ seconds: Double) -> String {
+        let sign = seconds < 0 ? "−" : "+"
+        let s = Int(abs(seconds).rounded())
+        return s < 60 ? "\(sign)\(s)s" : String(format: "%@%d:%02d", sign, s / 60, s % 60)
     }
 }
 

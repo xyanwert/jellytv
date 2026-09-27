@@ -5,7 +5,7 @@ import JellyTVKit
 /// What a D-pad press does while the chrome is hidden, shown for a beat.
 ///
 /// With the controls away, the remote's four edges are the four things you do
-/// most (`PlayerChrome.handleMove`): Up likes, Left and Right jump thirty
+/// most (`PlayerChrome.handleMove`): Up likes, Left and Right jump (10 s, climbing under a run of presses)
 /// seconds, Down brings the chrome. None of those has anything on screen to
 /// press, so each one leaves a receipt — the heart as it now stands, or the
 /// jump glyph over the clock, which moves on the press because it reads
@@ -62,7 +62,7 @@ struct PlayerGlance: View {
                 VStack(spacing: 0) {
                     Image(systemName: delta < 0 ? "arrow.counterclockwise" : "arrow.clockwise")
                         .font(.system(size: 26, weight: .heavy))
-                    Text(delta < 0 ? "-30" : "+30")
+                    Text(delta < 0 ? "-\(Int(-delta))" : "+\(Int(delta))")
                         .font(Display.font(24))
                 }
                 .foregroundStyle(Palette.posterInk)
@@ -107,7 +107,7 @@ struct PlayerGlance: View {
                     .foregroundStyle(Palette.text(0.7))
             case .seek(let delta):
                 PlayerSceneFrame(controller: controller, time: controller.displayTime, width: 480)
-                Image(systemName: delta < 0 ? "gobackward.30" : "goforward.30")
+                Image(systemName: "\(delta < 0 ? "gobackward" : "goforward").\(Int(abs(delta)))")
                     .font(.system(size: 52, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 128, height: 128)

@@ -44,6 +44,32 @@ final class PlayerController {
     /// Comfortably longer than a double-tap, comfortably shorter than the
     /// seek itself — a single tap is not perceptibly delayed by it.
     private static let seekCoalesceSeconds: Duration = .milliseconds(280)
+    /// The target of the seek currently being applied. A tap that lands
+    /// while it is in flight builds on *this*, not on `currentTime`, which
+    /// still reads the old position until AVPlayer has moved — without it a
+    /// run of taps that straddled a commit lost everything before the commit.
+    private var seekInFlightTarget: Double?
+
+    /// A run of taps on one jump control — the same button pressed again
+    /// within `jumpBurstWindow`. Its length is what sets the step: the ramp
+    /// in `jump(forward:)`.
+    private struct JumpBurst {
+        var forward: Bool
+        var taps: Int
+        /// Where the run started, so the chrome can say how far it has come.
+        let origin: Double
+        var last: Date
+    }
+    private var burst: JumpBurst?
+    private var burstResetTask: Task<Void, Never>?
+    /// The steps a run climbs, tap by tap: 10 s, then 15, 30, 45, and 60 for
+    /// every tap after — one slow tap is fine-grained, a spam gets to a
+    /// minute a press by the fifth. Each value has an SF Symbol
+    /// (`goforward.10` … `.60`), which is how the Classic circle draws the
+    /// live step.
+    static let jumpLadder: [Double] = [10, 15, 30, 45, 60]
+    /// Taps closer together than this are one run.
+    private static let jumpBurstWindow: TimeInterval = 0.7
 
     nonisolated private static let dislikedIdsKey = "jelly:player.dislikedItemIds"
     nonisolated private static let skipSegmentsKey = "jelly:playback.skipSegments"
@@ -268,9 +294,54 @@ final class PlayerController {
     /// debounce alone does not."* Hence the in-flight guard as well as the
     /// timer, and the same 250ms-ish window `next()`/`previous()` already use.
     func jump(by delta: Double) {
-        let base = pendingSeekTarget ?? engine.currentTime
+        let base = pendingSeekTarget ?? seekInFlightTarget ?? engine.currentTime
         pendingSeekTarget = clampToItem(base + delta)
         scheduleSeekCommit()
+    }
+
+    /// One press of a jump control, with the step set by how fast the
+    /// presses come — **the ramp.** A single tap moves 10 s. Tap again
+    /// within `jumpBurstWindow` and the run continues up `jumpLadder`: 15,
+    /// 30, 45, then 60 s a press. Pause, or press the other direction, and
+    /// it starts over at 10 — so overshooting and tapping back is
+    /// fine-grained again. Built on `jump(by:)`, so a whole run is still one
+    /// seek. Returns the step taken, for a glance to show.
+    ///
+    /// Why taps and not a hold or a timer: the person this is for spams the
+    /// button and expects it to *work* — so their rhythm is the speed control.
+    @discardableResult
+    func jump(forward: Bool) -> Double {
+        let now = Date()
+        if var run = burst, run.forward == forward, now.timeIntervalSince(run.last) < Self.jumpBurstWindow {
+            run.taps += 1
+            run.last = now
+            burst = run
+        } else {
+            burst = JumpBurst(forward: forward, taps: 1, origin: displayTime, last: now)
+        }
+        let step = Self.jumpLadder[min((burst?.taps ?? 1) - 1, Self.jumpLadder.count - 1)]
+        jump(by: forward ? step : -step)
+        burstResetTask?.cancel()
+        burstResetTask = Task { @MainActor [self] in
+            try? await Task.sleep(for: .seconds(Self.jumpBurstWindow))
+            guard !Task.isCancelled else { return }
+            burst = nil
+        }
+        return step
+    }
+
+    /// What the next press in that direction would move — the number the
+    /// jump circle shows, so the ramp is never a surprise.
+    func jumpStep(forward: Bool) -> Double {
+        guard let burst, burst.forward == forward,
+              Date().timeIntervalSince(burst.last) < Self.jumpBurstWindow else { return Self.jumpLadder[0] }
+        return Self.jumpLadder[min(burst.taps, Self.jumpLadder.count - 1)]
+    }
+
+    /// How far the current run has come, signed — nil between runs.
+    var jumpBurstTravel: Double? {
+        guard let burst else { return nil }
+        return displayTime - burst.origin
     }
 
     /// Jump to an absolute position from a *mashable* control — the coalesced
@@ -316,10 +387,12 @@ final class PlayerController {
         }
         seekInFlight = true
         // Cleared *before* awaiting, so taps arriving during the seek start a
-        // fresh burst from the committed position rather than re-adding to a
-        // target that is already being applied.
+        // fresh burst from the committed position (`seekInFlightTarget`)
+        // rather than re-adding to a target that is already being applied.
         pendingSeekTarget = nil
+        seekInFlightTarget = target
         await engine.seek(to: target)
+        seekInFlightTarget = nil
         seekInFlight = false
     }
 
