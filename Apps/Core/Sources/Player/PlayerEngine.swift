@@ -43,6 +43,26 @@ final class PlayerEngine {
     /// during mid-playback rebuffering instead of a silently frozen frame.
     private(set) var isBuffering: Bool = false
     private(set) var currentItem: PlayableItem?
+
+    // MARK: Sound and subtitles
+    /// The item's library's languages, asked for as each item loads — set by
+    /// `PlayerView` from `AppState`. Nil plays the file's own defaults.
+    var languagePolicy: ((PlayableItem) async -> LibraryLanguagePreference?)?
+    /// The item's streams and what it plays with, from the resolve.
+    private(set) var streams: [JellyfinAPI.MediaStream] = []
+    private(set) var trackChoice = TrackPicker.Choice()
+    /// The chosen text subtitle's lines — the app draws these itself
+    /// (`PlayerSubtitleOverlay`), the same on a direct play and a transcode.
+    private(set) var subtitleCues: [JellyfinAPI.SubtitleCue] = []
+    /// Whether the picture is the file itself (AVPlayer picks the audio
+    /// track) or the transcode (the URL did).
+    private(set) var isDirectPlay = false
+    /// A pick made in the player for the current item, winning over the
+    /// library's preference until the item changes.
+    private var trackOverride: (itemId: String, choice: TrackPicker.Choice)?
+    /// Where a reload for a track change picks up — the position it left.
+    private var resumeOverrideSeconds: Double?
+    private var cuesTask: Task<Void, Never>?
     /// The media source the server actually negotiated for this item. Kept
     /// because trickplay sheets are addressed per media source — it was
     /// previously computed during `wireUp` and thrown away.
@@ -307,9 +327,16 @@ final class PlayerEngine {
         progressReporter = nil
 
         do {
-            let resolved = try await resolver.resolve(itemId: item.id)
+            let preference = await languagePolicy?(item)
+            if trackOverride?.itemId != item.id { trackOverride = nil }
+            let resolved = try await resolver.resolve(itemId: item.id, preference: preference,
+                                                      override: trackOverride?.choice)
             if generation.isCancelled(token) { return }
             PlayerDiagnostics.logResolved(resolved, item: item)
+            streams = resolved.streams
+            trackChoice = resolved.choice
+            PlayerDiagnostics.log("tracks: audio \(resolved.choice.audioIndex.map(String.init) ?? "—") subtitle \(resolved.choice.subtitleIndex.map(String.init) ?? "off")\(resolved.choice.subtitleIsBurnIn ? " (burn-in)" : "")\(resolved.choice.subtitleIsAutomatic ? " (automatic)" : "") of \(streams.count) streams; preference \(preference.map { "\($0.audio)/\($0.subtitles)/\($0.subtitleMode.rawValue)" } ?? "none")")
+            loadCues(itemId: resolved.itemId, mediaSourceId: resolved.mediaSourceId, token: token)
             if PlayerDiagnostics.isEnabled, resolved.directURL == nil {
                 Task { await PlayerDiagnostics.dumpPlaylists(masterURL: resolved.hlsURL, authHeader: resolved.authHeader) }
             }
@@ -582,7 +609,13 @@ final class PlayerEngine {
                 }
             }
             duration = item.duration.isNumeric ? item.duration.seconds : Double(currentItem?.runtimeTicks ?? 0) / 10_000_000
-            if let resumeTicks = currentItem?.resumePositionTicks, resumeTicks > 0 {
+            isDirectPlay = fallback != nil
+            if isDirectPlay { await applyAudioSelection(to: item) }
+            if let override = resumeOverrideSeconds {
+                // A reload for a track change: back to where it was.
+                resumeOverrideSeconds = nil
+                if override > 1 { await seek(to: override) }
+            } else if let resumeTicks = currentItem?.resumePositionTicks, resumeTicks > 0 {
                 let resumeSeconds = Double(resumeTicks) / 10_000_000
                 let total = duration
                 // Skip the resume seek if we're essentially at the start
@@ -624,6 +657,97 @@ final class PlayerEngine {
             break
         }
     }
+
+    // MARK: - Sound and subtitles
+
+    /// A direct play carries every audio track; AVPlayer starts on the
+    /// file's default, so the chosen one is selected here — by language,
+    /// else by its position among the audio streams.
+    private func applyAudioSelection(to item: AVPlayerItem) async {
+        guard let audioIndex = trackChoice.audioIndex,
+              let chosen = streams.first(where: { $0.type == "Audio" && $0.index == audioIndex }),
+              let group = try? await item.asset.loadMediaSelectionGroup(for: .audible),
+              group.options.count > 1 else { return }
+        let code = LanguageTable.canonical(chosen.language)
+        var option: AVMediaSelectionOption?
+        if let code {
+            option = group.options.first { opt in
+                let tag = opt.locale?.language.languageCode?.identifier(.alpha3) ?? opt.extendedLanguageTag
+                return LanguageTable.canonical(tag) == code
+            }
+        }
+        if option == nil {
+            let audio = streams.filter { $0.type == "Audio" }
+            if let ordinal = audio.firstIndex(where: { $0.index == audioIndex }), ordinal < group.options.count {
+                option = group.options[ordinal]
+            }
+        }
+        if let option {
+            item.select(option, in: group)
+            PlayerDiagnostics.log("tracks: direct play audio → \(option.displayName)")
+        }
+    }
+
+    /// Fetches the chosen text subtitle's lines. A burned-in track has no
+    /// lines to fetch; off clears them.
+    private func loadCues(itemId: String, mediaSourceId: String, token: Int) {
+        cuesTask?.cancel()
+        subtitleCues = []
+        guard let index = trackChoice.subtitleIndex, !trackChoice.subtitleIsBurnIn else { return }
+        cuesTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Three asks, a pause between: the server may still be extracting
+            // the track from the file when the first comes back empty.
+            for attempt in 1...3 {
+                do {
+                    let cues = try await self.client.fetchSubtitleCues(itemId: itemId,
+                                                                        mediaSourceId: mediaSourceId,
+                                                                        streamIndex: index)
+                    guard !Task.isCancelled, !self.generation.isCancelled(token) else { return }
+                    self.subtitleCues = cues.sorted { $0.startTicks < $1.startTicks }
+                    PlayerDiagnostics.log("tracks: subtitle \(index) — \(self.subtitleCues.count) lines (ask \(attempt))")
+                    if !cues.isEmpty { return }
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    PlayerDiagnostics.log("tracks: subtitle \(index) ask \(attempt) failed: \(error.localizedDescription)")
+                }
+                try? await Task.sleep(for: .seconds(15))
+                guard !Task.isCancelled, !self.generation.isCancelled(token) else { return }
+            }
+        }
+    }
+
+    /// A pick from the player's panel. Applied in place where it can be —
+    /// the sound on a direct play (AVPlayer switches tracks), a text
+    /// subtitle anywhere (only the lines change) — and by a reload at the
+    /// same position when the transcode has to change: its sound, or a
+    /// bitmap subtitle burned in or taken out.
+    func switchTracks(audioIndex: Int?, subtitleIndex: Int?) async {
+        guard let item = currentItem else { return }
+        let subtitle = streams.first { $0.type == "Subtitle" && $0.index == subtitleIndex }
+        var choice = TrackPicker.Choice(audioIndex: audioIndex, subtitleIndex: subtitleIndex,
+                                        subtitleIsBurnIn: subtitle.map { $0.isTextSubtitleStream == false } ?? false,
+                                        subtitleIsAutomatic: false)
+        if subtitleIndex == nil { choice.subtitleIsBurnIn = false }
+        let audioChanged = choice.audioIndex != trackChoice.audioIndex
+        let needsReload = (audioChanged && !isDirectPlay) || choice.subtitleIsBurnIn || trackChoice.subtitleIsBurnIn
+        trackOverride = (item.id, choice)
+        if needsReload {
+            resumeOverrideSeconds = currentTime
+            PlayerDiagnostics.log("tracks: reloading for audio \(audioIndex.map(String.init) ?? "—") subtitle \(subtitleIndex.map(String.init) ?? "off")")
+            await setItemReresolving(item)
+            return
+        }
+        trackChoice = choice
+        if audioChanged, let playerItem = currentPlayerItem { await applyAudioSelection(to: playerItem) }
+        if let sourceId = currentMediaSourceId {
+            loadCues(itemId: item.id, mediaSourceId: sourceId, token: generation.latest)
+        }
+    }
+
+    /// The playhead read straight off the player, for the subtitle overlay's
+    /// own clock — the 4 Hz `currentTime` is a quarter-second late for a cue.
+    var preciseTime: Double { avPlayer.currentTime().seconds }
 
     private func makeAsset(url: URL, authHeader: String) -> AVURLAsset {
         // Belt-and-suspenders: the header rides on the manifest/segment

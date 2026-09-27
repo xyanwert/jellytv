@@ -18,6 +18,12 @@ public struct ResolvedPlayback: Sendable {
     public let mediaSource: JellyfinAPI.MediaSource
     /// The auth header to attach to the `AVURLAsset` for header-based auth.
     public let authHeader: String
+    /// Which sound and subtitle the item starts with (`TrackPicker`), from
+    /// the library's preference or a manual pick. A burned-in subtitle
+    /// makes `directURL` nil: only the transcode can draw it.
+    public let choice: TrackPicker.Choice
+
+    public var streams: [JellyfinAPI.MediaStream] { mediaSource.mediaStreams ?? [] }
 }
 
 public enum PlaybackInfoError: Error, LocalizedError, Sendable {
@@ -50,7 +56,12 @@ public struct PlaybackInfoResolver: Sendable {
         self.userId = userId
     }
 
-    public func resolve(itemId: String) async throws -> ResolvedPlayback {
+    /// - Parameters:
+    ///   - preference: the item's library's languages; nil plays the file's
+    ///     default tracks (a forced subtitle in that language included).
+    ///   - override: a pick made in the player, which wins over the preference.
+    public func resolve(itemId: String, preference: LibraryLanguagePreference? = nil,
+                        override: TrackPicker.Choice? = nil) async throws -> ResolvedPlayback {
         let response = try await client.fetchPlaybackInfo(userId: userId, itemId: itemId)
 
         if let code = response.errorCode, !code.isEmpty {
@@ -64,11 +75,18 @@ public struct PlaybackInfoResolver: Sendable {
         guard let playSessionId = response.playSessionId, !playSessionId.isEmpty else {
             throw PlaybackInfoError.noMediaSource
         }
+        let streams = mediaSource.mediaStreams ?? []
+        let choice = override ?? TrackPicker.choose(streams: streams, preference: preference)
+        // The sound is named on the transcode only when there is a choice
+        // to make — a single-track file keeps the URL it always had.
+        let audioCount = streams.filter { $0.type == "Audio" }.count
         guard let hlsURL = client.hlsManifestURL(itemId: itemId, mediaSourceId: mediaSource.id,
-                                                  playSessionId: playSessionId) else {
+                                                  playSessionId: playSessionId,
+                                                  audioStreamIndex: audioCount > 1 ? choice.audioIndex : nil,
+                                                  burnInSubtitleIndex: choice.subtitleIsBurnIn ? choice.subtitleIndex : nil) else {
             throw PlaybackInfoError.noMediaSource
         }
-        let directURL: URL? = mediaSource.canDirectPlayNatively
+        let directURL: URL? = mediaSource.canDirectPlayNatively && !choice.subtitleIsBurnIn
             ? client.directStreamURL(itemId: itemId, mediaSourceId: mediaSource.id)
             : nil
 
@@ -79,7 +97,8 @@ public struct PlaybackInfoResolver: Sendable {
             directURL: directURL,
             hlsURL: hlsURL,
             mediaSource: mediaSource,
-            authHeader: client.authorizationHeader
+            authHeader: client.authorizationHeader,
+            choice: choice
         )
     }
 }

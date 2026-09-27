@@ -42,6 +42,16 @@ struct LibrariesDetail: View {
                 #endif
             }
         }
+        #if DEBUG
+        // Screenshot hook: `JT_EXPAND_LIBRARY` / `RT_EXPAND_LIBRARY=<name>`
+        // opens that library's card — the accordion needs a press otherwise.
+        .task(id: appState.libraries.count) {
+            let env = ProcessInfo.processInfo.environment
+            guard let wanted = env["JT_EXPAND_LIBRARY"] ?? env["RT_EXPAND_LIBRARY"],
+                  let match = appState.browsableLibraries.first(where: { $0.name.localizedCaseInsensitiveContains(wanted) }) else { return }
+            expandedLibraryId = match.id
+        }
+        #endif
     }
 
     private var readout: String? {
@@ -171,6 +181,11 @@ private struct LibraryClassificationCard: View {
         var parts: [String] = []
         if flags.isNSFW { parts.append("NSFW") }
         if flags.isAnime { parts.append("Anime") }
+        let languages = appState.languagePreference(forLibrary: library.id)
+        if let first = languages.audio.first { parts.append(LanguageTable.endonym(for: first)) }
+        if languages.subtitleMode != .off || !languages.subtitles.isEmpty {
+            parts.append("CC " + (languages.subtitles.first.map { LanguageTable.endonym(for: $0) } ?? languages.subtitleMode.rawValue))
+        }
         let tagCount = appState.tags(forLibrary: library.id).count
         if tagCount > 0 { parts.append("\(tagCount) tag\(tagCount == 1 ? "" : "s")") }
         return parts.isEmpty ? "No extra classification" : parts.joined(separator: " · ")
@@ -210,10 +225,20 @@ private struct LibraryClassificationCard: View {
                 }
             }
             if supportsNSFW || supportsAnime { DetailDivider() }
+            if Self.playsVideo(collectionType) {
+                LibraryLanguagesEditor(libraryId: library.id, libraryName: library.name)
+                DetailDivider()
+            }
             LibraryTagsEditor(libraryId: library.id)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 6)
+    }
+
+    /// Libraries whose items the player plays — the only ones a language
+    /// preference means anything for.
+    private static func playsVideo(_ collectionType: String) -> Bool {
+        collectionType.isEmpty || ["movies", "tvshows", "homevideos", "musicvideos"].contains(collectionType)
     }
 
     private var typeLabel: String {

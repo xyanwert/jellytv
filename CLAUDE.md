@@ -1466,6 +1466,53 @@ the screenshot hook: a server blip mid-film used to drop the user out of the pla
 cover from an initial `@State` value is separately unreliable (SwiftUI drops it during the first
 render pass), so the `RT_SHOW_PLAYER` fixture is raised in `.onAppear` instead.
 
+**Sound and subtitles are the library's call, checked every time a video starts.** Settings →
+Libraries → a library → Languages (`LibraryLanguagesEditor`): three sound languages and three
+subtitle languages in order of preference, picked from **ten** languages named in their own
+spelling (`LanguageTable.all` — English, Español, 日本語, 中文, Français, Deutsch, Português,
+Italiano, 한국어, Русский; a longer list was cut on request), and whether subtitles start *On*,
+*Off* (only a *forced* track in the sound's language, the film's own call) or *When needed*
+(only when the sound isn't one of the preferred languages — the anime rule, Jellyfin's "Smart").
+Stored on the device (`jelly:library.languages`, `LibraryLanguagePreference`, kit): Jellyfin's
+own preference is one per user server-wide and writing per-library values into it would fight
+every other client. The decision is pure and tested (`TrackPicker.choose`, `LanguageTests`):
+first preferred language the file has (its default track among several, a commentary only if
+nothing else), else the file's default; a *full* subtitle track (never forced), text before
+bitmap. Codes are canonicalised to ISO 639-2/B before comparing (`LanguageTable.canonical`:
+"es", "spa", "es-MX" → "spa"; "deu" → "ger"). **Items don't carry their library**:
+`AppState.libraryId(for:)` reads what the library screens recorded (`itemLibraryId`), else asks
+`/Items/{id}/Ancestors` once (the `CollectionFolder`) and remembers it for the item and its series.
+
+**How a track reaches the player (Jellyfin 12, verified live).** Selection rides on the streaming
+URL, not on PlaybackInfo: `AudioStreamIndex` names the sound on a transcode, and a bitmap subtitle
+(PGS, VobSub — common in the films here) is burned in with `SubtitleStreamIndex` +
+`SubtitleMethod=Encode`, which forces the HLS route even for a direct-playable file
+(`PlaybackInfoResolver` clears `directURL`). On a direct play AVPlayer starts on the file's
+default audio, so `PlayerEngine.applyAudioSelection` picks the media selection option by
+language (else by ordinal). **Text subtitles are drawn by the app**, never by AVPlayer: the
+server converts srt/ass/mov_text to timed lines (`fetchSubtitleCues`, `…/Subtitles/{index}/0/
+Stream.js`) and `PlayerSubtitleOverlay` renders them — one look on both routes (design canvas
+"TV · Subtitles on the picture": each line on its own ink plate, Schibsted 800, a teal dash on a
+speaker change, 52pt on the TV, centred above the 120pt overscan, lifted clear of the foot row
+while the chrome is up), reading the playhead at 10 Hz (`preciseTime`) since the 4 Hz clock is a
+cue late. ASS styling is lost in that conversion (a tradeoff, not a bug). `DeviceProfile`
+declares `SubtitleProfile.avPlayer` (vtt Hls/External, srt External, pgssub/dvdsub Encode).
+`DeliveryUrl`/`DeliveryMethod` are only on a PlaybackInfo response, never on `/Items`.
+
+**The language check** (`PlayerLanguageCheck`): the moment an item is playing, two stickers
+top-right for three seconds — the sound (with its channels) and the subtitles (or OFF, and AUTO
+when a forced track or the when-needed rule turned them on) — chrome hidden. **The panel**
+(`PlayerLanguagesPanel`, from the top bar's "EN · CC ES" pill beside NIGHT, shown only when
+there is a choice): SOUND and SUBTITLES as sticker rows, the playing one teal, the library's
+preferred languages tagged PREFERRED #n, OFF at the head of the subtitles; a pick applies in
+place where it can (direct-play audio, any text subtitle) and by a reload at the same position
+where the transcode has to change (`PlayerEngine.switchTracks`, `resumeOverrideSeconds`);
+MAKE THIS THE DEFAULT FOR <LIBRARY> writes the pick to the head of the library's lists. Hooks:
+`JT_LANG_PREF` / `RT_LANG_PREF="audio=spa,eng;subs=spa;mode=on"` stands in for every
+library's preference; `JT_AUTOPLAY=movie:<title>` plays a film from the start;
+`JT_OPEN_LANGUAGES=<seconds>` opens the panel; `JT_EXPAND_LIBRARY=<name>` opens a library's
+Settings card. The phone remote's ↻/↺ and its SCENES know nothing of this yet.
+
 **Night mode** (`NightModeController` + `NightModeOverlay.swift`) is a sleep aid, not a colour
 filter, and every part of it exists to survive someone falling asleep holding the iPad:
 

@@ -95,6 +95,30 @@ final class PlayerController {
     }
     var currentTime: Double { engine.currentTime }
     var duration: Double { engine.duration }
+
+    // MARK: Sound and subtitles (see `PlayerEngine.switchTracks`)
+    var audioTracks: [JellyfinAPI.MediaStream] { engine.streams.filter { $0.type == "Audio" } }
+    var subtitleTracks: [JellyfinAPI.MediaStream] { engine.streams.filter { $0.type == "Subtitle" } }
+    var trackChoice: TrackPicker.Choice { engine.trackChoice }
+    var subtitleCues: [JellyfinAPI.SubtitleCue] { engine.subtitleCues }
+    var preciseTime: Double { engine.preciseTime }
+    var currentAudioTrack: JellyfinAPI.MediaStream? { audioTracks.first { $0.index == trackChoice.audioIndex } }
+    var currentSubtitleTrack: JellyfinAPI.MediaStream? { subtitleTracks.first { $0.index == trackChoice.subtitleIndex } }
+    /// Whether there is anything to choose — several sound tracks, or any
+    /// subtitles. The top bar's button exists only then.
+    var hasTrackChoices: Bool { audioTracks.count > 1 || !subtitleTracks.isEmpty }
+    /// "EN · CC ES" / "EN · CC OFF": the top-bar pill's text.
+    var languageSummary: String {
+        let audio = LanguageTable.shortCode(for: currentAudioTrack?.language) ?? "—"
+        let subs = currentSubtitleTrack.map { LanguageTable.shortCode(for: $0.language) ?? "ON" } ?? "OFF"
+        return "\(audio) · CC \(subs)"
+    }
+    func setAudioTrack(_ index: Int) async {
+        await engine.switchTracks(audioIndex: index, subtitleIndex: engine.trackChoice.subtitleIndex)
+    }
+    func setSubtitleTrack(_ index: Int?) async {
+        await engine.switchTracks(audioIndex: engine.trackChoice.audioIndex, subtitleIndex: index)
+    }
     var isBuffering: Bool { engine.isBuffering }
     var isFavorite: Bool { engine.isFavorite }
     var repeatOne: Bool { engine.repeatOne }

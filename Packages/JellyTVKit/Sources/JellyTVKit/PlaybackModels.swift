@@ -64,6 +64,8 @@ extension JellyfinAPI {
         public let directPlayProfiles: [DirectPlayProfile]
         public let transcodingProfiles: [TranscodingProfile]
         public let codecProfiles: [CodecProfile]
+        /// How subtitles may reach this client — see `SubtitleProfile`.
+        public let subtitleProfiles: [SubtitleProfile]
 
         enum CodingKeys: String, CodingKey {
             case maxStreamingBitrate = "MaxStreamingBitrate"
@@ -72,6 +74,7 @@ extension JellyfinAPI {
             case directPlayProfiles = "DirectPlayProfiles"
             case transcodingProfiles = "TranscodingProfiles"
             case codecProfiles = "CodecProfiles"
+            case subtitleProfiles = "SubtitleProfiles"
         }
 
         /// Apple TV profile: modern Apple TV hardware decodes H.264 high@5.2
@@ -98,19 +101,51 @@ extension JellyfinAPI {
                     .lessThanEqual(property: "VideoLevel", value: "52"),
                     .equalsAny(property: "VideoProfile", value: "high|main|baseline|constrained baseline"),
                 ]),
-            ]
+            ],
+            subtitleProfiles: SubtitleProfile.avPlayer
         )
 
         public init(maxStreamingBitrate: Int, maxStaticBitrate: Int, musicStreamingTranscodingBitrate: Int,
                     directPlayProfiles: [DirectPlayProfile], transcodingProfiles: [TranscodingProfile],
-                    codecProfiles: [CodecProfile]) {
+                    codecProfiles: [CodecProfile], subtitleProfiles: [SubtitleProfile] = SubtitleProfile.avPlayer) {
             self.maxStreamingBitrate = maxStreamingBitrate
             self.maxStaticBitrate = maxStaticBitrate
             self.musicStreamingTranscodingBitrate = musicStreamingTranscodingBitrate
             self.directPlayProfiles = directPlayProfiles
             self.transcodingProfiles = transcodingProfiles
             self.codecProfiles = codecProfiles
+            self.subtitleProfiles = subtitleProfiles
         }
+    }
+
+    /// One way a subtitle format may be delivered: `External` (fetched on
+    /// its own as WebVTT — the app draws it), `Hls` (a rendition in the
+    /// transcode's master playlist), `Encode` (burned into the picture, the
+    /// only route for bitmap tracks: PGS, VobSub). Verified against Jellyfin
+    /// 12: text tracks resolve `Hls` on a transcode and `External` for a
+    /// sidecar, and PGS burns in whether declared or not — declared anyway,
+    /// as every mainstream client does.
+    public struct SubtitleProfile: Encodable, Sendable {
+        public let format: String
+        public let method: String
+
+        enum CodingKeys: String, CodingKey {
+            case format = "Format"
+            case method = "Method"
+        }
+
+        public init(format: String, method: String) {
+            self.format = format
+            self.method = method
+        }
+
+        public static let avPlayer: [SubtitleProfile] = [
+            SubtitleProfile(format: "vtt", method: "Hls"),
+            SubtitleProfile(format: "vtt", method: "External"),
+            SubtitleProfile(format: "srt", method: "External"),
+            SubtitleProfile(format: "pgssub", method: "Encode"),
+            SubtitleProfile(format: "dvdsub", method: "Encode"),
+        ]
     }
 
     public struct DirectPlayProfile: Encodable, Sendable {
@@ -255,6 +290,26 @@ extension JellyfinAPI {
         public let codec: String?
         public let width: Int?
         public let height: Int?
+        /// Jellyfin's stream index — what `AudioStreamIndex` /
+        /// `SubtitleStreamIndex` on the streaming URL name.
+        public let index: Int?
+        /// ISO 639-2 as the file tagged it ("eng", "spa", also "deu"/"ger",
+        /// "und"); `LanguageTable.canonical` before comparing.
+        public let language: String?
+        /// Jellyfin's own label — "English - AC3 - 5.1 - Default".
+        public let displayTitle: String?
+        /// The track's own title, where the file has one ("Commentary").
+        public let title: String?
+        public let isDefault: Bool?
+        public let isForced: Bool?
+        /// A sidecar file (.srt beside the video) rather than an embedded track.
+        public let isExternal: Bool?
+        /// Text (subrip, ass, mov_text, vtt) as opposed to a bitmap (PGS, VobSub).
+        public let isTextSubtitleStream: Bool?
+        public let channels: Int?
+        /// Only on a `PlaybackInfo` response, never on `/Items?fields=MediaStreams`.
+        public let deliveryMethod: String?
+        public let deliveryUrl: String?
         /// Codec profile — "High", "Main 10", "High 10", … The distinction
         /// AVFoundation cares about: "High 10" (Hi10P) and "Main 10" are not
         /// decodable by Apple hardware in every container/segment combination.
@@ -271,13 +326,28 @@ extension JellyfinAPI {
             case codec = "Codec"
             case width = "Width"
             case height = "Height"
+            case index = "Index"
+            case language = "Language"
+            case displayTitle = "DisplayTitle"
+            case title = "Title"
+            case isDefault = "IsDefault"
+            case isForced = "IsForced"
+            case isExternal = "IsExternal"
+            case isTextSubtitleStream = "IsTextSubtitleStream"
+            case channels = "Channels"
+            case deliveryMethod = "DeliveryMethod"
+            case deliveryUrl = "DeliveryUrl"
             case profile = "Profile"
             case bitDepth = "BitDepth"
             case videoRangeType = "VideoRangeType"
         }
 
         public init(type: String? = nil, codec: String? = nil, width: Int? = nil, height: Int? = nil,
-                    profile: String? = nil, bitDepth: Int? = nil, videoRangeType: String? = nil) {
+                    profile: String? = nil, bitDepth: Int? = nil, videoRangeType: String? = nil,
+                    index: Int? = nil, language: String? = nil, displayTitle: String? = nil, title: String? = nil,
+                    isDefault: Bool? = nil, isForced: Bool? = nil, isExternal: Bool? = nil,
+                    isTextSubtitleStream: Bool? = nil, channels: Int? = nil,
+                    deliveryMethod: String? = nil, deliveryUrl: String? = nil) {
             self.type = type
             self.codec = codec
             self.width = width
@@ -285,6 +355,63 @@ extension JellyfinAPI {
             self.profile = profile
             self.bitDepth = bitDepth
             self.videoRangeType = videoRangeType
+            self.index = index
+            self.language = language
+            self.displayTitle = displayTitle
+            self.title = title
+            self.isDefault = isDefault
+            self.isForced = isForced
+            self.isExternal = isExternal
+            self.isTextSubtitleStream = isTextSubtitleStream
+            self.channels = channels
+            self.deliveryMethod = deliveryMethod
+            self.deliveryUrl = deliveryUrl
+        }
+
+        /// The language by its own name, or the track's title / codec when
+        /// it has no language tag — never a bare "und".
+        public var languageLabel: String {
+            if LanguageTable.canonical(language) != nil { return LanguageTable.endonym(for: language) }
+            if let title, !title.isEmpty { return title }
+            return "Unknown"
+        }
+    }
+
+    /// One line of a text subtitle track, from `…/Subtitles/{index}/0/Stream.js`.
+    public struct SubtitleCue: Decodable, Equatable, Sendable {
+        public let text: String
+        public let startTicks: Int64
+        public let endTicks: Int64
+
+        enum CodingKeys: String, CodingKey {
+            case text = "Text"
+            case startTicks = "StartPositionTicks"
+            case endTicks = "EndPositionTicks"
+        }
+
+        public init(text: String, startTicks: Int64, endTicks: Int64) {
+            self.text = text
+            self.startTicks = startTicks
+            self.endTicks = endTicks
+        }
+
+        public var start: Double { Double(startTicks) / 10_000_000 }
+        public var end: Double { Double(endTicks) / 10_000_000 }
+    }
+
+    public struct SubtitleTrackResponse: Decodable, Sendable {
+        public let trackEvents: [SubtitleCue]
+        enum CodingKeys: String, CodingKey { case trackEvents = "TrackEvents" }
+    }
+
+    /// An entry of `/Items/{id}/Ancestors` — the chain up to the library.
+    public struct Ancestor: Decodable, Sendable {
+        public let id: String
+        public let name: String?
+        public let type: String?
+        public let collectionType: String?
+        enum CodingKeys: String, CodingKey {
+            case id = "Id", name = "Name", type = "Type", collectionType = "CollectionType"
         }
     }
 

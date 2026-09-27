@@ -16,6 +16,8 @@ enum PlayerFocusField: Hashable {
     /// "Skip intro" / "Skip credits" — bottom-right, and the only field here
     /// that can be focused while the chrome is hidden.
     case skipSegment
+    /// The top bar's SOUND & SUBTITLES pill.
+    case languages
     case failureRetry, failureSkip, failureClose
 }
 
@@ -171,6 +173,11 @@ struct PlayerChrome: View {
     /// Same reasoning as `scenesOpen` — and the same gate, since the tags
     /// panel pauses playback too.
     @State private var tagsOpen = false
+    /// The sound & subtitles panel — same bracket as tags and scenes.
+    @State private var languagesOpen = false
+    /// Which item's language check is on screen (three seconds after it
+    /// starts, chrome hidden) — see `PlayerLanguageCheck`.
+    @State private var languageCheckItemId: String?
     /// The tag the "stamped" confirmation is currently showing, or nil when
     /// none is up. See `applyTagAndClose`.
     @State private var stampedTag: String?
@@ -239,7 +246,18 @@ struct PlayerChrome: View {
                     .transition(.opacity)
             }
 
-            if visible && !night.isLocked && !scenesOpen && !tagsOpen {
+            // Subtitles, over the picture and under everything else; lifted
+            // clear of the foot row while the controls are up.
+            if !scenesOpen && !tagsOpen && !languagesOpen {
+                PlayerSubtitleOverlay(controller: controller, lifted: visible && !night.isLocked)
+            }
+            if !visible, !scenesOpen, !tagsOpen, !languagesOpen, !night.isOn, fastForward == nil,
+               let checking = languageCheckItemId, checking == controller.currentItem?.id {
+                PlayerLanguageCheck(controller: controller, accent: accent)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+
+            if visible && !night.isLocked && !scenesOpen && !tagsOpen && !languagesOpen {
                 // Grouped so the whole cluster shares one `.transition` —
                 // without this wrapper, `.transition(.opacity)` would need
                 // repeating on every top-level piece below (or SwiftUI has
@@ -301,7 +319,7 @@ struct PlayerChrome: View {
                     }
                 }
                 .transition(.opacity)
-            } else if !scenesOpen && !tagsOpen {
+            } else if !scenesOpen && !tagsOpen && !languagesOpen {
                 hiddenCatcher
                     .transition(.opacity)
                 #if os(tvOS)
@@ -321,6 +339,11 @@ struct PlayerChrome: View {
             if tagsOpen {
                 PlayerTagsPanel(controller: controller, accent: accent,
                                 onDismiss: closeTags, onTagApplied: applyTagAndClose)
+                    .transition(.opacity)
+            }
+
+            if languagesOpen {
+                PlayerLanguagesPanel(controller: controller, accent: accent, onDismiss: closeLanguages)
                     .transition(.opacity)
             }
 
@@ -352,7 +375,7 @@ struct PlayerChrome: View {
             // `!skipLeaving`: a press first lets the button finish leaving,
             // *then* skips (`skipSegment`).
             if let segment = controller.activeSegment, !visible, !skipLeaving,
-               !night.isOn, !scenesOpen, !tagsOpen, !isFailed {
+               !night.isOn, !scenesOpen, !tagsOpen, !languagesOpen, !isFailed {
                 PlayerSkipButton(segment: segment, accent: accent,
                                  onSkip: skipSegment,
                                  focus: $focus)
@@ -425,6 +448,28 @@ struct PlayerChrome: View {
             }
         }
         #endif
+        // The language check: once an item is playing, its sound and
+        // subtitles are said for three seconds (chrome hidden). Keyed on the
+        // item so a queue advance shows the next episode's.
+        .task(id: controller.currentItem?.id) {
+            guard let id = controller.currentItem?.id else { return }
+            for _ in 0..<100 {
+                if case .ready = controller.phase { break }
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+            }
+            guard !Task.isCancelled, controller.hasTrackChoices || controller.currentSubtitleTrack != nil else { return }
+            // Said once the controls are down (they carry the same pill), or
+            // after ten seconds regardless.
+            for _ in 0..<50 where visible {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
+            }
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { languageCheckItemId = id }
+            try? await Task.sleep(for: .seconds(3.2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.35)) { if languageCheckItemId == id { languageCheckItemId = nil } }
+        }
         .onChange(of: visible) { _, v in
             PlayerDiagnostics.log("chrome: visible -> \(v)")
             #if os(tvOS)
@@ -440,7 +485,7 @@ struct PlayerChrome: View {
             // Retry — agreeing with the overlay's own `onAppear` seed rather
             // than racing it; skipped while the scenes/tags panel owns the
             // screen.
-            if v, !scenesOpen, !tagsOpen {
+            if v, !scenesOpen, !tagsOpen, !languagesOpen {
                 focus = isFailed ? .failureRetry : .playPause
             }
             // The chrome now shows the heart and the clock for real.
@@ -448,7 +493,7 @@ struct PlayerChrome: View {
             // The controls going away brings a pending Skip button back
             // (it never shares the screen with them) — already focused, so
             // it is still one Select press.
-            if !v, controller.activeSegment != nil, !night.isOn, !scenesOpen, !tagsOpen {
+            if !v, controller.activeSegment != nil, !night.isOn, !scenesOpen, !tagsOpen, !languagesOpen {
                 focus = .skipSegment
             }
             #endif
@@ -512,6 +557,13 @@ struct PlayerChrome: View {
                     controller.jump(forward: true)
                     try? await Task.sleep(for: .milliseconds(220))
                 }
+                return
+            }
+            // `JT_OPEN_LANGUAGES` / `RT_OPEN_LANGUAGES` = seconds: opens the
+            // sound & subtitles panel that long in.
+            if let raw = env["JT_OPEN_LANGUAGES"] ?? env["RT_OPEN_LANGUAGES"], let delay = Double(raw) {
+                try? await Task.sleep(for: .seconds(delay))
+                if !Task.isCancelled, !languagesOpen { openLanguages() }
                 return
             }
             guard let raw = env["JT_OPEN_SCENES"] ?? env["RT_OPEN_SCENES"],
@@ -606,6 +658,8 @@ struct PlayerChrome: View {
                 onBack: onClose,
                 onToggleNight: toggleNight,
                 onEditTags: appState.canEditItemMetadata == false ? nil : openTags,
+                onOpenLanguages: controller.hasTrackChoices ? openLanguages : nil,
+                languageSummary: controller.languageSummary,
                 focus: $focus
             )
 
@@ -688,6 +742,8 @@ struct PlayerChrome: View {
                     onBack: onClose,
                     onToggleNight: toggleNight,
                     onEditTags: appState.canEditItemMetadata == false ? nil : openTags,
+                    onOpenLanguages: controller.hasTrackChoices ? openLanguages : nil,
+                    languageSummary: controller.languageSummary,
                     focus: $focus
                 )
 
@@ -746,6 +802,8 @@ struct PlayerChrome: View {
                     onBack: onClose,
                     onToggleNight: toggleNight,
                     onEditTags: appState.canEditItemMetadata == false ? nil : openTags,
+                    onOpenLanguages: controller.hasTrackChoices ? openLanguages : nil,
+                    languageSummary: controller.languageSummary,
                     focus: $focus
                 )
                 Spacer(minLength: 0)
@@ -849,6 +907,20 @@ struct PlayerChrome: View {
     private func closeScenes() {
         withAnimation(.easeInOut(duration: 0.22)) { scenesOpen = false }
         interact()
+    }
+
+    /// The sound & subtitles panel: the same bracket as tags — the chrome's
+    /// auto-hide stops while it is up, and closing it returns to the hidden,
+    /// playing video with the pick applied.
+    private func openLanguages() {
+        idleTimer.cancel()
+        withAnimation(.easeInOut(duration: 0.22)) { languagesOpen = true }
+    }
+
+    private func closeLanguages() {
+        withAnimation(.easeInOut(duration: 0.22)) { languagesOpen = false }
+        idleTimer.cancel()
+        withAnimation(Self.fadeAnimation) { visible = false }
     }
 
     /// Same bracket as scenes: the panel owns the screen, so the chrome's
@@ -988,6 +1060,8 @@ struct PlayerChrome: View {
             PlayerDiagnostics.log("chrome: menu — locked, ignored")
         } else if tagsOpen {
             closeTags()
+        } else if languagesOpen {
+            closeLanguages()
         } else if scenesOpen {
             closeScenes()
         } else if visible && !isFailed {
@@ -1009,9 +1083,9 @@ struct PlayerChrome: View {
     /// Under the Night lock the overlay's two controls own the arrows.
     private func handleMove(_ direction: MoveCommandDirection) {
         if night.isLocked { return }
-        if scenesOpen || tagsOpen || visible {
+        if scenesOpen || tagsOpen || languagesOpen || visible {
             interact()
-            if visible, !scenesOpen, !tagsOpen { nudgeFocusIfStuck(direction) }
+            if visible, !scenesOpen, !tagsOpen, !languagesOpen { nudgeFocusIfStuck(direction) }
             return
         }
         switch direction {
@@ -1052,7 +1126,7 @@ struct PlayerChrome: View {
         guard direction == .up || direction == .down, let before = focus else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(140))
-            guard visible, !scenesOpen, !tagsOpen, focus == before,
+            guard visible, !scenesOpen, !tagsOpen, !languagesOpen, focus == before,
                   let target = fallbackFocus(from: before, direction) else { return }
             PlayerDiagnostics.log("chrome: focus stuck on \(before) — nudged to \(target)")
             focus = target

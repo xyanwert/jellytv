@@ -122,6 +122,9 @@ struct PlayerView: View {
         .task(id: request.id) {
             if engine == nil {
                 let e = PlayerEngine(client: client, userId: userId)
+                // Each item plays in its library's languages (Settings →
+                // Libraries → Languages); the file's own defaults otherwise.
+                e.languagePolicy = { [weak appState] item in await appState?.languagePreference(for: item) }
                 let c = PlayerController(engine: e)
                 engine = e
                 controller = c

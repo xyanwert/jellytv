@@ -260,6 +260,16 @@ struct RootView: View {
     private func autoplayHook() async {
         let env = ProcessInfo.processInfo.environment
         guard let needle = env["JT_AUTOPLAY"], !needle.isEmpty else { return }
+        // `movie:<title>` plays a film from the library from the start —
+        // for a title that is not in Continue Watching (a subtitle check).
+        if needle.hasPrefix("movie:") {
+            let title = String(needle.dropFirst("movie:".count))
+            let found = await appState.searchGrouped(title)
+            guard let movie = found.movies.first,
+                  let request = await appState.libraryPlaybackRequest(forItemId: movie.id) else { return }
+            appState.requestPlayback(request)
+            return
+        }
         let match = appState.continueWatching.first {
             $0.title.localizedCaseInsensitiveContains(needle)
                 || $0.episodeLabel.localizedCaseInsensitiveContains(needle)

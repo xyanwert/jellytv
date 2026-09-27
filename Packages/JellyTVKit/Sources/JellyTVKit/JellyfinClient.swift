@@ -572,8 +572,21 @@ public struct JellyfinClient: Sendable {
                                 videoCodec: String = "h264",
                                 audioCodec: String = "aac,mp3,ac3,eac3",
                                 videoBitRate: Int = 20_000_000,
-                                audioBitRate: Int = 384_000) -> URL? {
-        buildURL(path: "/Videos/\(itemId)/master.m3u8", query: [
+                                audioBitRate: Int = 384_000,
+                                audioStreamIndex: Int? = nil,
+                                burnInSubtitleIndex: Int? = nil) -> URL? {
+        // Track choice rides on this URL, not on PlaybackInfo (Jellyfin 12):
+        // `AudioStreamIndex` picks the sound; a bitmap subtitle is burned in
+        // with `SubtitleStreamIndex` + `SubtitleMethod=Encode`. Text subtitles
+        // are never asked for here — the app fetches and draws them itself
+        // (`fetchSubtitleCues`), the same on a direct play and a transcode.
+        var extra: [URLQueryItem] = []
+        if let audioStreamIndex { extra.append(URLQueryItem(name: "AudioStreamIndex", value: String(audioStreamIndex))) }
+        if let burnInSubtitleIndex {
+            extra.append(URLQueryItem(name: "SubtitleStreamIndex", value: String(burnInSubtitleIndex)))
+            extra.append(URLQueryItem(name: "SubtitleMethod", value: "Encode"))
+        }
+        return buildURL(path: "/Videos/\(itemId)/master.m3u8", query: extra + [
             URLQueryItem(name: "mediaSourceId", value: mediaSourceId),
             URLQueryItem(name: "playSessionId", value: playSessionId),
             URLQueryItem(name: "deviceId", value: deviceId),
@@ -588,6 +601,41 @@ public struct JellyfinClient: Sendable {
             URLQueryItem(name: "transcodingMaxAudioChannels", value: "6"),
             URLQueryItem(name: "api_key", value: apiKey),
         ])
+    }
+
+    /// A text subtitle track as timed lines, converted by the server from
+    /// whatever the file holds (srt, ass, mov_text, a sidecar) — the app
+    /// draws these itself. The `/0/` is the start position in ticks.
+    ///
+    /// Its own request, not `send`: the first ask for a track embedded in a
+    /// big file makes the server demux the whole file to extract it — over
+    /// ninety seconds on a 4K MKV here — and says nothing meanwhile, which
+    /// `send`'s per-attempt timeout reads as a dead server. Five minutes of
+    /// silence is allowed; the extracted file is cached, so a second ask is
+    /// instant.
+    public func fetchSubtitleCues(itemId: String, mediaSourceId: String, streamIndex: Int) async throws -> [JellyfinAPI.SubtitleCue] {
+        guard let url = buildURL(path: "/Videos/\(itemId)/\(mediaSourceId)/Subtitles/\(streamIndex)/0/Stream.js",
+                                  query: nil) else { throw JellyfinRequestError.invalidURL }
+        var request = URLRequest(url: url)
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 300
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try decode(JellyfinAPI.SubtitleTrackResponse.self, from: data).trackEvents
+    }
+
+    /// The chain of folders above an item, top-most first — the library is
+    /// the `CollectionFolder` in it. Items don't carry their library
+    /// otherwise.
+    public func fetchAncestors(itemId: String, userId: String) async throws -> [JellyfinAPI.Ancestor] {
+        guard let url = buildURL(path: "/Items/\(itemId)/Ancestors",
+                                  query: [URLQueryItem(name: "userId", value: userId)]) else {
+            throw JellyfinRequestError.invalidURL
+        }
+        return try await request(url: url)
     }
 
     /// The `MediaBrowser Token="…"` header string, for callers outside this

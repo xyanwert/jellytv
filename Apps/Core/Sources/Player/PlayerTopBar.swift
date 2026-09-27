@@ -28,6 +28,10 @@ struct PlayerTopBar: View {
     /// Non-nil when this account may edit tags; the row becomes the way into
     /// `PlayerTagsPanel`. Nil leaves the chips as a read-only display.
     var onEditTags: (() -> Void)?
+    /// Non-nil when the item has tracks to choose between; the pill beside
+    /// NIGHT opens `PlayerLanguagesPanel` and reads `languageSummary`.
+    var onOpenLanguages: (() -> Void)? = nil
+    var languageSummary: String = ""
     @FocusState.Binding var focus: PlayerFocusField?
 
     @EnvironmentObject private var theme: Theme
@@ -66,6 +70,9 @@ struct PlayerTopBar: View {
                     #if os(iOS)
                     AirPlayButton(accent: accent)
                     #endif
+                    if onOpenLanguages != nil {
+                        if theme.isPoster { posterLanguagesButton } else { languagesButton }
+                    }
                     if theme.isPoster { posterNightButton } else { nightButton }
                 }
                 if let nightCaption {
@@ -258,6 +265,43 @@ struct PlayerTopBar: View {
     /// NIGHT in a white-rimmed pill; on, it goes amber and carries the sleep
     /// timer's countdown, like the Classic toggle. The phone keeps the moon
     /// alone.
+    /// "EN · CC ES" — what is playing, and the way to change it. The same
+    /// clothes as NIGHT beside it, so the row reads as one set.
+    private var posterLanguagesButton: some View {
+        let h = PosterPlayerSize.opinion * 0.7
+        return Button(action: { onOpenLanguages?() }) {
+            HStack(spacing: h * 0.18) {
+                Image(systemName: "speaker.wave.2.fill").font(.system(size: h * 0.36, weight: .bold))
+                Text(languageSummary).font(Display.font(h * 0.42)).tracking(1).lineLimit(1)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, h * 0.4)
+            .frame(height: h)
+            .background(Palette.posterInk.opacity(0.45), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white, lineWidth: PosterPlayerSize.rim * 0.7))
+        }
+        .buttonStyle(StickerButtonStyle(cornerRadius: h / 2, lift: 0))
+        .remoteFocus($focus, equals: .languages)
+        .accessibilityLabel("Sound and subtitles: \(languageSummary)")
+    }
+
+    private var languagesButton: some View {
+        Button(action: { onOpenLanguages?() }) {
+            HStack(spacing: 10) {
+                Image(systemName: "captions.bubble.fill").font(.system(size: 18, weight: .semibold))
+                Text(languageSummary).font(Mono.font(15, .bold)).tracking(1.2).lineLimit(1)
+            }
+            .foregroundStyle(Palette.text(0.9))
+            .padding(.horizontal, 20)
+            .frame(height: 48)
+            .background(.black.opacity(0.46), in: Capsule())
+            .overlay(Capsule().stroke(Palette.text(0.16), lineWidth: 1))
+        }
+        .buttonStyle(FocusScaleStyle(cornerRadius: 24))
+        .remoteFocus($focus, equals: .languages)
+        .accessibilityLabel("Sound and subtitles: \(languageSummary)")
+    }
+
     private var posterNightButton: some View {
         let on = night.isOn
         let h = PosterPlayerSize.control

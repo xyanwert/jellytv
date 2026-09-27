@@ -722,6 +722,79 @@ final class AppState: ObservableObject {
 
     /// Effective NSFW/anime flags for a library — a saved override always
     /// wins; otherwise falls back to `LibraryClassifier`'s name guess.
+    // MARK: - Languages per library
+
+    /// Each library's sound and subtitle languages (`LibraryLanguagePreference`),
+    /// kept on this device: Jellyfin's own preference is one per user, server-
+    /// wide, and writing per-library values into it would fight every other
+    /// client. Keyed by library id, persisted as JSON.
+    @Published private(set) var languagePreferences: [String: LibraryLanguagePreference] = AppState.loadLanguagePreferences()
+    private static let languagePreferencesKey = "jelly:library.languages"
+
+    private static func loadLanguagePreferences() -> [String: LibraryLanguagePreference] {
+        guard let data = UserDefaults.standard.data(forKey: languagePreferencesKey),
+              let decoded = try? JSONDecoder().decode([String: LibraryLanguagePreference].self, from: data) else { return [:] }
+        return decoded
+    }
+
+    func languagePreference(forLibrary id: String) -> LibraryLanguagePreference {
+        languagePreferences[id] ?? .none
+    }
+
+    func setLanguagePreference(_ preference: LibraryLanguagePreference, forLibrary id: String) {
+        if preference.isEmpty { languagePreferences[id] = nil } else { languagePreferences[id] = preference }
+        if let data = try? JSONEncoder().encode(languagePreferences) {
+            UserDefaults.standard.set(data, forKey: Self.languagePreferencesKey)
+        }
+    }
+
+    func libraryName(for id: String) -> String? {
+        libraries.first { $0.id == id }?.name
+    }
+
+    /// The library an item plays from. Items don't carry it: the library
+    /// screens record it as they fetch (`itemLibraryId`), an episode's series
+    /// is looked up the same way, and anything else — Continue Watching, a
+    /// phone's Play — asks the server for the item's ancestors once and
+    /// remembers the answer for the item and its series.
+    func libraryId(for item: PlayableItem) async -> String? {
+        if let known = itemLibraryId[item.id] { return known }
+        if let seriesId = item.seriesId, let known = itemLibraryId[seriesId] { return known }
+        guard let client, !userId.isEmpty else { return nil }
+        let subject = item.seriesId ?? item.id
+        guard let ancestors = try? await client.fetchAncestors(itemId: subject, userId: userId),
+              let library = ancestors.first(where: { $0.type == "CollectionFolder" }) else { return nil }
+        itemLibraryId[item.id] = library.id
+        if let seriesId = item.seriesId { itemLibraryId[seriesId] = library.id }
+        return library.id
+    }
+
+    /// What the player asks as each item loads — nil when the library has
+    /// no languages set, so the file's defaults play.
+    func languagePreference(for item: PlayableItem) async -> LibraryLanguagePreference? {
+        #if DEBUG
+        // Screenshot hook: `JT_LANG_PREF` / `RT_LANG_PREF="audio=spa,eng;subs=spa;mode=on"`
+        // stands in for every library's preference.
+        if let raw = ProcessInfo.processInfo.environment["JT_LANG_PREF"] ?? ProcessInfo.processInfo.environment["RT_LANG_PREF"] {
+            var pref = LibraryLanguagePreference()
+            for part in raw.split(separator: ";") {
+                let kv = part.split(separator: "=", maxSplits: 1).map(String.init)
+                guard kv.count == 2 else { continue }
+                switch kv[0] {
+                case "audio": pref.audio = kv[1].split(separator: ",").map(String.init)
+                case "subs": pref.subtitles = kv[1].split(separator: ",").map(String.init)
+                case "mode": pref.subtitleMode = SubtitleMode(rawValue: kv[1]) ?? .off
+                default: break
+                }
+            }
+            return pref
+        }
+        #endif
+        guard let libraryId = await libraryId(for: item) else { return nil }
+        let preference = languagePreference(forLibrary: libraryId)
+        return preference.isEmpty ? nil : preference
+    }
+
     func classificationFlags(for library: JellyfinAPI.JellyfinUserView) -> (isNSFW: Bool, isAnime: Bool) {
         if let override = libraryOverrides[library.id] {
             return (override.isNSFW, override.isAnime)
