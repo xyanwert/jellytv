@@ -1,6 +1,9 @@
 import Foundation
 import AVFoundation
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import Observation
+import UIKit
 import JellyTVKit
 
 /// High-level playback state surfaced to the chrome. KVO-bridged from
@@ -110,6 +113,15 @@ final class PlayerEngine {
     private weak var currentPlayerItem: AVPlayerItem?
     private var progressReporter: PlaybackProgressReporter?
 
+    /// The picture is parked (rate 0, `isPlaying` untouched) under a skip's
+    /// fast-forward — see `skipHolding`. Any real play/pause, a new item or
+    /// a teardown clears it, so a hold can never outlive the tape.
+    private var heldForSkip = false
+    /// How long `skipHolding` waits for the landing to become playable
+    /// before giving the picture back regardless. Well past any seek that
+    /// is going to succeed; a stalled one is the viewer's to notice.
+    private static let heldSkipTimeout: TimeInterval = 10
+
     init(client: JellyfinClient, userId: String) {
         self.client = client
         self.userId = userId
@@ -181,12 +193,14 @@ final class PlayerEngine {
     }
 
     func play() {
+        heldForSkip = false
         avPlayer.play()
         isPlaying = true
         reportNow()
     }
 
     func pause() {
+        heldForSkip = false
         avPlayer.pause()
         isPlaying = false
         reportNow()
@@ -225,8 +239,13 @@ final class PlayerEngine {
         let cm = CMTime(seconds: target, preferredTimescale: 600)
         await avPlayer.seek(to: cm, toleranceBefore: .zero, toleranceAfter: .zero)
         // Reflect the new position immediately — otherwise the chrome shows
-        // the pre-seek time until the next periodic observer tick.
+        // the pre-seek time until the next periodic observer tick. The same
+        // goes for the skip on offer: a seek that lands inside an intro (a
+        // scenes tile, a resume) should show the button now, not a tick later.
         currentTime = target
+        if !heldForSkip {
+            activeSegment = MediaSegments.skippable(at: target, in: segments)
+        }
         reportNow()
     }
 
@@ -242,11 +261,193 @@ final class PlayerEngine {
     /// auto-advance — so "skip the credits" would silently start the next
     /// episode instead of showing them the last shot.
     func skip(_ segment: MediaSegment) async {
-        let target = duration > 0 ? min(segment.endSeconds, duration - 1) : segment.endSeconds
         // Clear immediately so the button cannot be pressed twice while the
         // seek settles; the next tick recomputes it anyway.
         activeSegment = nil
-        await seek(to: max(0, target))
+        await seek(to: skipTarget(for: segment))
+    }
+
+    /// Where a skip of `segment` lands: its end, or a second short of the
+    /// item's end (see `skip`).
+    func skipTarget(for segment: MediaSegment) -> Double {
+        max(0, duration > 0 ? min(segment.endSeconds, duration - 1) : segment.endSeconds)
+    }
+
+    /// What `skipHolding` hands back: how it ended, and — when the player
+    /// gave one up — the frame it is parked on.
+    struct HeldSkip {
+        let outcome: HeldSkipOutcome
+        /// The decoded frame at the landing, for the tape to park on: exact
+        /// where a trickplay tile is up to five seconds off (and, on a cut
+        /// to black, a different shot altogether), so the fade onto the live
+        /// picture is seamless. Nil when the player vended nothing in time.
+        let landingFrame: UIImage?
+    }
+
+    /// How a held skip ended — what the chrome logs, and whether it should
+    /// still play its tape out.
+    enum HeldSkipOutcome: String, Sendable {
+        /// The landing is loaded and will play the moment the hold is released.
+        case ready
+        /// Nothing arrived within `heldSkipTimeout`; the hold is released anyway.
+        case timedOut
+        /// Something else took the player first — a real pause, a new item,
+        /// a teardown — and there is nothing left to release.
+        case abandoned
+    }
+
+    /// A skip with the picture **held** while it happens — the version the
+    /// chrome plays its fast-forward over.
+    ///
+    /// The plain `skip` seeks with the player running, and what a seek looks
+    /// like is a black picture until the frame at the new position exists:
+    /// measured at 1.5–11 s on a direct-played MKV in the simulator (the
+    /// layer flushes on the seek, the demuxer walks to the new cluster), and
+    /// as long as ffmpeg takes to restart on an HLS transcode. The one-second
+    /// tape used to end on its own clock and hand the viewer that black.
+    ///
+    /// So this parks the player at rate 0 — `isPlaying` stays true, because
+    /// this is not the viewer pausing and the chrome must not treat it as
+    /// one — seeks, prerolls the pipeline at the landing, and waits until
+    /// the item reports it can keep up there. It returns *without*
+    /// resuming: the chrome finishes the tape and calls `releaseHold()` as
+    /// it fades, so the first live frame is the one the tape settled on and
+    /// the show simply continues.
+    func skipHolding(_ segment: MediaSegment) async -> HeldSkip {
+        let target = skipTarget(for: segment)
+        activeSegment = nil
+        guard let item = currentPlayerItem, case .ready = phase, isPlaying else {
+            await seek(to: target)
+            return HeldSkip(outcome: .abandoned, landingFrame: nil)
+        }
+        heldForSkip = true
+        avPlayer.pause()
+        let started = Date.now
+        await seek(to: target)
+        PlayerDiagnostics.log("skip: seek landed after \(Self.elapsedLabel(started))")
+        guard heldForSkip, avPlayer.currentItem === item else { return HeldSkip(outcome: .abandoned, landingFrame: nil) }
+        // Prime the pipeline at the landing while still parked, so the
+        // release plays at once instead of decoding its way in.
+        let primed = await avPlayer.preroll(atRate: 1)
+        PlayerDiagnostics.log("skip: preroll \(primed ? "done" : "declined") after \(Self.elapsedLabel(started))")
+        // Then the buffer: the seek can return before the landing can play.
+        // Timed from here, not from the press — a slow seek is the player's
+        // to finish, and only the wait after it is bounded.
+        let landed = Date.now
+        var outcome = HeldSkipOutcome.timedOut
+        while Date.now.timeIntervalSince(landed) < Self.heldSkipTimeout {
+            guard heldForSkip, isPlaying, avPlayer.currentItem === item, case .ready = phase else {
+                return HeldSkip(outcome: .abandoned, landingFrame: nil)
+            }
+            if item.isPlaybackLikelyToKeepUp || item.isPlaybackBufferFull {
+                PlayerDiagnostics.log("skip: landing buffered after \(Self.elapsedLabel(started))")
+                outcome = .ready
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        if outcome == .timedOut {
+            PlayerDiagnostics.log("skip: landing not buffered after \(Self.elapsedLabel(started)) — releasing anyway")
+        }
+        let frame = await landingFrame(of: item)
+        PlayerDiagnostics.log(frame.map { "skip: landing frame \(Int($0.size.width))x\(Int($0.size.height)) after \(Self.elapsedLabel(started))" }
+            ?? "skip: no landing frame from the player — the tape keeps its trickplay still")
+        return HeldSkip(outcome: outcome, landingFrame: frame)
+    }
+
+    /// The frame the parked player has decoded at the landing, if it will
+    /// give one up within `seconds` — through a video output attached for
+    /// just that long. BGRA is asked for so an HDR source arrives already
+    /// mapped for display. Nothing here is required: nil leaves the tape on
+    /// its trickplay tile.
+    private func landingFrame(of item: AVPlayerItem, within seconds: Double = 0.8) async -> UIImage? {
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        ])
+        item.add(output)
+        defer { item.remove(output) }
+        let started = Date.now
+        while Date.now.timeIntervalSince(started) < seconds {
+            guard heldForSkip, avPlayer.currentItem === item else { return nil }
+            let now = avPlayer.currentTime()
+            if output.hasNewPixelBuffer(forItemTime: now),
+               let buffer = output.copyPixelBuffer(forItemTime: now, itemTimeForDisplay: nil) {
+                let image = CIImage(cvPixelBuffer: buffer)
+                // The simulator's decoder vends black for its first seconds
+                // after a seek (the same black its layer shows), and a black
+                // still is worse than the trickplay tile it would replace.
+                guard !Self.isEssentiallyBlack(image) else {
+                    PlayerDiagnostics.log("skip: the player's landing frame is black — keeping the trickplay tile")
+                    return nil
+                }
+                guard let cg = Self.frameContext.createCGImage(image, from: image.extent) else { return nil }
+                return UIImage(cgImage: cg)
+            }
+            try? await Task.sleep(for: .milliseconds(30))
+        }
+        return nil
+    }
+
+    private static let frameContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// One averaged pixel: under ~4% in every channel is a black frame.
+    private static func isEssentiallyBlack(_ image: CIImage) -> Bool {
+        let filter = CIFilter.areaAverage()
+        filter.inputImage = image
+        filter.extent = image.extent
+        guard let averaged = filter.outputImage else { return false }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        frameContext.render(averaged, toBitmap: &pixel, rowBytes: 4,
+                            bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                            format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        return max(pixel[0], pixel[1], pixel[2]) < 10
+    }
+
+    /// Let a held skip's picture run. A no-op unless a hold is in place,
+    /// and never a `play()` over a viewer's own pause.
+    func releaseHold() {
+        guard heldForSkip else { return }
+        heldForSkip = false
+        if isPlaying { avPlayer.play() }
+    }
+
+    /// After `releaseHold`: true once the player is really running past
+    /// `target` — rate 1 and the clock advancing — so the tape fades onto a
+    /// moving picture rather than a black one. Bounded, and over at once if
+    /// something else takes the player (a pause, a new item).
+    ///
+    /// **The simulator keeps a black picture for ~6 s after any seek while
+    /// every observable says it is playing** — `videoRect`, `isReadyForDisplay`,
+    /// the timebase, the buffer flags, even an `AVPlayerItemVideoOutput`
+    /// vending frames — measured across five runs, on the iPad simulator as
+    /// well; a real device presents as soon as the clock runs. Nothing in
+    /// AVFoundation exposes when the layer catches up, so on the simulator
+    /// the tape is simply held that much longer, which is the only way to
+    /// judge the feature there without the black it is meant to cover.
+    func awaitPicture(past target: Double, timeout: TimeInterval = 10) async -> Bool {
+        let started = Date.now
+        while Date.now.timeIntervalSince(started) < timeout {
+            guard isPlaying, case .ready = phase, avPlayer.currentItem != nil else { return false }
+            if avPlayer.timeControlStatus == .playing, avPlayer.currentTime().seconds > target + 0.08 {
+                PlayerDiagnostics.log("skip: clock running after \(Self.elapsedLabel(started))")
+                #if targetEnvironment(simulator)
+                try? await Task.sleep(for: .seconds(Self.simulatorLayerLag))
+                #endif
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        PlayerDiagnostics.log("skip: clock not running within \(Int(timeout))s — giving up the tape anyway")
+        return false
+    }
+
+    #if targetEnvironment(simulator)
+    /// See `awaitPicture`. 5.4–6.5 s measured; nothing to tune against on a device.
+    private static let simulatorLayerLag: TimeInterval = 6.5
+    #endif
+
+    private static func elapsedLabel(_ since: Date) -> String {
+        String(format: "%.2fs", Date.now.timeIntervalSince(since))
     }
 
     /// Ask the server what it knows about this item's intro and credits.
@@ -291,6 +492,7 @@ final class PlayerEngine {
         isFavorite = item.isFavorite
         isPlaying = false
         reresolveAttemptsForCurrentItem = 0
+        heldForSkip = false
         // Clear before the fetch, never after: a queue advance must not leave
         // the outgoing episode's intro markers pointing into the new one.
         segments = []
@@ -337,6 +539,7 @@ final class PlayerEngine {
         // the dead-player bug by another route.
         guard !generation.isCancelled(token) else { return }
         progressReporter = nil
+        heldForSkip = false
         avPlayer.pause()
         avPlayer.replaceCurrentItem(with: nil)
         tearDownObservers()
@@ -458,7 +661,12 @@ final class PlayerEngine {
                 // also what decides whether a "Skip intro" is on offer. Pure
                 // arithmetic over an array that is almost always empty or two
                 // items long — cheaper than the `currentTime` assignment above.
-                self.activeSegment = MediaSegments.skippable(at: self.currentTime, in: self.segments)
+                // Not while a held skip is moving the playhead: the tick between
+                // the park and the seek landing still reads the old position, and
+                // re-arming the segment there put the button back over the tape.
+                if !self.heldForSkip {
+                    self.activeSegment = MediaSegments.skippable(at: self.currentTime, in: self.segments)
+                }
                 // Not while loading: the observer's first tick lands before the first
                 // `play()`, and "paused" is not what a still-buffering item is.
                 guard case .ready = self.phase else { return }

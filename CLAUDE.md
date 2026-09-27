@@ -1333,21 +1333,41 @@ loading, and the paused-reveal rule read that stop as the viewer pausing; `endin
 the last minute and presses Skip; the log reads `skip: button leaving` → `skip: button gone —
 skipping` → the next episode's `segments` line, with no `chrome: visible -> true` between.
 
-**Then the tape fast-forwards** (`VHSFastForward`, one second — 3 and then 1.8 were tried on the TV and both felt long): the flow is press → the button
-leaves → a VCR fast-forward → the landing → (credits) the ordinary end-of-item advance into the
-next episode. The picture is the episode's own trickplay frames from the playhead to the landing
+**Then the tape fast-forwards** (`VHSFastForward`; where the tape *is* comes from
+`VHSTapeTimeline`, kit, tested): the flow is press → the button leaves → a VCR fast-forward →
+the landing → (credits) the ordinary end-of-item advance into the next episode. The picture is
+the episode's own trickplay frames from the playhead to the landing
 (`PlayerController.fastForwardFrames`, 45 of them, repeats kept — an intro only has two or three
-real frames at a 10s interval and the *flip rate* is what reads as speed). The flips are a steady
-15 a second, but where the tape *is* eases in and out (`VHSFastForward.travel`, cubic): it pulls
-away slowly, races through the middle skipping most of the span, and settles onto the landing —
-the counter rides the same curve. Each flip is knocked sideways
-and rolled, with a red/cyan fringe, static scanlines, tracking bands sliding down, the
-head-switching strip at the foot, and the deck's OSD (▶▶ FF, SP, a counter racing to the landing).
-The real seek starts *with* the tape, so the picture is there when it fades. The frames are
-warmed when the button appears (`prefetchFrames`). No shader: two copies of one small image, a few
-rectangles, one static `Canvas`, and a sliver redrawn per frame — for one second. Night mode's
-auto-skip stays silent, no tape. `JT_FF_SECONDS` / `RT_FF_SECONDS` (DEBUG) stretches it so the
-simulator can capture it; judge the real one on the Apple TV.
+real frames at a 10s interval). The travel is 1.6s on a **quintic** ease-in-out (a cubic at 1s
+read as one flat-out second): the tape pulls away slowly, races through the middle (~85% of the
+span in the middle third), and slows onto the landing — and everything that reads as speed rides
+that curve, the flip rate (two a second at rest, ~twenty at the peak), the sideways knock, the
+red/cyan fringe, the tracking bands and the head-switching strip, so the deck winds up and winds
+down instead of buzzing. The OSD: ▶▶ FF, SP, a counter riding the same curve; once parked, ▶ PLAY
+blinking. **The tape ends when the picture is back, never on a timer.** It used to run one second
+with the player seeking underneath, and a seek is a black picture until the frame at the new
+position exists — measured at 1.5–11s on a direct-played MKV in the simulator — so the viewer got
+the tape and then that black. Now the press is a *held* skip (`PlayerEngine.skipHolding`): the
+player is parked at rate 0 (`isPlaying` untouched, so the chrome's paused-reveal rule never
+fires), seeks, prerolls, waits for the item to keep up at the landing, and hands the tape the
+player's own decoded frame there (`HeldSkip.landingFrame`, through an `AVPlayerItemVideoOutput`
+attached for under a second — exact where the nearest trickplay tile is up to 5s off and, on a
+cut to black, a different shot); the tape parks on it. The chrome then finishes the travel
+(its 1.6s is the floor, however quick the seek), releases the hold, waits for the clock to run
+past the landing (`awaitPicture`), and only then fades — onto the same image. The 4Hz observer
+does not re-arm `activeSegment` while held (the tick between the park and the landing still read
+the old position and put the button back over the tape), and the button is never drawn while
+`fastForward` is up. **The simulator keeps a black layer for ~6s after any seek while every
+observable — `videoRect`, `isReadyForDisplay`, the timebase, the buffer flags, a video output
+vending frames — says it is playing** (five runs, iPad simulator too); nothing in AVFoundation
+exposes when its layer catches up, so `#if targetEnvironment(simulator)` the tape is held
+`simulatorLayerLag` longer after the clock runs. That is the only way to judge the feature there;
+a device presents as soon as the clock runs, and that is where the timing is judged. Night mode's
+auto-skip stays silent, no tape. `JT_FF_SECONDS` / `RT_FF_SECONDS` (DEBUG) stretches the travel
+so the simulator can capture its phases; `JT_TRY_SKIP=<seconds>,intro` picks the intro over the
+credits, since a credits skip runs straight into the next episode's load and the two gaps cannot
+be told apart in a log. The log reads `skip: seek landed after` → `preroll` → `landing buffered`
+→ `landing frame WxH` → `clock running` → `fast-forward done after`, each with its seconds.
 
 **The next video loading shows an hourglass** (`PlayerNextLoading`): turned over (half a turn,
 a rest) inside a disc of the theme's colour — a teal sticker in Poster Mode — centre screen while

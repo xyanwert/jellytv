@@ -160,6 +160,8 @@ struct PlayerChrome: View {
     /// when the segment it was offering goes (`activeSegment` changes).
     @State private var skipLeaving = false
     /// The VHS fast-forward a skip plays while its seek happens underneath.
+    /// Up until the landing can play, never for a fixed time — see
+    /// `playFastForward`.
     @State private var fastForward: FastForwardRun?
 
     private struct FastForwardRun: Equatable {
@@ -167,6 +169,9 @@ struct PlayerChrome: View {
         let from: Double
         let to: Double
         let started: Date
+        /// The player's own frame at the landing, once the held seek has
+        /// one — the still the tape parks on.
+        var landingFrame: UIImage? = nil
     }
     /// Same reasoning as `scenesOpen` — and the same gate, since the tags
     /// panel pauses playback too.
@@ -235,7 +240,8 @@ struct PlayerChrome: View {
 
             if let run = fastForward {
                 VHSFastForward(frames: run.frames, from: run.from, to: run.to,
-                               runtime: controller.duration, started: run.started)
+                               runtime: controller.duration, started: run.started,
+                               landingFrame: run.landingFrame)
                     .transition(.opacity)
             }
 
@@ -351,7 +357,7 @@ struct PlayerChrome: View {
             // back (still offering the same segment) when they hide. And
             // `!skipLeaving`: a press first lets the button finish leaving,
             // *then* skips (`skipSegment`).
-            if let segment = controller.activeSegment, !visible, !skipLeaving,
+            if let segment = controller.activeSegment, !visible, !skipLeaving, fastForward == nil,
                !night.isOn, !scenesOpen, !tagsOpen, !isFailed {
                 PlayerSkipButton(segment: segment, accent: accent,
                                  onSkip: skipSegment,
@@ -483,12 +489,19 @@ struct PlayerChrome: View {
             // button, lets the chrome hide, and presses Skip — the whole
             // hide-then-skip-into-the-next-episode path, readable in the
             // `JT_PLAYER_LOG` lines without a remote.
-            if let raw = env["JT_TRY_SKIP"] ?? env["RT_TRY_SKIP"], let delay = Double(raw) {
+            // `=<seconds>,intro` picks the intro instead, since a credits
+            // skip runs straight into the next episode's load and the two
+            // gaps cannot be told apart in a log.
+            if let raw = env["JT_TRY_SKIP"] ?? env["RT_TRY_SKIP"],
+               let delay = Double(raw.split(separator: ",").first ?? "") {
                 try? await Task.sleep(for: .seconds(delay))
+                let wantIntro = raw.split(separator: ",").dropFirst().first == "intro"
                 // The credits if the episode has them, else its intro.
                 let segments = controller.skippableSegments
+                let preferred = wantIntro ? segments.first(where: { $0.kind == .intro })
+                    : segments.first(where: { $0.kind == .outro })
                 guard !Task.isCancelled,
-                      let target = segments.first(where: { $0.kind == .outro }) ?? segments.first else {
+                      let target = preferred ?? segments.first else {
                     PlayerDiagnostics.log("try-skip: no skippable segment on this item")
                     return
                 }
@@ -906,17 +919,45 @@ struct PlayerChrome: View {
         }
     }
 
-    /// The fast-forward, then the landing: the seek starts with the tape, so
-    /// by the time the second is up the picture is already there — at the
-    /// end of the intro, or a second from the end for the credits, where the
-    /// ordinary end-of-item advance takes it into the next episode.
+    /// The fast-forward, then the landing. The tape and the seek start
+    /// together; the picture is *held* underneath (`skipActiveSegmentHolding`)
+    /// until the landing can play, and the tape stays up — travelling for
+    /// its own `tapeDuration`, then parked on the landing frame — for as
+    /// long as that takes. Only then is the hold released and the tape
+    /// faded, so the first live frame is the one the tape settled on: at
+    /// the end of the intro, or a second from the end for the credits, where
+    /// the ordinary end-of-item advance takes it into the next episode.
+    ///
+    /// It used to end on a one-second timer with the player running under
+    /// it, and a seek that took longer than that — several seconds on a
+    /// direct-played MKV, measured — showed as a black picture between the
+    /// tape and the show.
     private func playFastForward(from: Double, to: Double, frames: [UIImage]) async {
+        let pressed = Date.now
         PlayerDiagnostics.log("skip: button gone — fast-forward \(Int(from))s → \(Int(to))s over \(frames.count) frames")
-        fastForward = FastForwardRun(frames: frames, from: from, to: to, started: .now)
-        controller.skipActiveSegment()
-        try? await Task.sleep(for: .seconds(VHSFastForward.duration))
-        withAnimation(.easeOut(duration: 0.12)) { fastForward = nil }
-        PlayerDiagnostics.log("skip: fast-forward done")
+        fastForward = FastForwardRun(frames: frames, from: from, to: to, started: pressed)
+        let held = await controller.skipActiveSegmentHolding()
+        let outcome = held.outcome
+        let landed = Date.now.timeIntervalSince(pressed)
+        PlayerDiagnostics.log("skip: landing \(outcome.rawValue) after \(String(format: "%.2f", landed))s")
+        if let frame = held.landingFrame { fastForward?.landingFrame = frame }
+        // The tape's own travel is the floor: however quick the seek, the
+        // deck winds up, races and settles before the show continues. Not
+        // when something else took the player (a pause, a new item) — then
+        // the tape has nothing to land on and goes at once.
+        if outcome != .abandoned, landed < VHSFastForward.tapeDuration {
+            try? await Task.sleep(for: .seconds(VHSFastForward.tapeDuration - landed))
+        }
+        controller.releaseSkipHold()
+        // The tape stays parked until the picture is really moving: the
+        // release is a `play()`, and on a slow decode the frame still takes
+        // a moment to reach the screen.
+        if outcome != .abandoned {
+            let moving = await controller.awaitSkipPicture(past: to)
+            PlayerDiagnostics.log("skip: picture \(moving ? "moving" : "not seen") after \(String(format: "%.2f", Date.now.timeIntervalSince(pressed)))s")
+        }
+        withAnimation(.easeOut(duration: 0.25)) { fastForward = nil }
+        PlayerDiagnostics.log("skip: fast-forward done after \(String(format: "%.2f", Date.now.timeIntervalSince(pressed)))s")
     }
 
     /// At the very end of an item with another queued behind it: the stop

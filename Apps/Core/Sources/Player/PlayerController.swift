@@ -154,16 +154,30 @@ final class PlayerController {
     /// hook needs to find one to land in.
     var skippableSegments: [MediaSegment] { engine.segments.filter { $0.kind.isSkippable } }
 
-    /// Jump to the end of `activeSegment`.
+    /// Jump to the end of `activeSegment` with the picture held until the
+    /// landing can play — the chrome's tape covers the wait, and
+    /// `releaseSkipHold()` lets it run as the tape fades. Returns once the
+    /// landing is playable (or the engine gave up waiting), *not* when the
+    /// picture is running.
     ///
     /// Routed through the engine's own `seek`, which is uncoalesced — this is
     /// a button pressed once with an exact target, not one of the mashable
     /// transport circles, and it must not sit in the 280ms jump-coalesce
     /// window waiting to see whether more presses arrive.
-    func skipActiveSegment() {
-        guard let segment = activeSegment else { return }
+    func skipActiveSegmentHolding() async -> PlayerEngine.HeldSkip {
+        guard let segment = activeSegment else { return .init(outcome: .abandoned, landingFrame: nil) }
         autoSkipped.insert(segment.id)
-        Task { await engine.skip(segment) }
+        return await engine.skipHolding(segment)
+    }
+
+    /// The other half of `skipActiveSegmentHolding`.
+    func releaseSkipHold() { engine.releaseHold() }
+
+    /// After `releaseSkipHold`: waits until the picture is really moving
+    /// past `target` (or gives up after a while), so the tape can fade onto
+    /// a live frame rather than a black one.
+    func awaitSkipPicture(past target: Double) async -> Bool {
+        await engine.awaitPicture(past: target)
     }
 
     /// **Night mode skips for you.** Called from the chrome whenever the
@@ -452,11 +466,10 @@ final class PlayerController {
         await prefetchScenes(at: times, widthKey: geometry.widthKey, info: geometry.info)
     }
 
-    /// Where a skip of `segment` lands — the same clamp `PlayerEngine.skip`
-    /// applies (a second short of the end, so credits don't trip
-    /// end-of-item mid-seek).
+    /// Where a skip of `segment` lands — a second short of the end for
+    /// credits, so they don't trip end-of-item mid-seek.
     func skipTarget(for segment: MediaSegment) -> Double {
-        duration > 0 ? min(segment.endSeconds, duration - 1) : segment.endSeconds
+        engine.skipTarget(for: segment)
     }
 
     /// Warm the sheets behind these moments (the scenes panel's neighbouring

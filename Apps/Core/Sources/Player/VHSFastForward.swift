@@ -1,25 +1,36 @@
 import SwiftUI
 import UIKit
+import JellyTVKit
 
-/// One second of a VCR fast-forwarding: what a Skip intro / Skip credits
-/// press plays while the real seek happens underneath.
+/// A VCR fast-forwarding: what a Skip intro / Skip credits press plays while
+/// the real seek happens underneath.
 ///
 /// The picture is the tape racing: the episode's own frames from where the
 /// viewer was to where the skip lands, cut from the trickplay sheets
-/// (`PlayerController.fastForwardFrames`) and flipped fifteen times a
-/// second — the flip rate is constant, but *where the tape is* eases in and
-/// out (`travel`): it pulls away slowly, races through the middle skipping
-/// most of what it passes, and settles onto the landing. Each flip is knocked
-/// sideways and rolled a little, the way a head
-/// loses lock at speed. Over it, what makes it VHS rather than a slideshow:
-/// a red/cyan fringe, fine scanlines, tracking bands sliding down the frame,
-/// the jagged head-switching strip at the foot, and the deck's own on-screen
-/// display — ▶▶, SP, and a counter racing to the landing time.
+/// (`PlayerController.fastForwardFrames`). Where the tape *is* comes from
+/// `VHSTapeTimeline` (kit, tested): it pulls away slowly, races through the
+/// middle skipping most of what it passes, and slows onto the landing — and
+/// everything that reads as speed rides that curve, so the deck audibly
+/// winds up and winds down rather than running flat out for a second. The
+/// flips (each one knocked sideways and rolled a little, the way a head
+/// loses lock at speed) come slowly at the ends and fast in the middle; the
+/// red/cyan fringe, the tracking bands sliding down the frame and the
+/// head-switching strip at the foot all swell with the speed and calm as it
+/// settles. Over it, the deck's own on-screen display — ▶▶ FF, SP, and a
+/// counter racing to the landing time.
 ///
-/// **Cheap on purpose, and only for a second.** No shader: two full-screen
-/// copies of one small image, a few rectangles, a static scanline pattern
-/// drawn once, and a bottom strip redrawn per frame. It never takes a touch
-/// and it is gone as soon as the landing is.
+/// **It ends when the picture is back, not on a timer.** After
+/// `tapeDuration` the tape is parked on the landing frame — a still with a
+/// slow wobble, faint fringe, the OSD gone to ▶ PLAY — for as long as the
+/// player needs to have that frame ready (`PlayerEngine.skipHolding`). A
+/// seek can take several seconds, and a deck showing the frame it is about
+/// to play is the honest picture for that wait; a black screen was what it
+/// used to show. `PlayerChrome` removes this view the moment the hold is
+/// released.
+///
+/// **Cheap on purpose.** No shader: two full-screen copies of one small
+/// image, a few rectangles, a static scanline pattern drawn once, and a
+/// bottom strip redrawn per flip. It never takes a touch.
 struct VHSFastForward: View {
     let frames: [UIImage]
     let from: Double
@@ -27,43 +38,50 @@ struct VHSFastForward: View {
     /// The item's length, so the counter keeps one width (`formatPlayerClock`).
     let runtime: Double
     let started: Date
+    /// The player's own decoded frame at the landing, once the held seek
+    /// has it (`PlayerEngine.HeldSkip.landingFrame`): the still the tape
+    /// settles and parks on, so the live picture the fade reveals is the
+    /// same image. Until then, and without it, the last trickplay tile.
+    var landingFrame: UIImage? = nil
 
-    /// One second (3 and 1.8 were tried and felt long). `JT_FF_SECONDS` / `RT_FF_SECONDS` overrides it (DEBUG
-    /// only) so a simulator screenshot can catch it at all — the effect is
-    /// judged frame by frame there and at speed on the Apple TV.
-    static let duration: Double = {
+    /// How long the travel takes; the hold after it is the seek's to fill.
+    /// 1.6s: long enough for the slow ends to read as slow (a 1s run was
+    /// all middle). `JT_FF_SECONDS` / `RT_FF_SECONDS` overrides it (DEBUG
+    /// only) so a simulator screenshot can catch a phase at all — the run
+    /// is judged frame by frame there and at speed on the Apple TV.
+    static let tapeDuration: Double = {
         #if DEBUG
         let env = ProcessInfo.processInfo.environment
         if let raw = env["JT_FF_SECONDS"] ?? env["RT_FF_SECONDS"], let seconds = Double(raw) { return seconds }
         #endif
-        return 1.0
+        return 1.6
     }()
 
     /// How many frames to gather for a run: enough that the fast middle of
-    /// the eased travel really does skip through the span.
+    /// the travel really does skip through the span.
     static let frameCount = 45
 
-    /// Ease in, ease out (cubic): the deck winds up, races, and slows onto
-    /// the landing — the counter and the picture both ride it.
-    static func travel(_ t: Double) -> Double {
-        t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2
-    }
-    /// Flips per second — the rate that reads as "very fast" rather than as
-    /// a slideshow.
-    private static let flipsPerSecond: Double = 15
+    /// Flips per second with the tape at rest, flips over the whole race
+    /// (concentrated where the tape is fastest — around twenty a second at
+    /// the peak), and flips per second while parked on the landing.
+    private static let restFlipRate = 2.0
+    private static let raceFlips = 6.0
+    private static let holdFlipRate = 1.0
 
     var body: some View {
         ZStack {
             TimelineView(.animation) { context in
-                let t = min(1, max(0, context.date.timeIntervalSince(started) / Self.duration))
-                let step = Int(t * Self.flipsPerSecond * Self.duration)
+                let tape = VHSTapeTimeline(tapeDuration: Self.tapeDuration,
+                                           elapsed: context.date.timeIntervalSince(started))
+                let step = tape.flipStep(restRate: Self.restFlipRate, raceFlips: Self.raceFlips,
+                                         holdRate: Self.holdFlipRate)
                 ZStack {
-                    tape(step: step, travel: Self.travel(t))
-                    trackingBands(t: t)
-                    headSwitchStrip(step: step)
-                    osd(t: t, step: step)
+                    picture(tape: tape, step: step)
+                    trackingBands(tape: tape)
+                    headSwitchStrip(tape: tape, step: step)
+                    osd(tape: tape, step: step)
                 }
-                .opacity(envelope(t))
+                .opacity(min(1, tape.elapsed / 0.06))
             }
             Scanlines()
                 .opacity(0.22)
@@ -73,53 +91,62 @@ struct VHSFastForward: View {
         .accessibilityHidden(true)
     }
 
-    /// In fast, out fast: a hard deck-switch cut would read as a glitch.
-    private func envelope(_ t: Double) -> Double {
-        if t < 0.04 { return t / 0.04 }
-        if t > 0.94 { return max(0, (1 - t) / 0.06) }
-        return 1
+    /// How hard the picture is being knocked about right now, 0…1: with the
+    /// speed while travelling, a faint tremor while parked.
+    private func turbulence(_ tape: VHSTapeTimeline) -> Double {
+        tape.isHolding ? 0.12 : 0.15 + 0.85 * tape.speed
     }
 
     // MARK: - The tape
 
     @ViewBuilder
-    private func tape(step: Int, travel: Double) -> some View {
+    private func picture(tape: VHSTapeTimeline, step: Int) -> some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
-            if frames.isEmpty {
-                // No trickplay: the live picture shows through, washed and
-                // noisy, and the lines and OSD still say what is happening.
-                Color.black.opacity(0.35)
-            } else {
-                let image = frames[min(frames.count - 1, Int((travel * Double(frames.count - 1)).rounded()))]
+            if let image = pictureFrame(tape) {
+                let knock = turbulence(tape)
                 // Each flip lands slightly off: sideways skew and a vertical
                 // roll, seeded from the step so a flip holds still.
-                let jx = (Self.noise(step, 1) - 0.5) * w * 0.025
-                let roll = (Self.noise(step, 2) - 0.5) * h * 0.06
-                let fringe = max(3, w * 0.004)
+                let jx = (Self.noise(step, 1) - 0.5) * w * 0.028 * knock
+                let roll = (Self.noise(step, 2) - 0.5) * h * 0.07 * knock
+                let fringe = max(1, w * 0.005) * knock
+                let fringeOpacity = 0.3 + 0.7 * knock
                 ZStack {
                     Color.black
                     frame(image, w: w, h: h)
-                        .saturation(0.75)
-                        .contrast(1.18)
+                        .saturation(0.95 - 0.2 * knock)
+                        .contrast(1.06 + 0.14 * knock)
                     // The fringe: the same frame, tinted and shifted each
                     // way, screened on top — the colour smearing out of line.
                     frame(image, w: w, h: h)
                         .colorMultiply(Color(red: 1, green: 0.15, blue: 0.2))
                         .offset(x: fringe)
                         .blendMode(.screen)
-                        .opacity(0.45)
+                        .opacity(0.45 * fringeOpacity)
                     frame(image, w: w, h: h)
                         .colorMultiply(Color(red: 0.1, green: 0.9, blue: 1))
                         .offset(x: -fringe)
                         .blendMode(.screen)
-                        .opacity(0.35)
+                        .opacity(0.35 * fringeOpacity)
                 }
                 .offset(x: jx, y: roll)
                 .frame(width: w, height: h)
                 .clipped()
+            } else {
+                // No trickplay and nothing from the player yet: the live
+                // picture shows through, washed and noisy, and the lines and
+                // OSD still say what is happening.
+                Color.black.opacity(0.35)
             }
         }
+    }
+
+    /// The frame under the tape right now: the trickplay tile for where the
+    /// tape is, the player's own frame once the tape reaches the landing.
+    private func pictureFrame(_ tape: VHSTapeTimeline) -> UIImage? {
+        guard !frames.isEmpty else { return tape.isHolding ? landingFrame : nil }
+        let index = tape.frameIndex(count: frames.count)
+        return (index == frames.count - 1 ? landingFrame : nil) ?? frames[index]
     }
 
     private func frame(_ image: UIImage, w: CGFloat, h: CGFloat) -> some View {
@@ -134,19 +161,23 @@ struct VHSFastForward: View {
     // MARK: - Tracking
 
     /// Three bands sliding down the frame at different speeds — the tape's
-    /// tracking noise, bright and thin inside a soft grey smear.
-    private func trackingBands(t: Double) -> some View {
+    /// tracking noise, bright and thin inside a soft grey smear. They move
+    /// with the tape and creep while it is parked, and they are brightest
+    /// at speed.
+    private func trackingBands(tape: VHSTapeTimeline) -> some View {
         GeometryReader { geo in
             let h = geo.size.height
+            let drift = tape.travel + tape.holdElapsed * 0.12
             ZStack(alignment: .top) {
                 ForEach(0..<3, id: \.self) { i in
                     let speed = [2.4, 3.7, 1.6][i]
                     let height = h * [0.07, 0.025, 0.12][i]
-                    let y = (t * speed + Double(i) * 0.37).truncatingRemainder(dividingBy: 1.1) - 0.05
+                    let y = (drift * speed + Double(i) * 0.37).truncatingRemainder(dividingBy: 1.1) - 0.05
                     band(height: height)
                         .offset(y: y * h)
                 }
             }
+            .opacity(0.25 + 0.75 * turbulence(tape))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
@@ -163,9 +194,9 @@ struct VHSFastForward: View {
     }
 
     /// The strip at the foot where a VCR switches heads: torn sideways,
-    /// flecked with white. The only per-frame drawing here, and it is a
+    /// flecked with white. The only per-flip drawing here, and it is a
     /// sliver of the screen.
-    private func headSwitchStrip(step: Int) -> some View {
+    private func headSwitchStrip(tape: VHSTapeTimeline, step: Int) -> some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
             let stripH = h * 0.075
@@ -182,29 +213,32 @@ struct VHSFastForward: View {
             }
             .frame(width: w, height: stripH)
             .position(x: w / 2, y: h - stripH / 2)
+            .opacity(0.3 + 0.7 * turbulence(tape))
         }
     }
 
     // MARK: - On-screen display
 
-    /// The deck talking: ▶▶ top-left over the counter racing to the landing
-    /// time, SP top-right. Chunky white with a hard shadow, the way a VCR's
+    /// The deck talking: ▶▶ FF top-left over the counter racing to the
+    /// landing time, SP top-right; once parked, ▶ PLAY blinking while the
+    /// picture comes. Chunky white with a hard shadow, the way a VCR's
     /// character generator drew it.
-    private func osd(t: Double, step: Int) -> some View {
+    private func osd(tape: VHSTapeTimeline, step: Int) -> some View {
         GeometryReader { geo in
             let unit = geo.size.height / 1080
             let size = 64 * unit
-            let now = from + (to - from) * Self.travel(t)
             let text = Font.system(size: size, weight: .heavy, design: .monospaced)
+            // FF blinks with the flips; PLAY blinks on its own slow clock,
+            // as a deck's does while it finds the picture.
+            let lit = tape.isHolding ? Int(tape.holdElapsed * 2) % 2 == 0 : step % 4 < 3
             ZStack(alignment: .topLeading) {
                 VStack(alignment: .leading, spacing: 10 * unit) {
                     HStack(spacing: 18 * unit) {
-                        Text("▶▶").font(text)
-                        Text("FF").font(text)
+                        Text(tape.isHolding ? "▶" : "▶▶").font(text)
+                        Text(tape.isHolding ? "PLAY" : "FF").font(text)
                     }
-                    // The glyph blinks, as they did.
-                    .opacity(step % 4 < 3 ? 1 : 0.35)
-                    Text(formatPlayerClock(now, matching: runtime))
+                    .opacity(lit ? 1 : 0.35)
+                    Text(formatPlayerClock(tape.position(from: from, to: to), matching: runtime))
                         .font(.system(size: size * 0.7, weight: .heavy, design: .monospaced))
                         .monospacedDigit()
                 }
@@ -223,7 +257,7 @@ struct VHSFastForward: View {
     }
 
     /// Deterministic 0…1 noise, so a given step always jitters the same way
-    /// (a flip holds still for its whole 1/15 s instead of shimmering).
+    /// (a flip holds still between steps instead of shimmering).
     static func noise(_ n: Int, _ salt: Int) -> Double {
         let x = sin(Double(n) * 12.9898 + Double(salt) * 78.233) * 43758.5453
         return x - x.rounded(.down)
