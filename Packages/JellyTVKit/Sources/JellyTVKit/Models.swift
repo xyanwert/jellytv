@@ -61,7 +61,9 @@ extension JellyfinAPI.JellyfinItem {
             takenAt: MovieNightFacts.date(fromJellyfin: premiereDate),
             width: width,
             height: height,
-            trickplay: trickplay
+            trickplay: trickplay,
+            posterImage: primaryImageURLString(imageBaseURL, maxWidth: 1200),
+            thumbImage: thumbImageURLString(imageBaseURL)
         )
     }
 
@@ -400,6 +402,16 @@ extension JellyfinAPI.JellyfinItem {
                                     tag: tag, maxWidth: maxWidth)?.absoluteString
     }
 
+    /// The landscape key visual (`ImageTags.Thumb`) — for anime, TheTVDB's
+    /// "clear key art": the lead character against a plain ground with the
+    /// logo, which is the single best image to cut a figure from. Nil when
+    /// the server has none; nothing stands in.
+    private func thumbImageURLString(_ base: URL?, maxWidth: Int = 1920) -> String? {
+        guard let base, let tag = imageTags?["Thumb"] else { return nil }
+        return JellyfinAPI.imageURL(baseURL: base, itemId: id, imageType: "Thumb",
+                                    tag: tag, maxWidth: maxWidth)?.absoluteString
+    }
+
     private func primaryImageURLString(_ base: URL?, maxWidth: Int = 500) -> String? {
         guard let base, let tag = imageTags?["Primary"] else { return nil }
         return JellyfinAPI.imageURL(baseURL: base, itemId: id, imageType: "Primary",
@@ -498,6 +510,13 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
     /// the server has baked one. What lets a focused home-video card page
     /// through the video's own frames without a fetch per item.
     public var trickplay: [String: [String: JellyfinAPI.TrickplayInfo]]?
+    /// The poster again, at a size a figure can be cut from (1200px wide
+    /// against `image`'s 500) — the Anime library stands the title's own
+    /// character on its stage, and a 500px poster upscaled to a 4K panel is
+    /// soft. Nil where `image` is nil.
+    public var posterImage: String?
+    /// The landscape key visual (`ImageTags.Thumb`), when the server has one.
+    public var thumbImage: String?
 
     public init(id: String, title: String, meta: String, image: String? = nil, artwork: Artwork,
                 rating: Double? = nil, year: String? = nil, certification: String? = nil,
@@ -505,7 +524,8 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
                 runtimeTicks: Int64? = nil, resumePositionTicks: Int64? = nil,
                 isFavorite: Bool = false, played: Bool = false, logoImage: String? = nil,
                 takenAt: Date? = nil, width: Int? = nil, height: Int? = nil,
-                trickplay: [String: [String: JellyfinAPI.TrickplayInfo]]? = nil) {
+                trickplay: [String: [String: JellyfinAPI.TrickplayInfo]]? = nil,
+                posterImage: String? = nil, thumbImage: String? = nil) {
         self.id = id
         self.title = title
         self.meta = meta
@@ -526,6 +546,8 @@ public struct MediaItem: Equatable, Sendable, Hashable, Identifiable {
         self.width = width
         self.height = height
         self.trickplay = trickplay
+        self.posterImage = posterImage
+        self.thumbImage = thumbImage
     }
 
     /// Width over height when both are known, else nil.

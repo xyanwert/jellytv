@@ -606,22 +606,75 @@ two-second idle hide is faster than the iPad and TV simulators can capture.
 (`MetaLibrary/AnimeSkin.swift`, canvas "Anime Library Skin"): coral (Anime) or night violet
 with an 18+ sticker (Late Night, `AnimeSkinVariant`), a die-cut アニメ / 深夜アニメ lockup, the
 selected title's key art pinned up on a fixed-height stage, the ink shelf below. Three states:
-the library; the **title focus** (tvOS — two seconds on a title whose own character cuts out
-cleanly: its colour takes the ground and its character the stage); and the **empty shelf**,
-whose one button rescans the libraries (`AppState.scanLibraries`, admin only).
+the library; the **title focus** (tvOS — two seconds on a title whose own art holds a clean
+figure: the screen is keyed to that character); and the **empty shelf**, whose one button
+rescans the libraries (`AppState.scanLibraries`, admin only).
 
-**Cut-outs, best first** (`AppState.titleCutout`): the YSOJ server's prepared ones when
-`capabilities.features.cutouts` says so (`GET /ysoj/cutouts/{itemId}`, `YsojAPI.bestCutout`:
-Fanart.tv character art > clear art > a segmented backdrop, nothing under 0.55 — tested), else
-Vision on the device. `StickerCut` bakes the white die-cut border once (Core Image morphology),
-never per frame. **Mascots** (`AppState.animeMascots`) are Wallhaven art *of the titles on the
-shelf*, anime category, SFW — the Late Night screen asks Wallhaven's sketchy tier, never NSFW —
-cut on the device. **Decoration never covers anything reachable**: on TV one mascot stands in
-the stage band and one sits on the shelf's edge (the first cut covered the search field and the
-last posters); on iPad and iPhone they ride on the stage, right of the key art card and partly off the
-edge. AniDB synopses carry `<br>`; `AnimeText.plain` strips markup. The simulators can't cut:
-`JT_ANIME_CUTOUT=<png>` and `JT_ANIME_MASCOTS=<png>,<png>` (or `RT_`, DEBUG only) feed pre-cut
-files from the Mac.
+**A figure is judged, not just cut** (`FigureCutoutCache` → `FigureQuality`, kit, pure,
+tested). The first version cut the *backdrop*, and an anime backdrop is almost always a wide
+group scene — Vision's "foreground" of one is the whole shot minus its sky, a 50–90% slab that
+stood on the stage as a blob. Measured on this server's own art: a series' **thumb** (TheTVDB's
+clear key art — the lead against a plain ground) and its **poster** cut as characters, its
+backdrop rarely does, and Vision separates instances (DanDaDan's poster is Momo and Okarun as
+two). So `AppState.titleFigure` cuts thumb, poster and backdrop (`MediaItem.thumbImage` /
+`.posterImage`, additive), scores every instance and their union as a *figure* — bounding-box
+fill (a figure leaves half its box empty; a scene fills it), coverage, aspect, which frame edges
+it touches (left *and* right is a scene; a cropped head is the worst thing a mascot can have),
+pixel height (a 400px cut goes soft at 500pt on a 4K panel) — and subtracts for **text lying
+across it** (`VNDetectTextRectanglesRequest`, ~10 ms; Nagatoro's thumb carries "DON'T TOY WITH
+ME" across her right half and lost to her backdrop duo on exactly that). Below `pass` (0.72)
+nothing stands and the screen keeps its library layout, which is the honest degrade: Peter
+Grill's crowd poster and scene backdrop both fail and its focus is the column alone. Cuts are
+cached on disk as `figure-<sha256 of the URL>.png` + `.score`, a judged miss as `.miss` (so a
+real Apple TV never re-cuts a room-with-people every launch); a Vision *failure* — the
+simulator, always — writes nothing, so a seeded cut can land later. `Scripts/seed-anime-figures.sh`
+makes the same cuts on the Mac (`segment-figures.swift` mirrors the scoring — keep them one)
+into the simulator's cache; the iOS simulators take a copy of the TV's `Caches/cutouts/` since
+the URLs, so the names, are the same. YSOJ's prepared cut-outs (`capabilities.features.cutouts`,
+`YsojAPI.bestCutout`, tested) still come first when a server offers them; this one doesn't yet.
+
+**The title focus is a key visual, keyed to its figure** (`AnimeLead`, `AnimeKeyPalette`,
+`AnimeFigureLayer` / `AnimeKeyVisual`, tvOS). The figure's dominant hue (`DominantColor.hue`,
+OKLab — `OKLab.hue` is the forward half of the conversion `Color(OKLCH:)` already had) gives the
+slash and a flat disc behind the head and shoulders; its complement gives the ground — the
+pairing every key visual is built on, and why the purple-haired duo stands on a lime field. The
+show's **real logo is the title** where it has one (all nine anime here do), struck as a sticker
+in reverse (`StickerCut.Style.outline`: ink around the glyphs, a white keyline outside — a white
+wordmark on white paper would vanish); Anton die-cut type is the fallback and only the fallback.
+The title runs huge in scanlines (`PosterScanlineTitle`) behind the figure, faded at both ends so
+no stray letter peeks out past the character (`AnimeText.ghost`: the first word or two, brackets
+stripped). The figure stands *upright* on the shelf line — a character is not a slapped sticker,
+only mascots tilt — arriving with a step in from the right while the disc swells behind it, once,
+card-sized (`arrived`, per title via `.id`). The column's slots are fixed (logo 860×210, chips
+44, card) so one title's three-line wordmark and the next's one-liner leave nothing jumping.
+`AnimeGround` is split so the per-title colour is a crossfade of one quad and one band under a
+static halftone-and-shelf `Canvas`, never a repaint of four thousand dots per frame.
+
+**The mascots are the shelf's own characters** (`AppState.shelfFigures`): figures from the titles
+on the shelf, cut through the same gate, sampled from the top 24 (what is on screen — a draw
+across a 500-title library cut strangers and, on the simulator, nothing seeded) with thumbs
+first, shuffled per launch. Wallhaven art of those titles is only the fallback when *no* title
+yields a figure (anime category; the Late Night screen asks the sketchy tier, never NSFW — see
+`WallhavenClient.Filters`). On touch the featured title's *own* figure stands beside its key art
+(`featureFigure`, `AnimeSkinStage.figure`), else a shelf figure. **Decoration never covers
+anything reachable, and a sticker is never clipped**: on TV one figure stands at the right of the
+stage band, sized to the band and allowed off the screen's edge rather than cut by an invisible
+rectangle (the shelf-edge second mascot went — it sat on the key-art card's corner); on iPad and
+iPhone the figure rides on the stage, right of the card and partly off the edge.
+
+**`StickerCut` bakes a sticker that reads as printed, not pasted.** Vision's matte is a soft,
+colour-fringed ramp; the alpha is firmed (a short knee around 50%), eroded a pixel to drop the
+fringe, and only then grown by morphology — a border dilated from a soft mask is a blurry border,
+from a firm one a crisp cut. Borders are proportional to the figure (2.8% white + 0.7% ink
+keyline of its height, clamped), since a fixed sixteen pixels was a rim on a bust and a hairline
+on a full-length figure. Once per key, off the main thread, never per frame.
+
+AniDB synopses carry `<br>`; `AnimeText.plain` strips markup. Screenshot hooks (DEBUG):
+`JT_ANIME_CUTOUT=<png>` / `JT_ANIME_MASCOTS=<png>,<png>` (or `RT_`) feed pre-cut files from the
+Mac, and `JT_ANIME_FOCUS=<title substring>` opens either screen with the remote already on that
+poster, so any title's focus can be shot without driving the focus engine by hand — System
+Events key codes go to whichever simulator window DeviceHub has in front, which may be another
+session's.
 
 ## Launch splash — the mark draws itself
 

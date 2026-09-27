@@ -931,66 +931,122 @@ final class AppState: ObservableObject {
         return image
     }
 
-    // MARK: - Anime library: cut-outs and mascots
+    // MARK: - Anime library: figures
 
-    private var titleCutoutCache: [String: UIImage] = [:]
-    private var titleCutoutMisses: Set<String> = []
-    private var mascotCache: [Bool: [UIImage]] = [:]
+    /// A title's own character, ready for the stage: the figure struck as a
+    /// die-cut sticker, and the hue its palette is keyed to.
+    struct TitleFigure {
+        let sticker: UIImage
+        let hue: Double?
+        let score: Double
 
-    /// The title's own character as a die-cut sticker, for the Anime
-    /// library's title focus — nil when there is no clean one, and the screen
-    /// then simply keeps its library layout.
+        /// Whether the figure fits the slot *beside* a key-art card — the
+        /// touch stage's and the TV's mascot slot — which is a standing
+        /// figure's shape. A three-character group cut as one wide slab
+        /// passes the figure gate on its own merits and then lies across the
+        /// card and its name tag (verified on the iPad); it belongs to the
+        /// TV's key visual, which sizes to it, not to a slot that doesn't.
+        var standsBesideACard: Bool { sticker.size.height >= sticker.size.width * 0.85 }
+    }
+
+    private var titleFigureCache: [String: TitleFigure] = [:]
+    private var titleFigureMisses: Set<String> = []
+    private var logoStickerCache: [String: UIImage] = [:]
+    private var logoStickerMisses: Set<String> = []
+    private var shelfFigureCache: [Bool: [UIImage]] = [:]
+
+    /// The title's own character as a die-cut sticker, for the Anime library's
+    /// title focus and the figure beside its key art — nil when none of the
+    /// title's art holds a clean figure, and the screen then simply keeps its
+    /// library layout.
     ///
     /// Where it comes from, best first: the YSOJ server's prepared cut-outs
-    /// (Fanart.tv character art, or its backdrop cut by an anime-trained
-    /// model — `YsojAPI.bestCutout`), else the backdrop cut here on the
-    /// device by Vision (`PortraitCutoutCache`, which also gates the result).
-    /// One answer per title per launch, misses included.
-    func titleCutout(for item: MediaItem) async -> UIImage? {
-        if let hit = titleCutoutCache[item.id] { return hit }
+    /// (Fanart.tv character art — `YsojAPI.bestCutout`) when it offers them;
+    /// else the title's thumb, poster and backdrop are each cut here by
+    /// Vision and **judged** (`FigureCutoutCache` → `FigureQuality`, kit,
+    /// tested), and the one that scores best as a figure rather than a scene
+    /// is the one that stands — a room with people in it, which is what most
+    /// backdrops are, never makes the bar. One answer per title per launch,
+    /// misses included; the cuts themselves are cached on disk for good.
+    func titleFigure(for item: MediaItem) async -> TitleFigure? {
+        if let hit = titleFigureCache[item.id] { return hit }
         #if DEBUG
         // Screenshot hook: `JT_ANIME_CUTOUT` / `RT_ANIME_CUTOUT=<png path on
-        // the Mac>` stands in for every title's cut-out — the simulators
-        // can't run Vision, and this is the only way to see the title focus.
+        // the Mac>` stands in for every title's figure — the simulators can't
+        // run Vision. (`Scripts/seed-anime-figures.sh` is the other way: it
+        // cuts the real art on the Mac into the simulator's cache.)
         if let path = Self.debugEnv("ANIME_CUTOUT"), let image = UIImage(contentsOfFile: path),
            let sticker = await StickerCut.shared.sticker(image, key: "debug-\(path)") {
-            return sticker
+            return TitleFigure(sticker: sticker, hue: DominantColor.hue(of: image), score: 1)
         }
         #endif
-        if titleCutoutMisses.contains(item.id) { return nil }
-        var raw: UIImage?
+        if titleFigureMisses.contains(item.id) { return nil }
+        var best: FigureCutoutCache.Figure?
         if let ysojClient, ysojCapabilities?.offersCutouts == true,
            let list = try? await ysojClient.fetchCutouts(itemId: item.id),
-           let best = YsojAPI.bestCutout(list),
-           let url = ysojClient.absoluteURL(best.url),
-           let (data, _) = try? await URLSession.shared.data(from: url) {
-            raw = UIImage(data: data)
+           let pick = YsojAPI.bestCutout(list),
+           let url = ysojClient.absoluteURL(pick.url),
+           let (data, _) = try? await URLSession.shared.data(from: url),
+           let image = UIImage(data: data) {
+            best = FigureCutoutCache.Figure(image: image, score: 1)
         }
-        if raw == nil, PortraitCutoutCache.isSupported,
-           let backdrop = item.backdropImage, backdrop.hasPrefix("http") {
-            raw = await PortraitCutoutCache.shared.cutout(for: backdrop)
+        if best == nil, FigureCutoutCache.isSupported {
+            // The thumb is TheTVDB's clear key art and nearly always the best
+            // source, so it goes first and a near-perfect cut ends the search.
+            for source in [item.thumbImage, item.posterImage, item.backdropImage].compactMap({ $0 })
+            where source.hasPrefix("http") {
+                if let figure = await FigureCutoutCache.shared.figure(for: source),
+                   figure.score > (best?.score ?? 0) {
+                    best = figure
+                    if figure.score >= 0.9 { break }
+                }
+            }
         }
-        guard let raw, let sticker = await StickerCut.shared.sticker(raw, key: "title-\(item.id)") else {
-            titleCutoutMisses.insert(item.id)
+        guard let best, let sticker = await StickerCut.shared.sticker(best.image, key: "figure-\(item.id)") else {
+            PlayerDiagnostics.log("figure: none for \(item.title)")
+            titleFigureMisses.insert(item.id)
             return nil
         }
-        titleCutoutCache[item.id] = sticker
+        let figure = TitleFigure(sticker: sticker, hue: DominantColor.hue(of: best.image), score: best.score)
+        PlayerDiagnostics.log(String(format: "figure: %@ ← score %.2f, %.0f×%.0f, hue %@", item.title, best.score,
+                                     sticker.size.width, sticker.size.height, figure.hue.map { String(Int($0)) } ?? "none"))
+        titleFigureCache[item.id] = figure
+        return figure
+    }
+
+    /// The title's logo artwork struck as a sticker (ink outline, white
+    /// keyline — `StickerCut.Style.outline`, since a wordmark is often white),
+    /// for the title focus's column. Nil where the server has no logo; the
+    /// column then sets the title in type.
+    func titleLogoSticker(for item: MediaItem) async -> UIImage? {
+        if let hit = logoStickerCache[item.id] { return hit }
+        guard !logoStickerMisses.contains(item.id), let logo = item.logoImage, let url = URL(string: logo),
+              let (data, _) = try? await URLSession.shared.data(from: url), let image = UIImage(data: data),
+              let sticker = await StickerCut.shared.sticker(image, key: "logo-\(item.id)", style: .outline)
+        else {
+            logoStickerMisses.insert(item.id)
+            return nil
+        }
+        logoStickerCache[item.id] = sticker
         return sticker
     }
 
-    /// Up to `count` die-cut characters to dress the Anime library, drawn from
-    /// Wallhaven art **of the titles in the library itself** (anime category,
-    /// SFW only, the community's favourites) and cut on the device — so the
-    /// mascots are Frieren and Nagatoro when those are on the shelf, not
-    /// strangers. Decoration: an empty array on any failure, and the screen
-    /// looks finished without them. Chosen once per launch.
+    /// Up to `count` figures to dress the Anime library while no title has
+    /// the stage — **characters from the titles on the shelf**, cut from
+    /// their own art through the same gate as the title focus, so the figure
+    /// beside the key art is Frieren when Frieren is on the shelf, never a
+    /// stranger off a wallpaper site. Titles with a thumb are tried first
+    /// (the best odds of a clean figure), in an order shuffled once per
+    /// launch so the screen doesn't wear the same face every evening.
+    /// Decoration: an empty array on any failure, and the screen looks
+    /// finished without them.
     ///
-    /// `sketchy` is the Late Night screen's: Wallhaven's middle purity tier
-    /// (suggestive, never explicit — its NSFW tier needs an account key and
-    /// is deliberately never asked for, see `WallhavenClient.Filters`). It is
-    /// only ever asked from a screen the adult door already let you into.
-    func animeMascots(titles: [String], sketchy: Bool, count: Int = 3) async -> [UIImage] {
-        if let cached = mascotCache[sketchy] { return cached }
+    /// Only when *no* title on the shelf yields a figure does it fall back to
+    /// Wallhaven art of those titles (anime category; `sketchy` is the Late
+    /// Night screen's, Wallhaven's middle purity tier, never NSFW — see
+    /// `WallhavenClient.Filters`), cut and judged the same way.
+    func shelfFigures(from items: [MediaItem], sketchy: Bool, count: Int = 2) async -> [UIImage] {
+        if let cached = shelfFigureCache[sketchy] { return cached }
         #if DEBUG
         // Screenshot hook: `JT_ANIME_MASCOTS` / `RT_ANIME_MASCOTS=<png>,<png>`.
         if let list = Self.debugEnv("ANIME_MASCOTS") {
@@ -1001,22 +1057,39 @@ final class AppState: ObservableObject {
                     seeded.append(sticker)
                 }
             }
-            mascotCache[sketchy] = seeded
+            shelfFigureCache[sketchy] = seeded
             return seeded
         }
         #endif
-        guard PortraitCutoutCache.isSupported, !titles.isEmpty else { return [] }
+        guard FigureCutoutCache.isSupported, !items.isEmpty else { return [] }
+        var found: [UIImage] = []
+        // The top of the shelf — what is on screen — rather than a draw
+        // across a 500-title library, so the first evening on a new box cuts
+        // the titles the viewer is looking at and not a stranger far down.
+        let pool = Array(items.prefix(24))
+        let ordered = pool.filter { $0.thumbImage != nil }.shuffled() + pool.filter { $0.thumbImage == nil }.shuffled()
+        for item in ordered.prefix(12) where found.count < count {
+            if let figure = await titleFigure(for: item), figure.standsBesideACard { found.append(figure.sticker) }
+        }
+        if found.isEmpty {
+            found = await wallhavenFigures(titles: items.map(\.title), sketchy: sketchy, count: count)
+        }
+        PlayerDiagnostics.log("figure: shelf holds \(found.count) of \(count) wanted from \(pool.count) titles")
+        shelfFigureCache[sketchy] = found
+        return found
+    }
+
+    private func wallhavenFigures(titles: [String], sketchy: Bool, count: Int) async -> [UIImage] {
         var found: [UIImage] = []
         let client = WallhavenClient()
         for title in titles.shuffled().prefix(count * 2) where found.count < count {
             guard let results = try? await client.search(.animeArt(title: title, sketchy: sketchy)),
                   let url = results.prefix(4).randomElement()?.fullImageURL,
-                  let cut = await PortraitCutoutCache.shared.cutout(for: url.absoluteString),
-                  let sticker = await StickerCut.shared.sticker(cut, key: "mascot-\(url.absoluteString)")
+                  let figure = await FigureCutoutCache.shared.figure(for: url.absoluteString),
+                  let sticker = await StickerCut.shared.sticker(figure.image, key: "mascot-\(url.absoluteString)")
             else { continue }
             found.append(sticker)
         }
-        mascotCache[sketchy] = found
         return found
     }
 

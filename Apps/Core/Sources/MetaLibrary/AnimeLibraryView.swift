@@ -58,14 +58,16 @@ struct AnimeLibraryView: View {
     /// screen deliberately keeps the same image (the guard below), so tapping
     /// a filter chip doesn't reshuffle the wallpaper under you.
     @State private var backdropItemId: String?
-    /// Poster Mode: the die-cut characters dressing the screen
-    /// (`AppState.animeMascots`) — empty until they are cut, or for good
-    /// where the device can't cut.
+    /// Poster Mode: the die-cut characters dressing the screen — figures from
+    /// the shelf's own titles (`AppState.shelfFigures`) — empty until they
+    /// are cut, or for good where the device can't cut.
     @State private var mascots: [UIImage] = []
     /// Poster Mode, tvOS: the title the remote has rested on long enough, and
     /// its own character — the title focus. Nil keeps the library stage.
-    @State private var focusStageItemId: String?
-    @State private var focusStageCutout: UIImage?
+    @State private var focusLead: AnimeLead?
+    /// Touch: the featured title's own character beside its key art
+    /// (`AppState.titleFigure`), else a figure from the shelf.
+    @State private var featureFigure: UIImage?
 
     private var allItems: [MediaItem] { items }
 
@@ -206,10 +208,7 @@ struct AnimeLibraryView: View {
     var body: some View {
         ZStack {
             if theme.isPoster {
-                AnimeGround(variant: .anime,
-                            color: AnimeSkinLayout.focusGround(.anime, itemId: focusStageItemId),
-                            shelfTop: AnimeSkinLayout.shelfTop)
-                    .animation(.easeInOut(duration: 0.4), value: focusStageItemId)
+                AnimeGround(variant: .anime, palette: focusLead?.palette, shelfTop: AnimeSkinLayout.shelfTop)
             } else {
                 background
                 if let backdropItem {
@@ -270,7 +269,7 @@ struct AnimeLibraryView: View {
             .pageBehind(presentedMovie != nil || presentedShow != nil)
 
             if theme.isPoster && DeviceClass.current == .tv && presentedMovie == nil && presentedShow == nil && !allItems.isEmpty {
-                AnimeMascotLayer(mascots: mascots, leadAside: focusStageItemId != nil)
+                AnimeFigureLayer(lead: focusLead, mascots: mascots)
             }
 
             if let presentedMovie {
@@ -325,9 +324,26 @@ struct AnimeLibraryView: View {
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
         .task(id: selectedItem?.id) { await armTitleFocus() }
         #endif
-        .task(id: hasLoaded) {
-            guard theme.isPoster, hasLoaded, mascots.isEmpty else { return }
-            let found = await appState.animeMascots(titles: items.map(\.title), sketchy: false)
+        #if os(iOS)
+        // Touch has no title focus; the featured title's own character stands
+        // beside its key art instead, when its art holds one.
+        .task(id: posterStageItem?.id) {
+            guard theme.isPoster, let item = posterStageItem else { return }
+            let figure = await appState.titleFigure(for: item)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) {
+                featureFigure = figure?.standsBesideACard == true ? figure?.sticker : nil
+            }
+        }
+        #endif
+        // Keyed on the *count*, not the loaded flag: the load task fires once
+        // before the server's libraries are configured and sets `hasLoaded`
+        // with an empty list, and a task keyed on the flag alone never ran
+        // again when the titles landed (verified — the shelf had no figure
+        // on every launch through the screenshot hook).
+        .task(id: hasLoaded ? items.count : -1) {
+            guard theme.isPoster, hasLoaded, !items.isEmpty, mascots.isEmpty else { return }
+            let found = await appState.shelfFigures(from: items, sketchy: false)
             withAnimation(.easeOut(duration: 0.4)) { mascots = found }
         }
         #if os(tvOS)
@@ -360,8 +376,7 @@ struct AnimeLibraryView: View {
     /// touch, the page's pick.
     private var posterStage: some View {
         AnimeSkinStage(variant: .anime, item: posterStageItem, count: allItems.count,
-                       focusItem: focusStageItemId.flatMap { id in allItems.first { $0.id == id } },
-                       focusCutout: focusStageCutout, mascots: mascots)
+                       lead: focusLead, figure: featureFigure ?? mascots.first)
     }
 
     private var posterStageItem: MediaItem? {
@@ -377,17 +392,18 @@ struct AnimeLibraryView: View {
     /// own (`AppState.titleCutout`), it takes the stage. Any move before then
     /// cancels this task, and the stage goes back to the library at once.
     private func armTitleFocus() async {
-        if focusStageItemId != nil {
-            withAnimation(.easeInOut(duration: 0.3)) { focusStageItemId = nil; focusStageCutout = nil }
+        if focusLead != nil {
+            withAnimation(.easeInOut(duration: 0.3)) { focusLead = nil }
         }
         guard theme.isPoster, let item = selectedItem else { return }
         try? await Task.sleep(for: .seconds(2))
-        guard !Task.isCancelled, let cutout = await appState.titleCutout(for: item),
-              !Task.isCancelled, selectedItem?.id == item.id else { return }
-        withAnimation(.easeInOut(duration: 0.35)) {
-            focusStageCutout = cutout
-            focusStageItemId = item.id
-        }
+        guard !Task.isCancelled else { return }
+        async let figureTask = appState.titleFigure(for: item)
+        async let logoTask = appState.titleLogoSticker(for: item)
+        guard let figure = await figureTask, !Task.isCancelled, selectedItem?.id == item.id else { return }
+        let lead = AnimeLead(item: item, figure: figure.sticker, logo: await logoTask,
+                             palette: .keyed(to: figure.hue, variant: .anime))
+        withAnimation(.easeInOut(duration: 0.35)) { focusLead = lead }
     }
     #endif
 
@@ -599,7 +615,18 @@ struct AnimeLibraryView: View {
         #if os(tvOS)
         guard !hasSeededFocus, item.id == filtered.first?.id else { return }
         hasSeededFocus = true
-        if focusedId == nil, searchFocused != true { focusedId = item.id }
+        var target = item
+        #if DEBUG
+        // Screenshot hook: `JT_ANIME_FOCUS=<title substring>` opens with the
+        // remote on that poster, so any title's focus can be shot without
+        // driving the simulator's focus engine by hand.
+        if let wanted = ProcessInfo.processInfo.environment["JT_ANIME_FOCUS"],
+           let match = filtered.first(where: { $0.title.localizedCaseInsensitiveContains(wanted) }) {
+            target = match
+            lastFocusedId = match.id
+        }
+        #endif
+        if focusedId == nil, searchFocused != true { focusedId = target.id }
         #endif
     }
 

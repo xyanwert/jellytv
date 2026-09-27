@@ -11,12 +11,16 @@ import UIKit
 // with a thick white border standing over it all.
 //
 // Three states, one screen: the library (the default), the title focus (the
-// remote has rested on a title that has a clean cut-out of its own — its
-// colour takes the ground and its character the stage), and the empty shelf.
+// remote has rested on a title that has a clean figure of its own — its
+// colour takes the ground, its logo the column and its character the stage),
+// and the empty shelf.
 //
-// Static by construction: the ground is one flattened `Canvas`, the stickers
-// are baked images (`StickerCut`), and only the stage swaps — a crossfade of
-// a card-sized area, never a full-screen animation (CLAUDE.md, "Movie Night").
+// Static by construction: the ground's texture is one flattened `Canvas`, the
+// stickers are baked images (`StickerCut`), and what moves is card-sized — the
+// figure arriving, the disc behind it, a crossfade of the stage. The ground's
+// *colour* changes per title, and that is one flat quad and one band under
+// the static texture, never a repaint of the halftone (CLAUDE.md, "Movie
+// Night": the area animated is what costs).
 
 /// Anime metadata from AniDB/Shoko arrives with markup in it — `<br>`,
 /// `<i>`, entity escapes — which a `Text` prints literally (verified: a
@@ -30,6 +34,24 @@ enum AnimeText {
             .replacingOccurrences(of: "&#39;", with: "'")
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The word or two printed huge in scanlines behind a figure: the title
+    /// with its brackets and punctuation stripped, cut at a word boundary
+    /// around twelve letters — "DAN DA DAN", "FRIEREN", "WORLD'S END" — since
+    /// the ghost is texture, not a label, and half a subtitle is noise.
+    static func ghost(_ title: String, limit: Int = 12) -> String {
+        let cleaned = title
+            .replacingOccurrences(of: "[^A-Za-z0-9' ]+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        var out: [String] = []
+        for word in cleaned.split(separator: " ").map(String.init) {
+            let next = (out + [word]).joined(separator: " ")
+            if !out.isEmpty, next.count > limit { break }
+            out.append(word)
+        }
+        return out.isEmpty ? cleaned : out.joined(separator: " ")
     }
 }
 
@@ -56,13 +78,50 @@ enum AnimeSkinVariant {
     var kana: String { self == .anime ? "アニメ" : "深夜アニメ" }
     var word: String { self == .anime ? "ANIME" : "LATE NIGHT" }
     var crumb: String { self == .anime ? "ANIME" : "LATE NIGHT" }
-    /// The title focus's grounds, picked per title.
-    var focusGrounds: [Color] {
-        self == .anime
-            ? [Palette.posterBlush, Palette.posterTeal, AnimePalette.yellow, AnimePalette.lime]
-            : [Color(hex: "#3A0F3E"), Color(hex: "#12203F"), Color(hex: "#3F0F1E"), Color(hex: "#24123F")]
-    }
     var isAdult: Bool { self == .lateNight }
+}
+
+/// The colours a title focus dresses the screen in, **keyed to the figure**:
+/// the dominant hue of the character's own art gives the slash and the disc
+/// behind them, and its complement the ground — the pairing every key visual
+/// is built on, and the reason a purple-haired girl stands on a lime field
+/// rather than on the same coral as everyone else. A figure with no hue to
+/// speak of (a greyscale cut) keeps the variant's own ground.
+struct AnimeKeyPalette: Equatable {
+    var ground: Color
+    var slash: Color
+    var rule: Color
+    /// The flat disc behind the figure's head and shoulders.
+    var disc: Color
+    /// Type set straight on the ground.
+    var ink: Color
+    /// The scanline ghost title's white, over the ground.
+    var ghostOpacity: Double
+
+    static func standard(_ variant: AnimeSkinVariant) -> AnimeKeyPalette {
+        AnimeKeyPalette(ground: variant.ground, slash: variant.slash, rule: variant.rule,
+                        disc: variant == .anime ? Palette.posterBlush : Color(hex: "#3A1F52"),
+                        ink: variant.ink, ghostOpacity: variant == .anime ? 0.45 : 0.3)
+    }
+
+    static func keyed(to hue: Double?, variant: AnimeSkinVariant) -> AnimeKeyPalette {
+        guard let hue else { return standard(variant) }
+        let across = (hue + 180).truncatingRemainder(dividingBy: 360)
+        switch variant {
+        case .anime:
+            return AnimeKeyPalette(ground: Color(OKLCH(l: 0.70, c: 0.145, h: across)),
+                                   slash: Color(OKLCH(l: 0.86, c: 0.16, h: hue)),
+                                   rule: Palette.posterInk,
+                                   disc: Color(OKLCH(l: 0.88, c: 0.10, h: hue)),
+                                   ink: Palette.posterInk, ghostOpacity: 0.45)
+        case .lateNight:
+            return AnimeKeyPalette(ground: Color(OKLCH(l: 0.26, c: 0.10, h: across)),
+                                   slash: Color(OKLCH(l: 0.66, c: 0.21, h: hue)),
+                                   rule: AnimePalette.lime,
+                                   disc: Color(OKLCH(l: 0.42, c: 0.14, h: hue)),
+                                   ink: .white, ghostOpacity: 0.3)
+        }
+    }
 }
 
 /// Sizes off the design: TV at 1920×1080, iPad at 1194×834, iPhone 402 wide.
@@ -76,19 +135,76 @@ enum AnimeSize {
     }
 }
 
-/// Coral with a halftone, the lime slash with its ink rule, and the hatched
-/// ink shelf from `shelfTop` down. One `Canvas`.
+/// The ground: a flat colour, the halftone and hatched ink shelf as one static
+/// `Canvas` over it, and the slash as a shape with its rule. Split this way so
+/// a palette change — a title focus keying the screen to its figure — is a
+/// colour crossfade of one quad and one band, not a redraw of four thousand
+/// dots on every frame of the fade.
 struct AnimeGround: View {
     var variant: AnimeSkinVariant = .anime
-    /// Overrides the variant's ground (the title focus).
-    var color: Color? = nil
+    /// The title focus's palette; nil is the variant's own.
+    var palette: AnimeKeyPalette? = nil
     /// Where the shelf starts, as a fraction of the height.
     var shelfTop: CGFloat
 
+    private var colors: AnimeKeyPalette { palette ?? .standard(variant) }
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(colors.ground)
+            AnimeGroundTexture(variant: variant, shelfTop: shelfTop)
+            AnimeSlash(shelfTop: shelfTop)
+                .fill(colors.slash)
+            AnimeSlashRule(shelfTop: shelfTop)
+                .stroke(colors.rule, style: StrokeStyle(lineWidth: AnimeSize.pick(tv: 10, pad: 7, phone: 5)))
+        }
+        .animation(.easeInOut(duration: 0.4), value: colors)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The lime slash, rising 6° to the right just above the shelf.
+private struct AnimeSlash: Shape {
+    let shelfTop: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let size = rect.size
+        let slope = size.width * tan(6 * .pi / 180)
+        let base = size.height * shelfTop - size.height * 0.02
+        let band = size.height * 0.1
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: base))
+        p.addLine(to: CGPoint(x: size.width, y: base - slope))
+        p.addLine(to: CGPoint(x: size.width, y: base - slope - band))
+        p.addLine(to: CGPoint(x: 0, y: base - band))
+        p.closeSubpath()
+        return p
+    }
+}
+
+private struct AnimeSlashRule: Shape {
+    let shelfTop: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let size = rect.size
+        let slope = size.width * tan(6 * .pi / 180)
+        let base = size.height * shelfTop - size.height * 0.02
+        let band = size.height * 0.1
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: base - band * 0.55))
+        p.addLine(to: CGPoint(x: size.width, y: base - slope - band * 0.55))
+        return p
+    }
+}
+
+/// The halftone above the shelf and the hatched ink shelf below it. One
+/// flattened `Canvas`, drawn once.
+private struct AnimeGroundTexture: View {
+    let variant: AnimeSkinVariant
+    let shelfTop: CGFloat
+
     var body: some View {
         Canvas { ctx, size in
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(color ?? variant.ground))
-            // Halftone.
             let step: CGFloat = AnimeSize.pick(tv: 22, pad: 16, phone: 12)
             let r: CGFloat = step * 0.1
             var dots = Path()
@@ -103,21 +219,6 @@ struct AnimeGround: View {
                 y += step
             }
             ctx.fill(dots, with: .color(variant.halftone))
-            // The lime slash and its rule, rising to the right just above the shelf.
-            let slope = size.width * tan(6 * .pi / 180)
-            let base = shelfY - size.height * 0.02
-            let band = size.height * 0.1
-            var lime = Path()
-            lime.move(to: CGPoint(x: 0, y: base))
-            lime.addLine(to: CGPoint(x: size.width, y: base - slope))
-            lime.addLine(to: CGPoint(x: size.width, y: base - slope - band))
-            lime.addLine(to: CGPoint(x: 0, y: base - band))
-            ctx.fill(lime, with: .color(variant.slash))
-            var rule = Path()
-            rule.move(to: CGPoint(x: 0, y: base - band * 0.55))
-            rule.addLine(to: CGPoint(x: size.width, y: base - slope - band * 0.55))
-            ctx.stroke(rule, with: .color(variant.rule), lineWidth: max(4, band * 0.1))
-            // The shelf, hatched.
             let shelf = CGRect(x: 0, y: shelfY, width: size.width, height: size.height - shelfY)
             ctx.fill(Path(shelf), with: .color(Color(hex: "#121317")))
             var hatch = Path()
@@ -131,9 +232,6 @@ struct AnimeGround: View {
             ctx.stroke(hatch, with: .color(Color(hex: "#1B1C22")), lineWidth: 7)
         }
         .drawingGroup()
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 
@@ -316,57 +414,92 @@ struct AnimeLibraryStage: View {
     }
 }
 
-/// The title focus: the remote has rested on a title whose own character
-/// cuts out cleanly, so the ground takes the art's colour, the title is set
-/// huge with a die-cut border, and the character stands on the right.
+// MARK: - Title focus
+
+/// The title the remote has rested on, with everything its key visual needs:
+/// its character struck as a sticker, its logo as one too (when the server
+/// has a logo — every anime here does), and the palette keyed to the figure.
+struct AnimeLead: Equatable {
+    let item: MediaItem
+    let figure: UIImage
+    let logo: UIImage?
+    let palette: AnimeKeyPalette
+
+    static func == (a: AnimeLead, b: AnimeLead) -> Bool {
+        a.item.id == b.item.id && a.palette == b.palette
+    }
+}
+
+/// The title focus's column: the crumb, the show's own logo (or its title
+/// die-cut when there is none), its facts and two lines of synopsis. The
+/// figure, the disc and the ghost title are the `AnimeFigureLayer`'s — they
+/// stand on the shelf line, which the stage's fixed frame doesn't reach.
+///
+/// Every slot is a fixed size, so one title's three-line logo and the next's
+/// one-line wordmark leave the chips and card exactly where they were.
 struct AnimeTitleFocusStage: View {
     var variant: AnimeSkinVariant = .anime
-    let item: MediaItem
-    let cutout: UIImage
+    let lead: AnimeLead
     let count: Int
 
+    private var item: MediaItem { lead.item }
+
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(spacing: 14) {
-                    DieCutText(text: variant.kana, font: .system(size: 34, weight: .black),
-                               fill: Palette.posterInk, stroke: .white, width: 4)
-                    Text("\(variant.crumb) · \(count) SERIES")
-                        .font(Mono.font(20, .bold)).tracking(3)
-                        .foregroundStyle(variant.ink)
-                }
-                DieCutText(text: item.title.uppercased(), font: Display.font(titleSize),
-                           fill: .white, stroke: Palette.posterInk, width: 12, shadow: 10)
-                    .frame(maxWidth: 1000, alignment: .leading)
-                HStack(spacing: 12) {
-                    ForEach(chips, id: \.self) { chip in
-                        Text(chip.uppercased())
-                            .font(Display.font(28))
-                            .foregroundStyle(Palette.posterInk)
-                            .padding(.horizontal, 14).padding(.vertical, 4)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                }
-                if let synopsis = item.synopsis.map(AnimeText.plain), !synopsis.isEmpty {
-                    // Carded, like the library stage's: the slash runs behind.
-                    Text(synopsis)
-                        .font(Typography.font(22, .bold))
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 14) {
+                DieCutText(text: variant.kana, font: .system(size: 34, weight: .black),
+                           fill: Palette.posterInk, stroke: .white, width: 4)
+                Text("\(variant.crumb) · \(count) SERIES")
+                    .font(Mono.font(20, .bold)).tracking(3)
+                    .foregroundStyle(lead.palette.ink)
+            }
+            title
+                .frame(width: 860, height: 210, alignment: .leading)
+            HStack(spacing: 12) {
+                ForEach(chips, id: \.self) { chip in
+                    Text(chip.uppercased())
+                        .font(Display.font(28))
                         .foregroundStyle(Palette.posterInk)
-                        .lineLimit(2)
-                        .frame(width: 780, alignment: .leading)
-                        .padding(.horizontal, 18).padding(.vertical, 12)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Palette.posterInk, lineWidth: 3))
-                        .compositingGroup()
-                        .shadow(color: Palette.posterInk, radius: 0, x: 6, y: 6)
-                        .rotationEffect(.degrees(-1.5))
+                        .padding(.horizontal, 14).padding(.vertical, 4)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
-            DieCutSticker(image: cutout, height: 560, tilt: -3, shadow: 16)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, 40)
-                .offset(y: -40)
+            .frame(height: 44, alignment: .leading)
+            if let synopsis = item.synopsis.map(AnimeText.plain), !synopsis.isEmpty {
+                // Carded, like the library stage's: the slash runs behind.
+                Text(synopsis)
+                    .font(Typography.font(22, .bold))
+                    .foregroundStyle(Palette.posterInk)
+                    .lineLimit(2)
+                    .frame(width: 780, alignment: .leading)
+                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Palette.posterInk, lineWidth: 3))
+                    .compositingGroup()
+                    .shadow(color: Palette.posterInk, radius: 0, x: 6, y: 6)
+                    .rotationEffect(.degrees(-1.5))
+            }
+        }
+    }
+
+    /// The logo is the title where there is one (CLAUDE.md: where an item has
+    /// logo artwork, that artwork *is* the title), struck with an ink outline
+    /// and a white keyline so a white wordmark still stands off the ground.
+    @ViewBuilder private var title: some View {
+        if let logo = lead.logo {
+            Image(uiImage: logo)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(maxWidth: 760, maxHeight: 210, alignment: .leading)
+                .shadow(color: Palette.posterInk.opacity(0.9), radius: 0, x: 8, y: 8)
+                .rotationEffect(.degrees(-2), anchor: .leading)
+        } else {
+            DieCutText(text: item.title.uppercased(), font: Display.font(titleSize),
+                       fill: .white, stroke: Palette.posterInk, width: 12, shadow: 10)
+                .frame(maxWidth: 860, alignment: .leading)
+                .clipped()
         }
     }
 
@@ -446,95 +579,146 @@ enum AnimeSkinLayout {
     /// iPad's page; the phone's stage scrolls, so its shelf sits mid-screen.
     static var shelfTop: CGFloat { AnimeSize.pick(tv: 0.6, pad: 0.56, phone: 0.52) }
     static var stageHeight: CGFloat { AnimeSize.pick(tv: 450, pad: 330, phone: 340) }
-
-    /// The title focus's ground, picked by the title so it is the same colour
-    /// every visit.
-    static func focusGround(_ variant: AnimeSkinVariant, itemId: String?) -> Color? {
-        guard let itemId else { return nil }
-        let options = variant.focusGrounds
-        let seed = itemId.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
-        return options[seed % options.count]
-    }
+    /// The band the figures stand in starts under the header row.
+    static var bandTop: CGFloat { AnimeSize.pick(tv: 0.13, pad: 0.14, phone: 0.12) }
 }
 
-/// The stage above the shelf: the title focus when one is up, else the
-/// library stage. Fixed height, top-aligned, so the shelf never moves.
+/// The stage above the shelf: the title focus's column when one is up, else
+/// the library stage. Fixed height, top-aligned, so the shelf never moves.
 struct AnimeSkinStage: View {
     let variant: AnimeSkinVariant
     let item: MediaItem?
     let count: Int
-    let focusItem: MediaItem?
-    let focusCutout: UIImage?
-    /// Touch only: the stage scrolls with the shelf there, so the mascots
-    /// ride on it rather than being pinned to the screen (`AnimeMascotLayer`
-    /// is the TV's).
-    var mascots: [UIImage] = []
+    let lead: AnimeLead?
+    /// Touch only: the stage scrolls with the shelf there, so the character
+    /// rides on it rather than being pinned to the screen (`AnimeFigureLayer`
+    /// is the TV's). The featured title's own figure when it has one, else a
+    /// figure from the shelf.
+    var figure: UIImage? = nil
 
     var body: some View {
         Group {
-            if let focusItem, let focusCutout {
-                AnimeTitleFocusStage(variant: variant, item: focusItem, cutout: focusCutout, count: count)
+            if let lead {
+                AnimeTitleFocusStage(variant: variant, lead: lead, count: count)
             } else {
                 AnimeLibraryStage(variant: variant, item: item, count: count)
             }
         }
-        .overlay(alignment: DeviceClass.current == .phone ? .topLeading : .bottomTrailing) {
+        .overlay(alignment: DeviceClass.current == .phone ? .topLeading : .bottomLeading) {
             // Touch: the character stands right of the key art card, partly
-            // off the edge. On the phone the stage is only as wide as its
-            // content (a vertical ScrollView proposes no width), so
-            // "trailing" meant the middle of the screen, right over the card
-            // (verified) — there it is placed just past the card's edge.
-            if DeviceClass.current != .tv, focusItem == nil, let first = mascots.first {
+            // off the edge — anchored by its *left* edge just past the card,
+            // never centred off the trailing edge: a wide duo placed that way
+            // ran back over the card's name tag (verified on the iPad). On
+            // the phone the stage is only as wide as its content (a vertical
+            // ScrollView proposes no width), so it is placed the same way.
+            if DeviceClass.current != .tv, lead == nil, let figure {
                 let phone = DeviceClass.current == .phone
-                DieCutSticker(image: first, height: AnimeSkinLayout.stageHeight * (phone ? 0.7 : 0.82), tilt: 4,
+                let s = AnimeSize.pick(tv: 1, pad: 0.62, phone: 0.5)
+                DieCutSticker(image: figure, height: AnimeSkinLayout.stageHeight * (phone ? 0.7 : 0.82), tilt: 0,
                               shadow: phone ? 6 : 9)
-                    .offset(x: phone ? 226 : 90, y: phone ? 96 : 0)
+                    .offset(x: phone ? 226 : 1300 * s + 12, y: phone ? 96 : 0)
                     .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: AnimeSkinLayout.stageHeight, alignment: .top)
         .transition(.opacity)
-        .animation(.easeInOut(duration: 0.3), value: focusItem?.id)
+        .animation(.easeInOut(duration: 0.3), value: lead?.item.id)
     }
 }
 
-/// The characters dressing the screen — **never over anything the remote
-/// or a finger can reach** (the first cut stood across the search field
-/// and the last posters; verified). The first stands in the stage band on
-/// the right, between the header and the shelf, stepping aside while a
-/// title's own character has the stage; the second sits on the shelf's top
-/// edge like the ZZZ crew on their car. Nothing here is focusable.
-struct AnimeMascotLayer: View {
+/// The characters on the TV screen — **never over anything the remote can
+/// reach** (the first cut stood across the search field and the last posters;
+/// verified). Nothing here is focusable, nothing here is clipped: a die-cut
+/// sticker cut off by an invisible rectangle reads as broken, so a figure is
+/// sized to the band and allowed off the screen's edge instead.
+///
+/// With no title focus, one figure from the shelf stands at the right of the
+/// stage band. With one, that figure gives way to the focused title's key
+/// visual (`AnimeKeyVisual`): its character on the shelf line under a disc of
+/// its own colour, its title in scanlines behind.
+struct AnimeFigureLayer: View {
+    let lead: AnimeLead?
     let mascots: [UIImage]
-    /// A title's own character has the stage: the mascots step aside.
-    let leadAside: Bool
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
             let shelfY = h * AnimeSkinLayout.shelfTop
-            let headerY = h * AnimeSize.pick(tv: 0.13, pad: 0.14, phone: 0.12)
+            let bandTop = h * AnimeSkinLayout.bandTop
             ZStack(alignment: .topLeading) {
-                if !leadAside, let first = mascots.first {
-                    DieCutSticker(image: first, height: shelfY - headerY,
-                                  tilt: 3, shadow: AnimeSize.pick(tv: 14, pad: 10, phone: 7))
-                        .frame(width: w * AnimeSize.pick(tv: 0.22, pad: 0.26, phone: 0.4), height: shelfY - headerY)
-                        .clipped()
-                        .position(x: w - w * AnimeSize.pick(tv: 0.11, pad: 0.13, phone: 0.2), y: (headerY + shelfY) / 2)
+                if let lead {
+                    AnimeKeyVisual(lead: lead, size: geo.size, shelfY: shelfY, bandTop: bandTop)
+                        .id(lead.item.id)
                         .transition(.opacity)
-                }
-                if !leadAside, mascots.count > 1 {
-                    let hh = h * AnimeSize.pick(tv: 0.17, pad: 0.15, phone: 0.09)
-                    DieCutSticker(image: mascots[1], height: hh, tilt: -4,
-                                  shadow: AnimeSize.pick(tv: 10, pad: 7, phone: 5))
-                        .position(x: w * AnimeSize.pick(tv: 0.66, pad: 0.62, phone: 0.72), y: shelfY - hh * 0.42)
+                } else if let first = mascots.first {
+                    let mh = (shelfY - bandTop) * 0.96
+                    DieCutSticker(image: first, height: mh, tilt: 2.5, shadow: 14)
+                        .position(x: w * 0.915, y: shelfY - 6 - mh / 2)
                         .transition(.opacity)
                 }
             }
+            .frame(width: w, height: h, alignment: .topLeading)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-        .animation(.easeInOut(duration: 0.3), value: leadAside)
+        .animation(.easeInOut(duration: 0.3), value: lead?.item.id)
+    }
+}
+
+/// The key visual proper: a disc of the title's colour, the title printed in
+/// scanlines running out from behind the figure, and the character standing
+/// on the shelf line — arriving with a step in from the right and the disc
+/// swelling behind them, both card-sized and once. Positioned in the layer's
+/// own coordinates so the three parts line up with each other and with the
+/// shelf, whatever the figure's proportions.
+private struct AnimeKeyVisual: View {
+    let lead: AnimeLead
+    let size: CGSize
+    let shelfY: CGFloat
+    let bandTop: CGFloat
+
+    @State private var arrived = false
+
+    var body: some View {
+        // Sized to the band, and capped in width: a wide duo or trio must not
+        // reach back over the column, so it stands shorter instead.
+        let ratio = lead.figure.size.width / max(1, lead.figure.size.height)
+        let height = min(shelfY - bandTop - 12, 560, size.width * 0.36 / max(ratio, 0.01))
+        let width = height * ratio
+        let bottom = shelfY - 4, top = bottom - height
+        let cx = size.width * 0.83
+        let disc = height * 0.86
+        ZStack {
+            PosterScanlineTitle(text: AnimeText.ghost(lead.item.title), size: height * 0.48,
+                                ink: .white.opacity(lead.palette.ghostOpacity), blend: .overlay)
+                .frame(width: size.width * 0.47, alignment: .leading)
+                .clipped()
+                // Faded at both ends: in from under the column's edge, and
+                // out before the screen's, so a letter can't peek out past
+                // the figure as a stray glyph.
+                .mask {
+                    LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .white, location: 0.14),
+                                           .init(color: .white, location: 0.78), .init(color: .clear, location: 0.97)],
+                                   startPoint: .leading, endPoint: .trailing)
+                }
+                .position(x: size.width * 0.53 + size.width * 0.235, y: top + height * 0.30)
+                .opacity(arrived ? 1 : 0)
+            Circle()
+                .fill(lead.palette.disc)
+                .frame(width: disc, height: disc)
+                .shadow(color: Palette.posterInk.opacity(0.9), radius: 0, x: 10, y: 10)
+                .scaleEffect(arrived ? 1 : 0.6)
+                .opacity(arrived ? 1 : 0)
+                .position(x: cx + height * 0.06, y: top + height * 0.38)
+            DieCutSticker(image: lead.figure, height: height, tilt: 0, shadow: 14)
+                .frame(width: width, height: height)
+                .offset(x: arrived ? 0 : 70)
+                .opacity(arrived ? 1 : 0)
+                .position(x: cx, y: bottom - height / 2)
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) { arrived = true }
+        }
     }
 }

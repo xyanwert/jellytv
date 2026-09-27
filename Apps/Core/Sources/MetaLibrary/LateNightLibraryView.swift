@@ -61,8 +61,10 @@ struct LateNightLibraryView: View {
     /// Poster Mode: the night variant of the anime skin (`AnimeSkin.swift`) —
     /// its mascots, and the title focus. See `AnimeLibraryView`.
     @State private var mascots: [UIImage] = []
-    @State private var focusStageItemId: String?
-    @State private var focusStageCutout: UIImage?
+    @State private var focusLead: AnimeLead?
+    /// Touch: the featured title's own character beside its key art
+    /// (`AppState.titleFigure`), else a figure from the shelf.
+    @State private var featureFigure: UIImage?
 
     private var allItems: [MediaItem] { items }
 
@@ -163,10 +165,7 @@ struct LateNightLibraryView: View {
     var body: some View {
         ZStack {
             if theme.isPoster {
-                AnimeGround(variant: .lateNight,
-                            color: AnimeSkinLayout.focusGround(.lateNight, itemId: focusStageItemId),
-                            shelfTop: AnimeSkinLayout.shelfTop)
-                    .animation(.easeInOut(duration: 0.4), value: focusStageItemId)
+                AnimeGround(variant: .lateNight, palette: focusLead?.palette, shelfTop: AnimeSkinLayout.shelfTop)
             } else {
                 background
                 if let backdropItem {
@@ -228,7 +227,7 @@ struct LateNightLibraryView: View {
             .pageBehind(presentedShow != nil)
 
             if theme.isPoster && DeviceClass.current == .tv && presentedShow == nil && !allItems.isEmpty {
-                AnimeMascotLayer(mascots: mascots, leadAside: focusStageItemId != nil)
+                AnimeFigureLayer(lead: focusLead, mascots: mascots)
             }
 
             if let presentedShow {
@@ -269,9 +268,26 @@ struct LateNightLibraryView: View {
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
         .task(id: selectedItem?.id) { await armTitleFocus() }
         #endif
-        .task(id: hasLoaded) {
-            guard theme.isPoster, hasLoaded, mascots.isEmpty else { return }
-            let found = await appState.animeMascots(titles: items.map(\.title), sketchy: true)
+        #if os(iOS)
+        // Touch has no title focus; the featured title's own character stands
+        // beside its key art instead, when its art holds one.
+        .task(id: posterStageItem?.id) {
+            guard theme.isPoster, let item = posterStageItem else { return }
+            let figure = await appState.titleFigure(for: item)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) {
+                featureFigure = figure?.standsBesideACard == true ? figure?.sticker : nil
+            }
+        }
+        #endif
+        // Keyed on the *count*, not the loaded flag: the load task fires once
+        // before the server's libraries are configured and sets `hasLoaded`
+        // with an empty list, and a task keyed on the flag alone never ran
+        // again when the titles landed (verified — the shelf had no figure
+        // on every launch through the screenshot hook).
+        .task(id: hasLoaded ? items.count : -1) {
+            guard theme.isPoster, hasLoaded, !items.isEmpty, mascots.isEmpty else { return }
+            let found = await appState.shelfFigures(from: items, sketchy: true)
             withAnimation(.easeOut(duration: 0.4)) { mascots = found }
         }
         #if os(tvOS)
@@ -283,8 +299,7 @@ struct LateNightLibraryView: View {
 
     private var posterStage: some View {
         AnimeSkinStage(variant: .lateNight, item: posterStageItem, count: allItems.count,
-                       focusItem: focusStageItemId.flatMap { id in allItems.first { $0.id == id } },
-                       focusCutout: focusStageCutout, mascots: mascots)
+                       lead: focusLead, figure: featureFigure ?? mascots.first)
     }
 
     private var posterStageItem: MediaItem? {
@@ -298,17 +313,18 @@ struct LateNightLibraryView: View {
     #if os(tvOS)
     /// See `AnimeLibraryView.armTitleFocus`.
     private func armTitleFocus() async {
-        if focusStageItemId != nil {
-            withAnimation(.easeInOut(duration: 0.3)) { focusStageItemId = nil; focusStageCutout = nil }
+        if focusLead != nil {
+            withAnimation(.easeInOut(duration: 0.3)) { focusLead = nil }
         }
         guard theme.isPoster, let item = selectedItem else { return }
         try? await Task.sleep(for: .seconds(2))
-        guard !Task.isCancelled, let cutout = await appState.titleCutout(for: item),
-              !Task.isCancelled, selectedItem?.id == item.id else { return }
-        withAnimation(.easeInOut(duration: 0.35)) {
-            focusStageCutout = cutout
-            focusStageItemId = item.id
-        }
+        guard !Task.isCancelled else { return }
+        async let figureTask = appState.titleFigure(for: item)
+        async let logoTask = appState.titleLogoSticker(for: item)
+        guard let figure = await figureTask, !Task.isCancelled, selectedItem?.id == item.id else { return }
+        let lead = AnimeLead(item: item, figure: figure.sticker, logo: await logoTask,
+                             palette: .keyed(to: figure.hue, variant: .lateNight))
+        withAnimation(.easeInOut(duration: 0.35)) { focusLead = lead }
     }
     #endif
 
@@ -526,7 +542,18 @@ struct LateNightLibraryView: View {
         #if os(tvOS)
         guard !hasSeededFocus, item.id == filtered.first?.id else { return }
         hasSeededFocus = true
-        if focusedId == nil, searchFocused != true { focusedId = item.id }
+        var target = item
+        #if DEBUG
+        // Screenshot hook: `JT_ANIME_FOCUS=<title substring>` opens with the
+        // remote on that poster, so any title's focus can be shot without
+        // driving the simulator's focus engine by hand.
+        if let wanted = ProcessInfo.processInfo.environment["JT_ANIME_FOCUS"],
+           let match = filtered.first(where: { $0.title.localizedCaseInsensitiveContains(wanted) }) {
+            target = match
+            lastFocusedId = match.id
+        }
+        #endif
+        if focusedId == nil, searchFocused != true { focusedId = target.id }
         #endif
     }
 
