@@ -22,7 +22,17 @@ struct SearchLibraryView: View {
     @FocusState private var focusedId: String?
     @FocusState private var searchFieldFocused: Bool?
 
-    @State private var query = ""
+    /// Screenshot hook (DEBUG): `JT_SEARCH_QUERY` / `RT_SEARCH_QUERY=<term>`
+    /// opens with the term already typed — the simulator's keyboard can't
+    /// be driven reliably.
+    @State private var query: String = {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        return env["JT_SEARCH_QUERY"] ?? env["RT_SEARCH_QUERY"] ?? ""
+        #else
+        return ""
+        #endif
+    }()
     @State private var isSearching = false
     /// Distinguishes "nothing typed yet" from "searched and found nothing" —
     /// the difference between a prompt and a dead end.
@@ -80,6 +90,9 @@ struct SearchLibraryView: View {
 
     var body: some View {
         ZStack {
+            if isNightPaper {
+                PosterNightPaper()
+            } else {
             Palette.background.ignoresSafeArea()
             // The focused (or first) result's backdrop, atmospheric behind
             // the rail and content — same layer Movies/Shows use, so a
@@ -88,10 +101,14 @@ struct SearchLibraryView: View {
             if let selectedItem {
                 SelectedBackdrop(item: selectedItem, blur: backdropBlur)
             }
+            }
             HStack(spacing: 0) {
                 NavRail(destination: .search, isLibrariesOpen: isLibrariesOpen, onSelect: onSelectRail)
                 LibrariesOverlayContent(isOpen: isLibrariesOpen, libraries: appState.libraryUIItems(),
                                         onDismiss: { onSelectRail(.libraries) }) {
+                    if isNightPaper {
+                        nightPaper
+                    } else {
                     VStack(alignment: .leading, spacing: Self.contentSpacing) {
                         header.padding(.horizontal, Self.horizontalPadding)
                         // Phone moves the field to a floating bar over the
@@ -110,6 +127,7 @@ struct SearchLibraryView: View {
                     }
                     .padding(.top, Self.topPadding)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
                 }
             }
             .railContentSafeArea()
@@ -139,7 +157,8 @@ struct SearchLibraryView: View {
             // so it belongs where a thumb already rests, not at the top of a
             // reach. No z-index games needed: it's positioned clear of the
             // tab bar's own footprint, so the two never actually overlap.
-            if DeviceClass.current == .phone {
+            // Night paper puts its field at the top, where the artboard has it.
+            if DeviceClass.current == .phone, !isNightPaper {
                 phoneFloatingSearchField
                     .padding(.horizontal, 20)
                     .padding(.bottom, 86)
@@ -192,6 +211,59 @@ struct SearchLibraryView: View {
             appState.noteRecentSearch(term)
             isSearching = false
             hasSearched = true
+        }
+    }
+
+    // MARK: - Night paper (tvOS, Poster Mode)
+
+    /// Poster Mode draws Search as the design canvas's "night paper"
+    /// (`PosterSearch.swift`) on every platform; Classic keeps the screen
+    /// below.
+    private var isNightPaper: Bool { theme.isPoster }
+
+    private var nightPaper: some View {
+        PosterSearchTV(
+            query: $query,
+            filter: Binding(get: { activeFilter }, set: { activeFilter = $0 }),
+            unwatchedOnly: Binding(get: { unwatchedOnly }, set: { unwatchedOnly = $0 }),
+            includeNSFW: Binding(get: { includeNSFW }, set: { includeNSFW = $0 }),
+            offersNSFW: offersNSFWChip,
+            sections: posterSections,
+            count: posterCount,
+            isSearching: isSearching,
+            hasSearched: hasSearched,
+            recent: appState.recentSearches,
+            focusedId: $focusedId,
+            fieldFocus: $searchFieldFocused,
+            onOpen: { item, bucket in open(item, in: bucket) })
+            .padding(.top, DeviceClass.current == .tv ? 36 : (DeviceClass.current == .phone ? 0 : 20))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var posterSections: [PosterSearchSection] {
+        var out: [PosterSearchSection] = []
+        func add(_ filter: SearchFilter, _ bucket: AppState.SearchGroupKind, _ title: String, _ items: [MediaItem]) {
+            let visible = visibleItems(items)
+            if showsSection(filter, count: visible.count) {
+                out.append(PosterSearchSection(bucket: bucket, title: title, items: visible))
+            }
+        }
+        add(.movies, .movies, "MOVIES", groupedResults.movies)
+        add(.shows, .shows, "SHOWS", groupedResults.shows)
+        add(.anime, .anime, "ANIME", groupedResults.anime)
+        add(.videos, .videos, "HOME VIDEOS", groupedResults.videos)
+        return out
+    }
+
+    private func posterCount(_ filter: SearchFilter) -> Int {
+        switch filter {
+        case .all:
+            return [groupedResults.movies, groupedResults.shows, groupedResults.anime, groupedResults.videos]
+                .reduce(0) { $0 + visibleItems($1).count }
+        case .movies: return visibleItems(groupedResults.movies).count
+        case .shows: return visibleItems(groupedResults.shows).count
+        case .anime: return visibleItems(groupedResults.anime).count
+        case .videos: return visibleItems(groupedResults.videos).count
         }
     }
 
