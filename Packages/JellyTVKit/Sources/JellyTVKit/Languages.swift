@@ -35,6 +35,14 @@ public enum LanguageTable {
         Language(code: "rus", aliases: ["ru"], endonym: "Русский"),
     ]
 
+    /// Not a language: the film's own — whatever it was made in. Offered
+    /// for the *sound* only (a subtitle has no original), and resolved per
+    /// item by `TrackPicker` from the file's own flag, TMDB, or the library.
+    public static let originalCode = "orig"
+    public static let original = Language(code: originalCode, aliases: [], endonym: "Original")
+    /// The sound picker's choices: Original first, then the ten.
+    public static var audioChoices: [Language] { [original] + all }
+
     /// Languages a file may carry that the picker doesn't offer: still
     /// named properly when they turn up on a track.
     static let recognised: [Language] = [
@@ -61,7 +69,7 @@ public enum LanguageTable {
 
     private static let byAnyCode: [String: Language] = {
         var map: [String: Language] = [:]
-        for language in all + recognised {
+        for language in all + recognised + [original] {
             map[language.code] = language
             for alias in language.aliases { map[alias] = language }
         }
@@ -166,18 +174,31 @@ public enum TrackPicker {
         }
     }
 
+    /// - Parameter originalLanguage: the item's original language when it is
+    ///   known from outside the file (TMDB, an anime library); the file's own
+    ///   `IsOriginal` flag wins over it.
     public static func choose(streams: [JellyfinAPI.MediaStream],
-                              preference: LibraryLanguagePreference?) -> Choice {
+                              preference: LibraryLanguagePreference?,
+                              originalLanguage: String? = nil) -> Choice {
         let pref = preference ?? .none
         let audio = streams.filter { $0.type == "Audio" }.sorted { ($0.index ?? 0) < ($1.index ?? 0) }
         let subs = streams.filter { $0.type == "Subtitle" }.sorted { ($0.index ?? 0) < ($1.index ?? 0) }
 
         // Sound: the first preferred language the file has (its default track
         // among several, a commentary only if nothing else), else the file's
-        // default, else its first.
+        // default, else its first. "Original" is a slot like any other: the
+        // track the file flags as original, else the track in the language
+        // TMDB or the library says the item was made in, else — a lone track
+        // being its own original — the only one; unknown, the slot is skipped
+        // rather than guessed at.
         var chosenAudio: JellyfinAPI.MediaStream?
         for code in pref.audio.compactMap(LanguageTable.canonical) {
-            let matches = audio.filter { LanguageTable.canonical($0.language) == code }
+            let matches: [JellyfinAPI.MediaStream]
+            if code == LanguageTable.originalCode {
+                matches = originalAudio(in: audio, originalLanguage: originalLanguage)
+            } else {
+                matches = audio.filter { LanguageTable.canonical($0.language) == code }
+            }
             guard !matches.isEmpty else { continue }
             let plain = matches.filter { !isCommentary($0) }
             let pool = plain.isEmpty ? matches : plain
@@ -190,7 +211,10 @@ public enum TrackPicker {
             chosenAudio = pool.first { $0.isDefault == true } ?? pool.first
         }
         let audioCode = LanguageTable.canonical(chosenAudio?.language)
-        let preferredAudio = pref.audio.compactMap(LanguageTable.canonical)
+        // "Original" is not a language anyone understands, so it doesn't
+        // count here: with Original and Español preferred, Japanese sound
+        // still isn't a preferred language and the when-needed rule fires.
+        let preferredAudio = pref.audio.compactMap(LanguageTable.canonical).filter { $0 != LanguageTable.originalCode }
         let audioIsPreferred = preferredAudio.isEmpty || (audioCode.map { preferredAudio.contains($0) } ?? false)
 
         var choice = Choice(audioIndex: chosenAudio?.index)
@@ -228,6 +252,17 @@ public enum TrackPicker {
             choice.subtitleIsAutomatic = true
         }
         return choice
+    }
+
+    /// The tracks that are the item's original sound, best evidence first.
+    public static func originalAudio(in audio: [JellyfinAPI.MediaStream], originalLanguage: String?) -> [JellyfinAPI.MediaStream] {
+        let flagged = audio.filter { $0.isOriginal == true }
+        if !flagged.isEmpty { return flagged }
+        if let code = LanguageTable.canonical(originalLanguage) {
+            let matches = audio.filter { LanguageTable.canonical($0.language) == code }
+            if !matches.isEmpty { return matches }
+        }
+        return audio.count == 1 ? audio : []
     }
 
     private static func isCommentary(_ stream: JellyfinAPI.MediaStream) -> Bool {

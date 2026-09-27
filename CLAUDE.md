@@ -1470,7 +1470,12 @@ render pass), so the `RT_SHOW_PLAYER` fixture is raised in `.onAppear` instead.
 Libraries → a library → Languages (`LibraryLanguagesEditor`): three sound languages and three
 subtitle languages in order of preference, picked from **ten** languages named in their own
 spelling (`LanguageTable.all` — English, Español, 日本語, 中文, Français, Deutsch, Português,
-Italiano, 한국어, Русский; a longer list was cut on request), and whether subtitles start *On*,
+Italiano, 한국어, Русский; a longer list was cut on request) — the sound slots also offer
+**Original**, the language the item was made in: the track the file flags `IsOriginal` (Jellyfin
+12 surfaces the disposition; most files don't set it), else the language TMDB's
+`original_language` names when the key is on (the show's, for an episode), else Japanese for an
+anime library, else a lone track; unknown, the slot is *skipped*, never guessed, and Original
+never counts as a language you understand for the when-needed rule — and whether subtitles start *On*,
 *Off* (only a *forced* track in the sound's language, the film's own call) or *When needed*
 (only when the sound isn't one of the preferred languages — the anime rule, Jellyfin's "Smart").
 Stored on the device (`jelly:library.languages`, `LibraryLanguagePreference`, kit): Jellyfin's

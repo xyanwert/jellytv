@@ -118,8 +118,9 @@ struct PlayerLanguageCheck: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 10 * s) {
             if let audio = controller.currentAudioTrack {
+                let tag = [controller.isOriginalAudio(audio) ? "ORIGINAL" : nil, channels(audio)].compactMap { $0 }
                 sticker(icon: "speaker.wave.2.fill", label: audio.languageLabel.uppercased(),
-                        tag: channels(audio), primary: true)
+                        tag: tag.isEmpty ? nil : tag.joined(separator: " · "), primary: true)
             }
             sticker(icon: nil, label: controller.currentSubtitleTrack.map { $0.languageLabel.uppercased() } ?? "OFF",
                     tag: controller.trackChoice.subtitleIsAutomatic ? "AUTO" : nil, primary: false)

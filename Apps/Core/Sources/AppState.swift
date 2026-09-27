@@ -769,6 +769,31 @@ final class AppState: ObservableObject {
         return library.id
     }
 
+    private var originalLanguageCache: [String: String?] = [:]
+
+    /// The language an item was made in, for the sound preference's
+    /// "Original" slot when the file doesn't flag its own track: an anime
+    /// library's items are Japanese; otherwise TMDB's `original_language`
+    /// when the key is on (the show's, for an episode). Nil when nothing
+    /// knows — the picker then skips the slot rather than guess.
+    func originalLanguage(for item: PlayableItem) async -> String? {
+        let key = item.seriesId ?? item.id
+        if let cached = originalLanguageCache[key] { return cached }
+        var answer: String?
+        if let libraryId = await libraryId(for: item),
+           let library = libraries.first(where: { $0.id == libraryId }),
+           classificationFlags(for: library).isAnime {
+            answer = "jpn"
+        } else if tmdbEnabled, !tmdbApiKey.isEmpty, let client, !userId.isEmpty,
+                  let detail = try? await client.fetchItemDetail(userId: userId, itemId: key) {
+            let ids = detail.providerIds ?? [:]
+            answer = (try? await TMDBClient(apiKey: tmdbApiKey)
+                .fetchOriginalLanguage(imdbId: ids["Imdb"], tmdbId: ids["Tmdb"], isSeries: item.seriesId != nil)) ?? nil
+        }
+        originalLanguageCache[key] = answer
+        return answer
+    }
+
     /// What the player asks as each item loads — nil when the library has
     /// no languages set, so the file's defaults play.
     func languagePreference(for item: PlayableItem) async -> LibraryLanguagePreference? {

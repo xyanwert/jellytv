@@ -80,6 +80,28 @@ public struct TMDBClient: Sendable {
         return try await get(url)
     }
 
+    /// The language a title was made in — TMDB's `original_language`, an
+    /// ISO 639-1 code ("ja", "es") — for the sound preference's "Original"
+    /// slot when the file doesn't flag its own track. `tmdbId` skips the
+    /// `/find` round trip; nil when TMDB has no match.
+    public func fetchOriginalLanguage(imdbId: String?, tmdbId: String?, isSeries: Bool) async throws -> String? {
+        let id: Int
+        if let tmdbId, let known = Int(tmdbId) {
+            id = known
+        } else if let imdbId {
+            let found = try await find(imdbId: imdbId)
+            guard let hit = isSeries ? found.tvResults?.first?.id : found.movieResults?.first?.id else { return nil }
+            id = hit
+        } else {
+            return nil
+        }
+        var components = URLComponents(string: "\(baseURL)/\(isSeries ? "tv" : "movie")/\(id)")
+        components?.queryItems = [URLQueryItem(name: "api_key", value: apiKey)]
+        guard let url = components?.url else { throw URLError(.badURL) }
+        let detail: TMDBOriginalLanguage = try await get(url)
+        return detail.originalLanguage
+    }
+
     private func fetchTVDetail(tmdbId: Int) async throws -> TMDBTVResult {
         var components = URLComponents(string: "\(baseURL)/tv/\(tmdbId)")
         components?.queryItems = [URLQueryItem(name: "api_key", value: apiKey)]
@@ -254,6 +276,12 @@ public struct TMDBFindTVResult: Decodable, Equatable, Sendable {
     public init(id: Int) {
         self.id = id
     }
+}
+
+/// `/movie/{id}` or `/tv/{id}`, read for one field.
+public struct TMDBOriginalLanguage: Decodable, Sendable {
+    public let originalLanguage: String?
+    enum CodingKeys: String, CodingKey { case originalLanguage = "original_language" }
 }
 
 /// TMDB's `/tv/{id}` response — just the `networks` field this app needs.

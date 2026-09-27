@@ -23,7 +23,7 @@ struct LibraryLanguagesEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DetailRow(label: "Sound", description: "The first of these the video has is what plays") {
+            DetailRow(label: "Sound", description: "The first of these the video has is what plays — Original is the language it was made in") {
                 slots(kind: "audio", codes: preference.audio)
             }
             if openSlot?.hasPrefix("audio") == true { chips }
@@ -92,7 +92,7 @@ struct LibraryLanguagesEditor: View {
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(LanguageTable.all) { language in
+                ForEach(openSlot?.hasPrefix("audio") == true ? LanguageTable.audioChoices : LanguageTable.all) { language in
                     chip(language.endonym, selected: current == language.code) { set(language.code) }
                 }
                 chip("Clear", selected: false) { set(nil) }

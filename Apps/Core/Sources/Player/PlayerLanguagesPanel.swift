@@ -292,6 +292,7 @@ struct PlayerLanguagesPanel: View {
 
     private func audioMeta(_ track: JellyfinAPI.MediaStream) -> String? {
         var parts: [String] = []
+        if controller.isOriginalAudio(track) { parts.append("ORIGINAL") }
         if let codec = track.codec { parts.append(codec.uppercased()) }
         switch track.channels {
         case 8: parts.append("7.1")

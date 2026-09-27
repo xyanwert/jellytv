@@ -124,7 +124,14 @@ struct PlayerView: View {
                 let e = PlayerEngine(client: client, userId: userId)
                 // Each item plays in its library's languages (Settings →
                 // Libraries → Languages); the file's own defaults otherwise.
-                e.languagePolicy = { [weak appState] item in await appState?.languagePreference(for: item) }
+                e.languagePolicy = { [weak appState] item in
+                    guard let appState else { return nil }
+                    let preference = await appState.languagePreference(for: item)
+                    // The original language is looked up only when a slot asks for it.
+                    let wantsOriginal = preference?.audio.contains { LanguageTable.canonical($0) == LanguageTable.originalCode } ?? false
+                    let original = wantsOriginal ? await appState.originalLanguage(for: item) : nil
+                    return PlayerEngine.LanguageContext(preference: preference, originalLanguage: original)
+                }
                 let c = PlayerController(engine: e)
                 engine = e
                 controller = c

@@ -108,6 +108,44 @@ final class LanguageTests: XCTestCase {
         XCTAssertNil(choice.subtitleIndex)
     }
 
+    func testOriginalUsesTheFileFlag() {
+        let streams = [audio(1, "spa", isDefault: true), JellyfinAPI.MediaStream(type: "Audio", index: 2, language: "eng", isOriginal: true)]
+        let pref = LibraryLanguagePreference(audio: ["orig", "spa"])
+        XCTAssertEqual(TrackPicker.choose(streams: streams, preference: pref).audioIndex, 2)
+    }
+
+    func testOriginalUsesTheKnownLanguageWhenUnflagged() {
+        let streams = [audio(1, "spa", isDefault: true), audio(2, "jpn")]
+        let pref = LibraryLanguagePreference(audio: ["orig", "spa"])
+        XCTAssertEqual(TrackPicker.choose(streams: streams, preference: pref, originalLanguage: "ja").audioIndex, 2)
+    }
+
+    func testOriginalUnknownSkipsToTheNextSlot() {
+        let streams = [audio(1, "eng", isDefault: true), audio(2, "spa")]
+        let pref = LibraryLanguagePreference(audio: ["orig", "spa"])
+        XCTAssertEqual(TrackPicker.choose(streams: streams, preference: pref).audioIndex, 2)
+    }
+
+    func testOriginalAloneTrackIsItsOwnOriginal() {
+        let streams = [audio(1, "fre")]
+        let pref = LibraryLanguagePreference(audio: ["orig"])
+        XCTAssertEqual(TrackPicker.choose(streams: streams, preference: pref).audioIndex, 1)
+    }
+
+    func testOriginalDoesNotCountAsUnderstoodForSmart() {
+        let streams = [audio(1, "jpn", isDefault: true), sub(2, "spa")]
+        let pref = LibraryLanguagePreference(audio: ["orig", "spa"], subtitles: ["spa"], subtitleMode: .smart)
+        let choice = TrackPicker.choose(streams: streams, preference: pref, originalLanguage: "jpn")
+        XCTAssertEqual(choice.audioIndex, 1)
+        XCTAssertEqual(choice.subtitleIndex, 2)
+    }
+
+    func testOriginalIsOfferedForSoundOnly() {
+        XCTAssertEqual(LanguageTable.audioChoices.first?.code, "orig")
+        XCTAssertEqual(LanguageTable.endonym(for: "orig"), "Original")
+        XCTAssertFalse(LanguageTable.all.contains { $0.code == "orig" })
+    }
+
     func testPreferenceCapsAtThree() {
         let pref = LibraryLanguagePreference(audio: ["a", "b", "c", "d"])
         XCTAssertEqual(pref.audio.count, 3)

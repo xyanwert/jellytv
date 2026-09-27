@@ -45,9 +45,19 @@ final class PlayerEngine {
     private(set) var currentItem: PlayableItem?
 
     // MARK: Sound and subtitles
-    /// The item's library's languages, asked for as each item loads — set by
-    /// `PlayerView` from `AppState`. Nil plays the file's own defaults.
-    var languagePolicy: ((PlayableItem) async -> LibraryLanguagePreference?)?
+    /// What the player needs to pick tracks for an item: its library's
+    /// languages, and — when that preference says "Original" — the language
+    /// the item was made in, from TMDB or the library kind.
+    struct LanguageContext: Sendable {
+        var preference: LibraryLanguagePreference?
+        var originalLanguage: String?
+    }
+    /// Asked as each item loads — set by `PlayerView` from `AppState`. Nil
+    /// plays the file's own defaults.
+    var languagePolicy: ((PlayableItem) async -> LanguageContext?)?
+    /// The item's original language as far as anything knows it — for the
+    /// panel's ORIGINAL tag when the file doesn't flag the track itself.
+    private(set) var originalLanguage: String?
     /// The item's streams and what it plays with, from the resolve.
     private(set) var streams: [JellyfinAPI.MediaStream] = []
     private(set) var trackChoice = TrackPicker.Choice()
@@ -327,9 +337,12 @@ final class PlayerEngine {
         progressReporter = nil
 
         do {
-            let preference = await languagePolicy?(item)
+            let context = await languagePolicy?(item)
+            let preference = context?.preference
+            originalLanguage = context?.originalLanguage
             if trackOverride?.itemId != item.id { trackOverride = nil }
             let resolved = try await resolver.resolve(itemId: item.id, preference: preference,
+                                                      originalLanguage: context?.originalLanguage,
                                                       override: trackOverride?.choice)
             if generation.isCancelled(token) { return }
             PlayerDiagnostics.logResolved(resolved, item: item)

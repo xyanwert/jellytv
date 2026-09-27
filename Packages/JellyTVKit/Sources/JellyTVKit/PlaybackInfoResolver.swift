@@ -60,7 +60,10 @@ public struct PlaybackInfoResolver: Sendable {
     ///   - preference: the item's library's languages; nil plays the file's
     ///     default tracks (a forced subtitle in that language included).
     ///   - override: a pick made in the player, which wins over the preference.
+    ///   - originalLanguage: the item's original language from outside the
+    ///     file, for the preference's "Original" slot.
     public func resolve(itemId: String, preference: LibraryLanguagePreference? = nil,
+                        originalLanguage: String? = nil,
                         override: TrackPicker.Choice? = nil) async throws -> ResolvedPlayback {
         let response = try await client.fetchPlaybackInfo(userId: userId, itemId: itemId)
 
@@ -76,7 +79,8 @@ public struct PlaybackInfoResolver: Sendable {
             throw PlaybackInfoError.noMediaSource
         }
         let streams = mediaSource.mediaStreams ?? []
-        let choice = override ?? TrackPicker.choose(streams: streams, preference: preference)
+        let choice = override ?? TrackPicker.choose(streams: streams, preference: preference,
+                                                    originalLanguage: originalLanguage)
         // The sound is named on the transcode only when there is a choice
         // to make — a single-track file keeps the URL it always had.
         let audioCount = streams.filter { $0.type == "Audio" }.count

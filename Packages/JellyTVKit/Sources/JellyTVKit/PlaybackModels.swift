@@ -302,6 +302,9 @@ extension JellyfinAPI {
         public let title: String?
         public let isDefault: Bool?
         public let isForced: Bool?
+        /// The file's own "original" flag on an audio track (Jellyfin 12
+        /// surfaces the disposition). Set by careful muxers, absent on most.
+        public let isOriginal: Bool?
         /// A sidecar file (.srt beside the video) rather than an embedded track.
         public let isExternal: Bool?
         /// Text (subrip, ass, mov_text, vtt) as opposed to a bitmap (PGS, VobSub).
@@ -332,6 +335,7 @@ extension JellyfinAPI {
             case title = "Title"
             case isDefault = "IsDefault"
             case isForced = "IsForced"
+            case isOriginal = "IsOriginal"
             case isExternal = "IsExternal"
             case isTextSubtitleStream = "IsTextSubtitleStream"
             case channels = "Channels"
@@ -347,7 +351,7 @@ extension JellyfinAPI {
                     index: Int? = nil, language: String? = nil, displayTitle: String? = nil, title: String? = nil,
                     isDefault: Bool? = nil, isForced: Bool? = nil, isExternal: Bool? = nil,
                     isTextSubtitleStream: Bool? = nil, channels: Int? = nil,
-                    deliveryMethod: String? = nil, deliveryUrl: String? = nil) {
+                    deliveryMethod: String? = nil, deliveryUrl: String? = nil, isOriginal: Bool? = nil) {
             self.type = type
             self.codec = codec
             self.width = width
@@ -361,6 +365,7 @@ extension JellyfinAPI {
             self.title = title
             self.isDefault = isDefault
             self.isForced = isForced
+            self.isOriginal = isOriginal
             self.isExternal = isExternal
             self.isTextSubtitleStream = isTextSubtitleStream
             self.channels = channels

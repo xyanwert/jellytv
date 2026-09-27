@@ -103,6 +103,12 @@ final class PlayerController {
     var subtitleCues: [JellyfinAPI.SubtitleCue] { engine.subtitleCues }
     var preciseTime: Double { engine.preciseTime }
     var currentAudioTrack: JellyfinAPI.MediaStream? { audioTracks.first { $0.index == trackChoice.audioIndex } }
+    /// Whether a sound track is the item's original: the file's own flag,
+    /// else the language TMDB or the library says it was made in.
+    func isOriginalAudio(_ track: JellyfinAPI.MediaStream) -> Bool {
+        TrackPicker.originalAudio(in: audioTracks, originalLanguage: engine.originalLanguage)
+            .contains { $0.index == track.index }
+    }
     var currentSubtitleTrack: JellyfinAPI.MediaStream? { subtitleTracks.first { $0.index == trackChoice.subtitleIndex } }
     /// Whether there is anything to choose — several sound tracks, or any
     /// subtitles. The top bar's button exists only then.
