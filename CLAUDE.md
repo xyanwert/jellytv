@@ -1247,8 +1247,39 @@ protocol landmines, all of which cost v1 a bugfix commit each:
 - **Dedupe in-flight sheet fetches.** Six cells missing the cache at once otherwise pull the same
   sheet six times and only the last write survives.
 
-Sheets are cached LRU (24) on an actor, wiped explicitly on sign-out — the URLs carry an
-`api_key` but the decoded images have no auth boundary of their own.
+Sheets are cached LRU (24) on an actor, wiped explicitly on sign-out — the decoded images have
+no auth boundary of their own.
+
+**A sheet is fetched with the `Authorization` header, never `?api_key=`.** Jellyfin 10.11
+answers the query-string token on `/Videos/{id}/Trickplay/{width}/{n}.jpg` with **401** (the
+same retirement of legacy auth that broke `X-Emby-Token`), and because every consumer reads a
+failed sheet as "no frame", that 401 presented as a Scenes panel of endless spinners — plus a
+blank phone-remote SCENES and Home Videos cards that never played their frames, all three being
+the one `TrickplayClient`. A cell whose slice fails now shows a broken-frame glyph instead of a
+spinner forever. **On the iPhone the panel is height-starved**: tight insets, the time printed on
+the frame, and ‹ › in the header instead of the footer row (which left each frame ~40pt tall).
+**The server makes 320 and 640** (Dashboard → Playback → Trickplay, set 2026-09-26: `WidthResolutions
+[320, 640]`, tiles **5×5** — Jellyfin keys an existing set by width alone, so the 320s already made
+at 10×10 were kept, and a 640 sheet at 5×5 decodes to ~23 MB where 10×10 would be ~120 MB). The
+client takes the widest an item has, so items sharpen as the scheduled task reaches them. For the
+same reason the sheet cache is bounded by **decoded bytes** (192 MB), not a count, and a sheet is
+decoded once (`preparingForDisplay`), not on every crop. **A moment maps to the *nearest* frame**
+(`TrickplayClient.frameIndex`, rounded): truncating showed 46:48 as the 46:40 frame, across a cut.
+The panel **prefetches the sheets for the pages either side** after each page loads.
+
+**Jumps show where they land** (`PlayerJumpPreview` / `PlayerSceneFrame`): with the chrome up, a
+↺30 / ↻30 / ↻1min burst shows the frame at the pending target beside the transport, on the side it
+is heading, and lingers 1.3s after the seek commits; on the phone it rises above the edge stickers
+(the heart sits closer to 1M than a frame is wide). With the chrome hidden on tvOS the same frame
+sits under the `PlayerGlance` sticker. The geometry is resolved once per item and cached on the
+controller (`resolveTrickplay`, "none" included). It is placed by `.offset`, not alignment guides —
+the overlay ignored explicit guides and dropped the frame on top of ↻30 and 1M.
+Hooks: `JT_TRY_JUMP` / `RT_TRY_JUMP=<seconds>` pauses and mashes ↻30 (and holds the preview for
+30s, since the phone simulator's screenshots stall during a seek), `JT_TRY_GLANCE=<seconds>` (tvOS)
+sends two hidden-chrome Right presses.
+`JT_OPEN_SCENES` / `RT_OPEN_SCENES=<seconds>` opens the panel that long into real playback;
+pair it with `JT_AUTOPLAY` (tvOS, new) / `RT_AUTOPLAY` and `JT_PLAYER_LOG=1`, which now logs
+`trickplay:` lines (geometry, each sheet's size and time, any HTTP failure).
 
 Panel behaviour worth keeping: **times past the runtime are filtered out before anything renders**
 (a cell that can never load spins forever — that was a real bug), rows collapse to
@@ -1272,6 +1303,14 @@ auto-skip versus a button, so that policy is entirely ours (`JellyfinAPI.MediaSe
 in `MediaSegmentTests` from bytes captured off this server). The envelope is the same
 `ItemsResponse<T>` every list endpoint uses. YSOJ forwards it untouched, so nothing was needed
 server-side.
+
+**Only episodes ask** — TV shows and anime series, i.e. an item with a `seriesId`
+(`PlayerEngine.loadSegments`). A film's opening titles and end credits are part of the film and
+a home video has neither, so neither gets the button — nor Night mode's auto-skip, which reads the
+same list. The button **glides** in from its corner and back out (`PlayerSkipButton.glide`, a
+fixed offset plus fade, on a soft no-overshoot spring, `arrival`), applied at the chrome's
+insertion site: Poster's sticker slap (1.45× and 9° snapped down in 0.3s) arriving and a bare fade
+leaving read as jumpy on the TV.
 
 **Jellyfin merges segment providers; it never falls back between them.**
 `RunSegmentPluginProviders` loops every enabled provider with no early exit, and

@@ -25,12 +25,16 @@ actor TrickplayClient {
     private let client: JellyfinClient
     private let userId: String
 
-    /// Decoded sheets, keyed by URL, with a plain LRU. A 22-minute episode at
-    /// the default 10s interval is ~132 frames across ~2 sheets, so a couple
-    /// of dozen is generous for a session while still bounding memory.
+    /// Decoded sheets, keyed by URL, LRU **bounded by decoded bytes**, not by
+    /// count. A count was fine while every sheet was a 320px 10×10 grid
+    /// (~30 MB decoded); a 640px set is heavier per frame, and twenty-four of
+    /// anything that size is gigabytes on an Apple TV. The budget holds ~6–8
+    /// sheets, each covering four to sixteen minutes of video.
     private var tileCache: [URL: UIImage] = [:]
+    private var tileCost: [URL: Int] = [:]
     private var tileOrder: [URL] = []
-    private static let maxCachedTiles = 24
+    private var cachedBytes = 0
+    private static let maxCachedBytes = 192 * 1024 * 1024
 
     /// **Fetch dedupe.** A fresh page of six cells that all miss the cache
     /// otherwise pulls the same sheet six times — six times the bandwidth, and
@@ -50,12 +54,15 @@ actor TrickplayClient {
             let trickplay = try await client.fetchTrickplayInfo(userId: userId, itemId: itemId)
             guard let pick = Self.bestResolution(trickplay, forMediaSourceId: mediaSourceId) else {
                 Self.log.notice("resolve: no trickplay for item=\(itemId, privacy: .public)")
+                PlayerDiagnostics.log("trickplay: none for item=\(itemId)")
                 return nil
             }
             Self.log.notice("resolve: width=\(pick.widthKey, privacy: .public) interval=\(pick.info.interval)ms")
+            PlayerDiagnostics.log("trickplay: width=\(pick.widthKey) \(pick.info.width)x\(pick.info.height) grid=\(pick.info.tileWidth)x\(pick.info.tileHeight) every \(pick.info.interval)ms")
             return pick
         } catch {
             Self.log.warning("resolve failed: \(String(describing: error), privacy: .public)")
+            PlayerDiagnostics.log("trickplay: resolve failed \(error)")
             return nil
         }
     }
@@ -98,7 +105,7 @@ actor TrickplayClient {
         }
 
         // Which frame, which sheet, and where in that sheet's grid.
-        let globalIndex = Int(max(0, timeSeconds * 1000) / Double(info.interval))
+        let globalIndex = Self.frameIndex(forSeconds: timeSeconds, interval: info.interval)
         let tileIndex = globalIndex / perSheet
         let inTile = globalIndex % perSheet
         let col = inTile % info.tileWidth
@@ -112,6 +119,15 @@ actor TrickplayClient {
                     frameWidth: info.width, frameHeight: info.height)
     }
 
+    /// The frame *nearest* a moment, not the one before it. Frame `n` is the
+    /// picture at `n × interval`; truncating showed 46:48 as the 46:40
+    /// frame — eight seconds back and, in the case that caught it, the other
+    /// side of a cut, so a jump preview promised a scene the jump didn't
+    /// land in.
+    static func frameIndex(forSeconds seconds: Double, interval: Int) -> Int {
+        Int((max(0, seconds) * 1000 / Double(interval)).rounded())
+    }
+
     private func fetchSheet(_ url: URL) async -> UIImage? {
         if let cached = tileCache[url] {
             touch(url)
@@ -120,23 +136,34 @@ actor TrickplayClient {
         if let existing = inFlight[url] {
             return await existing.value
         }
-        let task = Task<UIImage?, Never> {
+        // The header, never `?api_key=`: Jellyfin 10.11 401s the query-string
+        // token on this route (see `JellyfinClient.trickplayTileURL`).
+        var request = URLRequest(url: url)
+        request.setValue(client.authorizationHeader, forHTTPHeaderField: "Authorization")
+        let task = Task<UIImage?, Never> { [request, url] in
             let started = Date()
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await URLSession.shared.data(for: request)
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
                 if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
                     Self.log.warning("sheet HTTP \(http.statusCode) in \(ms)ms")
+                    PlayerDiagnostics.log("trickplay: sheet HTTP \(http.statusCode) \(url.path)")
                     return nil
                 }
-                guard let image = UIImage(data: data) else {
+                // Decoded once, here, off the main actor. A plain
+                // `UIImage(data:)` is lazily decoded, and every crop out of
+                // it would pay for the whole sheet again.
+                guard let raw = UIImage(data: data) else {
                     Self.log.warning("sheet decode failed (\(data.count) bytes)")
                     return nil
                 }
+                let image = raw.preparingForDisplay() ?? raw
                 Self.log.notice("sheet fetched: \(data.count) bytes in \(ms)ms")
+                PlayerDiagnostics.log("trickplay: sheet \(url.pathComponents.suffix(2).joined(separator: "/")) \(data.count / 1024) KB in \(ms)ms")
                 return image
             } catch {
                 Self.log.warning("sheet fetch failed: \(error.localizedDescription, privacy: .public)")
+                PlayerDiagnostics.log("trickplay: sheet failed \(error.localizedDescription)")
                 return nil
             }
         }
@@ -148,11 +175,32 @@ actor TrickplayClient {
     }
 
     private func insert(url: URL, image: UIImage) {
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        if let old = tileCost[url] { cachedBytes -= old }
         tileCache[url] = image
+        tileCost[url] = cost
+        cachedBytes += cost
         tileOrder.removeAll { $0 == url }
         tileOrder.append(url)
-        while tileOrder.count > Self.maxCachedTiles {
-            tileCache.removeValue(forKey: tileOrder.removeFirst())
+        // Always keep the sheet just inserted, however large.
+        while cachedBytes > Self.maxCachedBytes, tileOrder.count > 1 {
+            let evicted = tileOrder.removeFirst()
+            tileCache.removeValue(forKey: evicted)
+            cachedBytes -= tileCost.removeValue(forKey: evicted) ?? 0
+        }
+    }
+
+    /// Warm the sheets behind a set of moments without cutting anything, so
+    /// the page a viewer is about to swipe to is already here. Sheets already
+    /// cached or in flight cost nothing (`fetchSheet` joins them).
+    func prefetch(seconds: [Double], itemId: String, widthKey: String,
+                  info: JellyfinAPI.TrickplayInfo, mediaSourceId: String) async {
+        guard info.thumbsPerTile > 0, info.interval > 0, let width = Int(widthKey) else { return }
+        let sheets = Set(seconds.map { Self.frameIndex(forSeconds: $0, interval: info.interval) / info.thumbsPerTile })
+        for index in sheets.sorted() {
+            guard let url = client.trickplayTileURL(itemId: itemId, width: width, tileIndex: index,
+                                                    mediaSourceId: mediaSourceId) else { continue }
+            _ = await fetchSheet(url)
         }
     }
 
@@ -161,14 +209,17 @@ actor TrickplayClient {
         tileOrder.append(url)
     }
 
-    /// Drop everything. The sheet URLs carry an `api_key`, but the *decoded*
-    /// images have no auth boundary of their own — so they're wiped explicitly
-    /// whenever credentials change rather than left to the LRU.
+    /// Drop everything. The sheets were fetched with the signed-in user's
+    /// token, but the *decoded* images have no auth boundary of their own —
+    /// so they're wiped explicitly whenever credentials change rather than
+    /// left to the LRU.
     func reset() {
         for (_, task) in inFlight { task.cancel() }
         inFlight.removeAll()
         tileCache.removeAll()
+        tileCost.removeAll()
         tileOrder.removeAll()
+        cachedBytes = 0
     }
 
     /// Clamped against the decoded bitmap's real bounds — the last sheet of an

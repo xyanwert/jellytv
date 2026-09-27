@@ -257,6 +257,15 @@ final class PlayerEngine {
     /// older one 404s, and either way the player behaves exactly as it did
     /// before this existed.
     private func loadSegments(for item: PlayableItem, token: Int) {
+        // **Episodes only** — TV shows and anime series. Skip intro / credits
+        // is a between-episodes convenience; a film's opening titles and
+        // end credits are part of the film, and a home video has neither.
+        // Asking only for episodes also keeps Night mode's auto-skip off
+        // them. An episode is anything with a series.
+        guard item.seriesId != nil else {
+            PlayerDiagnostics.log("segments [\(item.title)] skipped: not an episode")
+            return
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             let runtime = item.runtimeTicks.map { Double($0) / 10_000_000 }

@@ -334,13 +334,18 @@ public struct JellyfinClient: Sendable {
 
     // MARK: - Trickplay (scene thumbnails)
 
-    /// One trickplay sprite sheet. Served token-less like the other image
-    /// endpoints, so the `api_key` rides on the query string.
+    /// One trickplay sprite sheet. **Not token-less like the image
+    /// endpoints**: it needs auth, and it has to be the `Authorization`
+    /// header (`authorizationHeader`). Jellyfin 10.11 answers `?api_key=` on
+    /// this route with 401 — the same retirement of legacy auth that broke
+    /// `X-Emby-Token` — and since every consumer treats a failed sheet as
+    /// "no frame", that 401 showed up as a Scenes panel of endless spinners
+    /// rather than as an error. The URL carries no credential at all now, so
+    /// it is also safe to use as a cache key or to log.
     public func trickplayTileURL(itemId: String, width: Int, tileIndex: Int,
                                  mediaSourceId: String) -> URL? {
         buildURL(path: "/Videos/\(itemId)/Trickplay/\(width)/\(tileIndex).jpg", query: [
             URLQueryItem(name: "MediaSourceId", value: mediaSourceId),
-            URLQueryItem(name: "api_key", value: apiKey),
         ])
     }
 

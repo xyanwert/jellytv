@@ -95,7 +95,7 @@ enum PlayerDiagnostics {
             log("playlist FETCH FAILED \(redact(masterURL))")
             return
         }
-        log("master.m3u8:\n\(master)")
+        log("master.m3u8:\n\(redactTokens(master))")
 
         let variantLine = master
             .split(separator: "\n")
@@ -104,7 +104,7 @@ enum PlayerDiagnostics {
         guard let variantLine,
               let variantURL = URL(string: variantLine, relativeTo: masterURL)?.absoluteURL,
               let variant = await fetchText(variantURL, authHeader: authHeader) else { return }
-        log("variant playlist (first 1500 chars):\n\(String(variant.prefix(1500)))")
+        log("variant playlist (first 1500 chars):\n\(redactTokens(String(variant.prefix(1500))))")
     }
 
     private static func fetchText(_ url: URL, authHeader: String) async -> String? {
@@ -129,6 +129,14 @@ enum PlayerDiagnostics {
             UInt8((code >> 8) & 0xFF), UInt8(code & 0xFF),
         ]
         return String(bytes: bytes, encoding: .ascii) ?? "\(code)"
+    }
+
+    /// Masks every token Jellyfin writes back into a playlist it generates —
+    /// its URIs carry `ApiKey=` (and older ones `api_key=`), and the master
+    /// playlist was otherwise printing the signed-in token in the clear.
+    private static func redactTokens(_ text: String) -> String {
+        text.replacingOccurrences(of: #"(?i)(api_?key=)[^&"\s]+"#, with: "$1***",
+                                  options: .regularExpression)
     }
 
     /// Keeps `api_key` out of the log — the URL is otherwise the single most
