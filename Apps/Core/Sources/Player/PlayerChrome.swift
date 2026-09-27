@@ -403,6 +403,51 @@ struct PlayerChrome: View {
             if v { glanceTimer.cancel(); glance = nil }
             #endif
         }
+        .task {
+            // `JT_OPEN_SCENES` / `RT_OPEN_SCENES` = seconds: opens the scenes
+            // panel that long into real playback, so the trickplay path can
+            // be exercised (and logged with `JT_PLAYER_LOG=1`) without tap
+            // automation. Inert unless set, like the other hooks.
+            //
+            // `JT_TRY_JUMP` / `RT_TRY_JUMP` = seconds: shows the chrome and
+            // pauses and mashes ↻30 that long in — so the
+            // jump preview can be seen where tap injection into the rotated
+            // player is unreliable.
+            let env = ProcessInfo.processInfo.environment
+            #if os(tvOS)
+            // `JT_TRY_GLANCE` = seconds: two Right presses with the chrome
+            // hidden, through the same handler the remote uses — the
+            // glance with its landing frame.
+            if let raw = env["JT_TRY_GLANCE"], let delay = Double(raw) {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                if visible { withAnimation { visible = false } }
+                handleMove(.right)
+                try? await Task.sleep(for: .milliseconds(200))
+                handleMove(.right)
+                return
+            }
+            #endif
+            if let raw = env["JT_TRY_JUMP"] ?? env["RT_TRY_JUMP"], let delay = Double(raw) {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                // Paused, so the chrome holds (a playing chrome hides in two
+                // seconds, faster than the iPad simulator can screenshot).
+                controller.pause()
+                interact()
+                // A mash: eighteen taps ~0.2s apart hold the target pending
+                // for ~4s, long enough for a slow simulator screenshot.
+                for _ in 0..<18 where !Task.isCancelled {
+                    controller.jump(by: 30)
+                    try? await Task.sleep(for: .milliseconds(220))
+                }
+                return
+            }
+            guard let raw = env["JT_OPEN_SCENES"] ?? env["RT_OPEN_SCENES"],
+                  let delay = Double(raw) else { return }
+            try? await Task.sleep(for: .seconds(delay))
+            if !Task.isCancelled, !scenesOpen { openScenes() }
+        }
         .onAppear {
             PlayerDiagnostics.log("chrome: onAppear visible=\(visible)")
             withAnimation(.easeOut(duration: 4).repeatForever(autoreverses: false)) { sonarPulse = true }
@@ -511,6 +556,7 @@ struct PlayerChrome: View {
                         controller: controller, accent: accent,
                         onInteract: interact, focus: $focus
                     )
+                    .jumpPreview(controller)
                 }
                 PlayerClockReadout(
                     // `displayTime`, not `currentTime`: while a burst
@@ -587,6 +633,7 @@ struct PlayerChrome: View {
                         controller: controller, accent: accent,
                         onInteract: interact, focus: $focus
                     )
+                    .jumpPreview(controller)
                     PlayerClockReadout(
                         currentTime: controller.displayTime,
                         duration: controller.duration
@@ -640,6 +687,7 @@ struct PlayerChrome: View {
                 VStack(spacing: 8) {
                     PlayerTransportRow(controller: controller, accent: accent,
                                        onInteract: interact, focus: $focus)
+                        .jumpPreview(controller)
                     PlayerClockReadout(currentTime: controller.displayTime,
                                        duration: controller.duration)
                 }

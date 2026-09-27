@@ -223,7 +223,10 @@ struct RootView: View {
                     userId: info.userId,
                     kind: info.kind
                 )
-                Task { await appState.refresh() }
+                Task {
+                    await appState.refresh()
+                    await autoplayHook()
+                }
                 appState.startRefreshTimer()
                 remote.attach(appState)
                 pairingHost.attach(appState, remote: remote, deviceId: server.deviceId)
@@ -248,6 +251,23 @@ struct RootView: View {
     /// The player, over everything. Sits inside the same `ZStack` as the screens, so
     /// the `.environmentObject`s applied to that stack reach it without the by-hand
     /// injection a `.fullScreenCover` needed; the toast is drawn once, over the stack.
+
+    /// Debug hook: `JT_AUTOPLAY=<title substring>` resumes the first matching
+    /// Continue Watching entry once Home has loaded — the tvOS twin of the
+    /// iPad's `RT_AUTOPLAY`, so real playback (and the scenes panel, with
+    /// `JT_OPEN_SCENES`) can be reached without driving the remote. Inert
+    /// unless set.
+    private func autoplayHook() async {
+        let env = ProcessInfo.processInfo.environment
+        guard let needle = env["JT_AUTOPLAY"], !needle.isEmpty else { return }
+        let match = appState.continueWatching.first {
+            $0.title.localizedCaseInsensitiveContains(needle)
+                || $0.episodeLabel.localizedCaseInsensitiveContains(needle)
+        } ?? appState.continueWatching.first
+        guard let match, let request = await appState.resumeRequest(for: match) else { return }
+        appState.requestPlayback(request)
+    }
+
     @ViewBuilder
     private func playerLayer(_ presentation: PlayerPresentation) -> some View {
         switch presentation {

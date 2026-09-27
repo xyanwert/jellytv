@@ -37,11 +37,14 @@ struct PlayerScenesPanel: View {
     private let coral = Color(hex: "#F0525F")
     private let yellow = Color(hex: "#F2E14C")
 
-    /// One cell. `image` stays nil until its slice arrives.
+    /// One cell. `image` stays nil until its slice arrives; `failed` is set
+    /// when the slice came back empty, so the cell stops spinning and says so
+    /// instead of promising a frame that will never land.
     private struct Thumb: Identifiable, Equatable {
         let id: Int
         let time: Double
         var image: UIImage?
+        var failed = false
     }
 
     /// What occupies one slot in the grid. The navigation tiles sit *in* the
@@ -80,6 +83,18 @@ struct PlayerScenesPanel: View {
     /// from the network after its page is gone checks this and drops itself
     /// rather than landing in whatever cell now holds that index.
     @State private var loadGeneration = 0
+
+    private static let pageGutter: CGFloat = 24
+
+    /// **The phone is height-starved, not width-starved.** Landscape gives the
+    /// panel ~380pt of height; the tablet layout's 44pt insets, a 76pt footer
+    /// row and a time tag *under* every frame left each frame ~40pt tall — a
+    /// strip of pills nobody could read. So on the phone the grid gets nearly
+    /// all of it: tight insets, the time printed *on* the frame, and paging
+    /// by swipe with two small arrows up in the header instead of a footer.
+    private var isPhone: Bool { DeviceClass.current == .phone }
+    /// Frame corner — a 14pt radius on a phone-sized frame rounds it to a pill.
+    private var frameRadius: CGFloat { isPhone ? 8 : Layout.radius - 4 }
 
     private enum Layout {
         static let columns = 3
@@ -192,12 +207,13 @@ struct PlayerScenesPanel: View {
             Color.black.opacity(0.94).ignoresSafeArea()
             if theme.isPoster { posterGround }
 
-            VStack(spacing: theme.isPoster ? 30 : 22) {
+            VStack(spacing: isPhone ? 10 : (theme.isPoster ? 30 : 22)) {
                 header
                 pager
-                footer
+                if !isPhone { footer }
             }
-            .padding(Layout.inset)
+            .padding(.horizontal, isPhone ? 16 : Layout.inset)
+            .padding(.vertical, isPhone ? 10 : Layout.inset)
         }
         .task { await open() }
         .onDisappear { close() }
@@ -221,6 +237,7 @@ struct PlayerScenesPanel: View {
         HStack(alignment: .center, spacing: 20) {
             backButton
             Spacer(minLength: 0)
+            if isPhone { phoneArrows }
             pageCounter
         }
         .overlay { rangeReadout }
@@ -293,12 +310,17 @@ struct PlayerScenesPanel: View {
             #if os(iOS)
             TabView(selection: $page) {
                 ForEach(Array(pageRange), id: \.self) { p in
+                    // A gutter inside each page, given back outside the pager,
+                    // so a tilted Poster card can't lean into view from the
+                    // neighbouring page at the edge.
                     pageContent(p)
+                        .padding(.horizontal, Self.pageGutter)
                         .tag(p)
                         .contentShape(Rectangle())
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .padding(.horizontal, -Self.pageGutter)
             #else
             // **No `TabView` on tvOS.** `.page` style is iOS-only, and a
             // `TabView` without it paints a tab bar across the top of the
@@ -319,14 +341,14 @@ struct PlayerScenesPanel: View {
         if resolved && trickplay == nil {
             unavailable
         } else {
-            grid(tiles(forPage: p))
+            grid(tiles(forPage: p), page: p)
         }
     }
 
     /// Only as many rows as there are tiles. A last page holding two
     /// thumbnails and a Next button is one row of three — not one row plus a
     /// second row of nothing.
-    private func grid(_ tiles: [Tile]) -> some View {
+    private func grid(_ tiles: [Tile], page p: Int) -> some View {
         let rows = max(1, Int(ceil(Double(tiles.count) / Double(Layout.columns))))
         return VStack(spacing: Layout.spacing) {
             ForEach(0..<rows, id: \.self) { row in
@@ -334,7 +356,7 @@ struct PlayerScenesPanel: View {
                     ForEach(0..<Layout.columns, id: \.self) { column in
                         let index = row * Layout.columns + column
                         if index < tiles.count {
-                            tileView(tiles[index])
+                            tileView(tiles[index], page: p)
                         } else {
                             // Invisible, not a dark box: it exists only to keep
                             // the remaining tiles at one-third width.
@@ -348,10 +370,14 @@ struct PlayerScenesPanel: View {
     }
 
     @ViewBuilder
-    private func tileView(_ tile: Tile) -> some View {
+    private func tileView(_ tile: Tile, page p: Int) -> some View {
         switch tile {
         case .thumb(let index, let time):
-            cell(thumb: pages[page]?.first { $0.time == time } ?? Thumb(id: index, time: time, image: nil))
+            // `pages[p]`, the page this grid draws — not `pages[page]`, the
+            // selected one. The iOS pager renders its neighbours too, and
+            // reading the selected page's cells there matched no time at all,
+            // so the page swiped into always arrived as a row of spinners.
+            cell(thumb: pages[p]?.first { $0.time == time } ?? Thumb(id: index, time: time, image: nil))
         case .nextVideo:
             navigationTile(.next)
         case .previousVideo:
@@ -380,13 +406,7 @@ struct PlayerScenesPanel: View {
             Rectangle()
                 .fill(Palette.text(0.06))
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .overlay {
-                    if let image = thumb.image {
-                        Image(uiImage: image).resizable().scaledToFill()
-                    } else {
-                        ProgressView().tint(Palette.text(0.4))
-                    }
-                }
+                .overlay { thumbFill(thumb) }
                 .clipShape(RoundedRectangle(cornerRadius: Layout.radius, style: .continuous))
                 .overlay(alignment: .bottomLeading) {
                     Text(formatPlayerClock(thumb.time, matching: controller.duration))
@@ -405,6 +425,21 @@ struct PlayerScenesPanel: View {
         }
         .buttonStyle(CardFocusStyle(glow: accent, scale: 1.06))
         .accessibilityLabel("Jump to \(formatPlayerClock(thumb.time, matching: controller.duration))")
+    }
+
+    /// The frame, a spinner while it is on its way, or a quiet broken-frame
+    /// glyph once it is known not to be coming — never a spinner forever.
+    @ViewBuilder
+    private func thumbFill(_ thumb: Thumb) -> some View {
+        if let image = thumb.image {
+            Image(uiImage: image).resizable().scaledToFill()
+        } else if thumb.failed {
+            Image(systemName: "photo.badge.exclamationmark")
+                .font(.system(size: DeviceClass.current == .tv ? 40 : 24, weight: .semibold))
+                .foregroundStyle(Palette.text(0.3))
+        } else {
+            ProgressView().tint(Palette.text(0.4))
+        }
     }
 
     /// Said plainly rather than papered over: the server has no scene data for
@@ -464,6 +499,37 @@ struct PlayerScenesPanel: View {
     /// Bottom-centre, labelled, and big. The same reasoning as the transport
     /// circles: a control a non-technical viewer travels with should be
     /// unmissable, and an arrow on its own is not a word.
+    /// The phone's paging controls: two small stickers in the header row.
+    /// Swiping is the main way to travel there; these are for the viewer
+    /// who doesn't know the page swipes, and they say so by existing.
+    private var phoneArrows: some View {
+        HStack(spacing: 8) {
+            phoneArrow("chevron.left", label: "Earlier scenes", enabled: page > pageRange.lowerBound) { page -= 1 }
+            phoneArrow("chevron.right", label: "Later scenes", enabled: page < pageRange.upperBound) { page += 1 }
+        }
+    }
+
+    private func phoneArrow(_ icon: String, label: String, enabled: Bool,
+                            action: @escaping () -> Void) -> some View {
+        let poster = theme.isPoster
+        return Button {
+            withAnimation(.easeInOut(duration: 0.25)) { action() }
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: poster ? 30 : 38)
+                .background(poster ? Palette.posterInk : Color.black.opacity(0.55), in: Capsule())
+                .overlay(Capsule().strokeBorder(poster ? .white : Palette.text(0.18),
+                                                lineWidth: poster ? PosterPlayerSize.rim * 0.8 : 1))
+                .opacity(enabled ? 1 : 0.32)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
+    }
+
     private var footer: some View {
         HStack(spacing: 16) {
             footerButton(icon: "chevron.left", label: "PREV", leading: true,
@@ -546,6 +612,7 @@ struct PlayerScenesPanel: View {
                     .background(.white, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
             Spacer(minLength: 0)
+            if isPhone { phoneArrows }
             Button {
                 dismissReason = .close
                 onDismiss()
@@ -570,26 +637,26 @@ struct PlayerScenesPanel: View {
         return Button {
             Task { await go(to: thumb.time) }
         } label: {
-            VStack(alignment: .leading, spacing: border * 1.4) {
-                Rectangle()
-                    .fill(Palette.text(0.06))
-                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                    .overlay {
-                        if let image = thumb.image {
-                            Image(uiImage: image).resizable().scaledToFill()
-                        } else {
-                            ProgressView().tint(Palette.text(0.4))
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: Layout.radius - 4, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Layout.radius - 4, style: .continuous)
-                        .strokeBorder(.white, lineWidth: border))
-                Text(formatPlayerClock(thumb.time, matching: controller.duration))
-                    .font(Display.font(DeviceClass.current == .tv ? 30 : 17))
-                    .monospacedDigit()
-                    .foregroundStyle(Palette.posterInk)
-                    .padding(.horizontal, 10)
-                    .background(yellow, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            let tag = Text(formatPlayerClock(thumb.time, matching: controller.duration))
+                .font(Display.font(DeviceClass.current == .tv ? 30 : (isPhone ? 14 : 17)))
+                .monospacedDigit()
+                .foregroundStyle(Palette.posterInk)
+                .padding(.horizontal, isPhone ? 6 : 10)
+                .background(yellow, in: RoundedRectangle(cornerRadius: isPhone ? 4 : 6, style: .continuous))
+            let frame = Rectangle()
+                .fill(Palette.text(0.06))
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .overlay { thumbFill(thumb) }
+                .clipShape(RoundedRectangle(cornerRadius: frameRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: frameRadius, style: .continuous)
+                    .strokeBorder(.white, lineWidth: border))
+            Group {
+                if isPhone {
+                    // On the frame's foot, so the frame gets the height.
+                    frame.overlay(alignment: .bottomLeading) { tag.padding(border + 4) }
+                } else {
+                    VStack(alignment: .leading, spacing: border * 1.4) { frame; tag }
+                }
             }
             .posterTilt(index: thumb.id, degrees: 1.5)
         }
@@ -625,15 +692,17 @@ struct PlayerScenesPanel: View {
                         .padding(isTV ? 22 : 12)
                     }
                     .foregroundStyle(Palette.posterInk)
-                    .clipShape(RoundedRectangle(cornerRadius: Layout.radius - 4, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Layout.radius - 4, style: .continuous)
+                    .clipShape(RoundedRectangle(cornerRadius: frameRadius, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: frameRadius, style: .continuous)
                         .strokeBorder(.white, lineWidth: isTV ? 7 : 4))
-                Text("UP NEXT")
-                    .font(Display.font(isTV ? 30 : 17))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .opacity(edge == .next ? 1 : 0)
+                if !isPhone {
+                    Text("UP NEXT")
+                        .font(Display.font(isTV ? 30 : 17))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .opacity(edge == .next ? 1 : 0)
+                }
             }
             .rotationEffect(.degrees(2))
         }
@@ -704,8 +773,16 @@ struct PlayerScenesPanel: View {
             // The page may be long gone by now — drop the slice rather than
             // writing it into whatever occupies this index today.
             guard generation == loadGeneration else { return }
-            if pages[p] != nil, index < pages[p]!.count { pages[p]![index].image = image }
+            if pages[p] != nil, index < pages[p]!.count {
+                pages[p]![index].image = image
+                pages[p]![index].failed = image == nil
+            }
         }
+        // Then the pages either side, sheets only: a 640px set is 5×5, so a
+        // sheet spans ~4 minutes and a swipe outward regularly crosses into
+        // a new one. Warmed now, it arrives as frames rather than spinners.
+        await controller.prefetchScenes(at: validTimes(forPage: p - 1) + validTimes(forPage: p + 1),
+                                        widthKey: trickplay.widthKey, info: trickplay.info)
     }
 
     /// `seek(to:)`, not `jump(to:)`: a tapped thumbnail already knows its exact

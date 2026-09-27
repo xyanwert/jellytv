@@ -392,8 +392,36 @@ final class PlayerController {
     /// offer anything at all.
     func resolveTrickplay() async -> (widthKey: String, info: JellyfinAPI.TrickplayInfo)? {
         guard let itemId = currentItem?.id else { return nil }
-        return await engine.trickplayClient.resolve(itemId: itemId,
-                                                    mediaSourceId: engine.currentMediaSourceId)
+        // Once per item: the scenes panel and every jump preview ask, and the
+        // answer — including "none" — does not change under a playing item.
+        if let cached = trickplayGeometry, cached.itemId == itemId { return cached.geometry }
+        let geometry = await engine.trickplayClient.resolve(itemId: itemId,
+                                                            mediaSourceId: engine.currentMediaSourceId)
+        // The item may have changed while the request was out.
+        if currentItem?.id == itemId { trickplayGeometry = (itemId, geometry) }
+        return geometry
+    }
+
+    @ObservationIgnored
+    private var trickplayGeometry: (itemId: String,
+                                    geometry: (widthKey: String, info: JellyfinAPI.TrickplayInfo)?)?
+
+    /// The trickplay frame nearest a moment of the current item — what a
+    /// jump preview shows. Nil when the item has no trickplay or the sheet
+    /// can't be had.
+    func sceneFrame(at seconds: Double) async -> UIImage? {
+        guard let geometry = await resolveTrickplay() else { return nil }
+        return await trickplayThumbnail(at: seconds, widthKey: geometry.widthKey, info: geometry.info)
+    }
+
+    /// Warm the sheets behind these moments (the scenes panel's neighbouring
+    /// pages) so a swipe lands on frames instead of spinners.
+    func prefetchScenes(at seconds: [Double], widthKey: String,
+                        info: JellyfinAPI.TrickplayInfo) async {
+        guard let itemId = currentItem?.id,
+              let mediaSourceId = engine.currentMediaSourceId else { return }
+        await engine.trickplayClient.prefetch(seconds: seconds, itemId: itemId, widthKey: widthKey,
+                                              info: info, mediaSourceId: mediaSourceId)
     }
 
     /// One scene thumbnail. Nil for anything missing, so a cell stays empty

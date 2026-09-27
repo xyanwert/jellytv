@@ -33,6 +33,20 @@ struct PlayerGlance: View {
     /// Poster Mode: one sticker at the top centre — the glyph in a teal disc,
     /// the clock beside it (or LIKED) — tilted, with the hard ink shadow.
     private var poster: some View {
+        VStack(spacing: 34) {
+            posterSticker
+            // The frame the jump lands on, under the sticker: the clock says
+            // where, this says what — the same trickplay sheets as SCENES.
+            if case .seek = kind {
+                PlayerSceneFrame(controller: controller, time: controller.displayTime, width: 520)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.top, 70)
+        .allowsHitTesting(false)
+    }
+
+    private var posterSticker: some View {
         HStack(spacing: 18) {
             switch kind {
             case .favorite:
@@ -73,9 +87,6 @@ struct PlayerGlance: View {
         .compositingGroup()
         .shadow(color: Palette.posterInk.opacity(0.6), radius: 0, x: 8, y: 8)
         .rotationEffect(.degrees(-2))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.top, 70)
-        .allowsHitTesting(false)
     }
 
     private var classic: some View {
@@ -95,6 +106,7 @@ struct PlayerGlance: View {
                     .tracking(1.6)
                     .foregroundStyle(Palette.text(0.7))
             case .seek(let delta):
+                PlayerSceneFrame(controller: controller, time: controller.displayTime, width: 480)
                 Image(systemName: delta < 0 ? "gobackward.30" : "goforward.30")
                     .font(.system(size: 52, weight: .semibold))
                     .foregroundStyle(.white)
