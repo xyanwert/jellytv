@@ -402,6 +402,7 @@ struct MovieDetailView: View {
                 RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
                 if movie.awards?.academyAwardsLabel != nil { AwardsBadge(awards: movie.awards) }
             }
+            .transaction { $0.animation = nil } // chips fill in as the detail lands; they never slide
 
             MovieNightFactsRow(facts: movieNightFacts, tint: tint)
 
@@ -843,6 +844,7 @@ struct MovieDetailView: View {
                     RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
                 }
             }
+            .transaction { $0.animation = nil } // chips fill in as the detail lands; they never slide
             Text(movie.synopsis)
                 .font(Typography.font(DeviceClass.current == .phone ? 14 : 17, .semibold))
                 .foregroundStyle(Palette.text(0.8))

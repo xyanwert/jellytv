@@ -137,13 +137,8 @@ struct LibraryHero: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Self.height, alignment: .bottomLeading)
-        // Poster Mode: the title again, enormous and blended into the art.
-        .background(alignment: .topTrailing) {
-            if theme.isPoster {
-                PosterGhostTitle(text: content.title, size: 300)
-                    .offset(y: -30)
-            }
-        }
+        // No ghost title here: printed huge over the backdrop it fought the
+        // art (and crossed the characters' faces) instead of framing it.
         .libraryContentMargin()
         .animation(.easeOut(duration: 0.25), value: content.isLoading)
         .id(content.id)
@@ -245,6 +240,10 @@ struct LibraryHero: View {
         .foregroundStyle(Palette.text(0.72))
         .shadow(color: .black.opacity(0.5), radius: 8, y: 1)
         .frame(height: 34)
+        // The facts fill in as the detail lands (the runtime, a range of
+        // years); under the hero's loading animation the chips slid left and
+        // right. They change in one frame instead.
+        .transaction { $0.animation = nil }
     }
 
     private var facts: [String] {

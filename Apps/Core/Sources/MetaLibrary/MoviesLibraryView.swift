@@ -224,7 +224,7 @@ struct MoviesLibraryView: View {
                             ScrollView(.vertical, showsIndicators: false) {
                                 postersSection
                                     .libraryContentMargin()
-                                    .padding(.top, 6)   // room for the top row's focus glow
+                                    .padding(.top, DeviceClass.current == .tv ? 34 : 6)   // room for the focused poster to grow: the ScrollView clips (at 6 its top edge was cut on the TV)
                                     .padding(.bottom, 60)
                                     .phoneTabBarClearance()
                                     #if os(iOS)
@@ -499,6 +499,15 @@ struct MoviesLibraryView: View {
         #if os(tvOS)
         guard !hasSeededFocus, item.id == filtered.first?.id else { return }
         hasSeededFocus = true
+        #if DEBUG
+        // Screenshot hook: `JT_LIBRARY_FOCUS=<title substring>` opens with the
+        // remote on that title instead of the first.
+        if let wanted = ProcessInfo.processInfo.environment["JT_LIBRARY_FOCUS"],
+           let match = filtered.first(where: { $0.title.localizedCaseInsensitiveContains(wanted) }) {
+            focusedId = match.id
+            return
+        }
+        #endif
         if focusedId == nil, searchFocused != true { focusedId = item.id }
         #endif
     }
