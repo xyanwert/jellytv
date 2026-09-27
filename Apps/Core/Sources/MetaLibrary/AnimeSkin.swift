@@ -441,43 +441,45 @@ struct AnimeTitleFocusStage: View {
     var variant: AnimeSkinVariant = .anime
     let lead: AnimeLead
     let count: Int
+    /// Size, off the TV's 1 — the iPad and the phone take the same column.
+    var s: CGFloat = 1
 
     private var item: MediaItem { lead.item }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 14) {
-                DieCutText(text: variant.kana, font: .system(size: 34, weight: .black),
-                           fill: Palette.posterInk, stroke: .white, width: 4)
+        VStack(alignment: .leading, spacing: 18 * s) {
+            HStack(spacing: 14 * s) {
+                DieCutText(text: variant.kana, font: .system(size: 34 * s, weight: .black),
+                           fill: Palette.posterInk, stroke: .white, width: 4 * s)
                 Text("\(variant.crumb) · \(count) SERIES")
-                    .font(Mono.font(20, .bold)).tracking(3)
+                    .font(Mono.font(20 * s, .bold)).tracking(3 * s)
                     .foregroundStyle(lead.palette.ink)
             }
             title
-                .frame(width: 860, height: 210, alignment: .leading)
-            HStack(spacing: 12) {
+                .frame(width: 860 * s, height: 210 * s, alignment: .leading)
+            HStack(spacing: 12 * s) {
                 ForEach(chips, id: \.self) { chip in
                     Text(chip.uppercased())
-                        .font(Display.font(28))
+                        .font(Display.font(28 * s))
                         .foregroundStyle(Palette.posterInk)
-                        .padding(.horizontal, 14).padding(.vertical, 4)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .padding(.horizontal, 14 * s).padding(.vertical, 4 * s)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 8 * s, style: .continuous))
                 }
             }
-            .frame(height: 44, alignment: .leading)
+            .frame(height: 44 * s, alignment: .leading)
             if let synopsis = item.synopsis.map(AnimeText.plain), !synopsis.isEmpty {
                 // Carded, like the library stage's: the slash runs behind.
                 Text(synopsis)
-                    .font(Typography.font(22, .bold))
+                    .font(Typography.font(max(13, 22 * s), .bold))
                     .foregroundStyle(Palette.posterInk)
                     .lineLimit(2)
-                    .frame(width: 780, alignment: .leading)
-                    .padding(.horizontal, 18).padding(.vertical, 12)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Palette.posterInk, lineWidth: 3))
+                    .frame(width: 780 * s, alignment: .leading)
+                    .padding(.horizontal, 18 * s).padding(.vertical, 12 * s)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 12 * s, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12 * s, style: .continuous)
+                        .strokeBorder(Palette.posterInk, lineWidth: max(2, 3 * s)))
                     .compositingGroup()
-                    .shadow(color: Palette.posterInk, radius: 0, x: 6, y: 6)
+                    .shadow(color: Palette.posterInk, radius: 0, x: 6 * s, y: 6 * s)
                     .rotationEffect(.degrees(-1.5))
             }
         }
@@ -492,13 +494,13 @@ struct AnimeTitleFocusStage: View {
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(maxWidth: 760, maxHeight: 210, alignment: .leading)
-                .shadow(color: Palette.posterInk.opacity(0.9), radius: 0, x: 8, y: 8)
+                .frame(maxWidth: 760 * s, maxHeight: 210 * s, alignment: .leading)
+                .shadow(color: Palette.posterInk.opacity(0.9), radius: 0, x: 8 * s, y: 8 * s)
                 .rotationEffect(.degrees(-2), anchor: .leading)
         } else {
-            DieCutText(text: item.title.uppercased(), font: Display.font(titleSize),
-                       fill: .white, stroke: Palette.posterInk, width: 12, shadow: 10)
-                .frame(maxWidth: 860, alignment: .leading)
+            DieCutText(text: item.title.uppercased(), font: Display.font(titleSize * s),
+                       fill: .white, stroke: Palette.posterInk, width: 12 * s, shadow: 10 * s)
+                .frame(maxWidth: 860 * s, alignment: .leading)
                 .clipped()
         }
     }
@@ -599,7 +601,37 @@ struct AnimeSkinStage: View {
     var body: some View {
         Group {
             if let lead {
-                AnimeTitleFocusStage(variant: variant, lead: lead, count: count)
+                Group {
+                    if DeviceClass.current == .tv {
+                        AnimeTitleFocusStage(variant: variant, lead: lead, count: count)
+                    } else {
+                        // Touch opens on the key visual too: the featured
+                        // title's column, its character staged at the stage's
+                        // trailing end (behind the column on the phone, where
+                        // it stands partly off the edge).
+                        let phone = DeviceClass.current == .phone
+                        ZStack(alignment: .topLeading) {
+                            AnimeStagedFigure(lead: lead, variant: variant,
+                                              height: AnimeSkinLayout.stageHeight * (phone ? 0.78 : 0.96))
+                                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                       alignment: phone ? .bottomTrailing : .bottomTrailing)
+                                .offset(x: phone ? 60 : 0, y: phone ? 10 : 0)
+                                .opacity(phone ? 0.95 : 1)
+                            AnimeTitleFocusStage(variant: variant, lead: lead, count: count,
+                                                 s: AnimeSize.pick(tv: 1, pad: 0.62, phone: 0.42))
+                        }
+                        .frame(width: phone ? 370 : nil, height: AnimeSkinLayout.stageHeight)
+                        // Cut at the stage's foot, so the character stands
+                        // behind the shelf as on the TV and the burst never
+                        // reaches the posters; free sideways, off the edge.
+                        .mask(alignment: .top) { Rectangle().padding(.horizontal, -600) }
+                    }
+                }
+                // One title to the next is a plain crossfade: without its
+                // own identity the stage re-laid out in place, and the
+                // logo visibly shrank and grew between two sizes.
+                .id(lead.item.id)
+                .transition(.opacity)
             } else {
                 AnimeLibraryStage(variant: variant, item: item, count: count)
             }
@@ -691,8 +723,8 @@ struct AnimeFigureLayer: View {
 
 /// The key visual proper: a disc of the title's colour, the title printed in
 /// scanlines running out from behind the figure, and the character standing
-/// on the shelf line — arriving with a step in from the right and the disc
-/// swelling behind them, both card-sized and once. Positioned in the layer's
+/// on the shelf line; one title to the next is a crossfade (the layer's
+/// `.id` + `.transition(.opacity)`), nothing scales or slides. Positioned in the layer's
 /// own coordinates so the three parts line up with each other and with the
 /// shelf, whatever the figure's proportions.
 private struct AnimeKeyVisual: View {
@@ -701,9 +733,6 @@ private struct AnimeKeyVisual: View {
     let size: CGSize
     let shelfY: CGFloat
     let bandTop: CGFloat
-
-    @State private var arrived = false
-    @State private var lettered = false
 
     var body: some View {
         // Sized to the band, and capped in width: a wide duo or trio must not
@@ -732,29 +761,20 @@ private struct AnimeKeyVisual: View {
                                    startPoint: .leading, endPoint: .trailing)
                 }
                 .position(x: size.width * 0.53 + size.width * 0.235, y: top + height * 0.30)
-                .opacity(arrived ? 1 : 0)
             // The burst the character lands in.
             AnimeSpeedLines(color: lead.palette.slash.opacity(0.75), seed: lead.item.id.count)
                 .frame(width: disc * 2.3, height: disc * 2.3)
-                .scaleEffect(arrived ? 1 : 0.5)
-                .opacity(arrived ? 1 : 0)
                 .position(discCenter)
             AnimeHalftoneDisc(color: lead.palette.disc, diameter: disc)
-                .scaleEffect(arrived ? 1 : 0.6)
-                .opacity(arrived ? 1 : 0)
                 .position(discCenter)
-            AnimeSceneFigure(image: lead.figure, height: height, arrived: arrived)
-                .offset(x: arrived ? 0 : 70)
-                .opacity(arrived ? 1 : 0)
+            AnimeSceneFigure(image: lead.figure, height: height)
                 .position(x: cx, y: bottom - height / 2)
-            // Lettered into the panel over the shoulder, slapped on last.
+            // Lettered into the panel over the shoulder.
             DieCutText(text: AnimeSFX.word(for: lead.item.id, variant: variant),
                        font: .system(size: height * 0.17, weight: .black),
                        fill: lead.palette.slash, stroke: Palette.posterInk, width: height * 0.012,
                        shadow: height * 0.012)
                 .rotationEffect(.degrees(-12))
-                .scaleEffect(lettered ? 1 : 1.8)
-                .opacity(lettered ? 1 : 0)
                 .position(x: cx - width / 2 - height * 0.02, y: top + height * 0.16)
         }
         .frame(width: size.width, height: size.height)
@@ -772,10 +792,6 @@ private struct AnimeKeyVisual: View {
             }
             .frame(width: size.width + 800, height: shelfY - bandTop * 0.5)
             .offset(y: bandTop * 0.5)
-        }
-        .onAppear {
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) { arrived = true }
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.55).delay(0.3)) { lettered = true }
         }
     }
 }

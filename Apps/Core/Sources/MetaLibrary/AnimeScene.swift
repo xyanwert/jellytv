@@ -150,3 +150,40 @@ enum AnimeSFX {
         return words[abs(n) % words.count]
     }
 }
+
+/// The TV key visual's staging in a box of its own, for touch: the burst,
+/// the halftone disc, the lit figure and its lettered SFX, sized to
+/// `height` and laid out in a frame the figure's width plus room for the
+/// burst. The TV keeps `AnimeKeyVisual`, which positions the same parts
+/// against the screen's shelf line.
+struct AnimeStagedFigure: View {
+    let lead: AnimeLead
+    let variant: AnimeSkinVariant
+    let height: CGFloat
+
+    var body: some View {
+        let ratio = lead.figure.size.width / max(1, lead.figure.size.height)
+        let h = min(height, height * 1.5 / max(ratio, 0.01))
+        let w = h * ratio
+        let disc = h * 0.86
+        let box = CGSize(width: max(w, disc) * 1.35, height: height)
+        ZStack {
+            AnimeSpeedLines(color: lead.palette.slash.opacity(0.75), seed: lead.item.id.count)
+                .frame(width: disc * 2, height: disc * 2)
+                .position(x: box.width / 2 + h * 0.06, y: box.height - h + h * 0.38)
+            AnimeHalftoneDisc(color: lead.palette.disc, diameter: disc)
+                .position(x: box.width / 2 + h * 0.06, y: box.height - h + h * 0.38)
+            AnimeSceneFigure(image: lead.figure, height: h)
+                .position(x: box.width / 2, y: box.height - h / 2)
+            DieCutText(text: AnimeSFX.word(for: lead.item.id, variant: variant),
+                       font: .system(size: h * 0.17, weight: .black),
+                       fill: lead.palette.slash, stroke: Palette.posterInk, width: h * 0.012,
+                       shadow: h * 0.012)
+                .rotationEffect(.degrees(-12))
+                .position(x: box.width / 2 - w / 2 + h * 0.02, y: box.height - h + h * 0.16)
+        }
+        .frame(width: box.width, height: box.height)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
