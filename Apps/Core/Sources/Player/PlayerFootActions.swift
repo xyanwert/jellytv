@@ -33,6 +33,8 @@ struct PlayerFootActions: View {
 
     private let violet = Palette.scenesViolet
 
+    @EnvironmentObject private var theme: Theme
+
     private var isPhone: Bool {
         #if os(iOS)
         DeviceClass.current == .phone
@@ -95,6 +97,15 @@ struct PlayerFootActions: View {
     #endif
 
     var body: some View {
+        if theme.isPoster {
+            posterRow
+        } else {
+            classicBody
+        }
+    }
+
+    @ViewBuilder
+    private var classicBody: some View {
         #if os(iOS)
         if isPhone {
             phoneRow
@@ -104,6 +115,84 @@ struct PlayerFootActions: View {
         #else
         standardRow
         #endif
+    }
+
+    // MARK: - Poster Mode
+
+    /// PREV · SCENES · NEXT, centred on every device (the phone included —
+    /// the Poster design keeps the one column): ink tiles tilted outwards
+    /// naming the episode they go to, SCENES the white sticker between them.
+    /// The phantom slots keep SCENES on the centre line, as in Classic.
+    private var posterRow: some View {
+        HStack(alignment: .bottom, spacing: PosterPlayerSize.footGap) {
+            if controller.hasPrevious {
+                posterQueueTile(field: .previous, next: false)
+            } else {
+                Color.clear.frame(width: PosterPlayerSize.footNarrow, height: 1)
+            }
+            posterScenes
+            if controller.hasNext {
+                posterQueueTile(field: .next, next: true)
+            } else {
+                Color.clear.frame(width: PosterPlayerSize.footNarrow, height: 1)
+            }
+        }
+    }
+
+    private var posterScenes: some View {
+        let radius = PosterPlayerSize.footRadius + 2
+        return Button {
+            onInteract()
+            onOpenScenes()
+        } label: {
+            HStack(spacing: PosterPlayerSize.scenesLabel * 0.38) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: PosterPlayerSize.scenesLabel * 0.8, weight: .bold))
+                Text("SCENES")
+                    .font(Display.font(PosterPlayerSize.scenesLabel))
+                    .tracking(1)
+            }
+            .foregroundStyle(Palette.posterInk)
+            .frame(width: PosterPlayerSize.scenesWidth, height: PosterPlayerSize.scenesHeight)
+            .background(.white, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(Palette.posterInk, lineWidth: PosterPlayerSize.rim * 0.85))
+        }
+        .buttonStyle(StickerButtonStyle(cornerRadius: radius, lift: PosterPlayerSize.lift * 1.4))
+        .remoteFocus($focus, equals: .scenes)
+    }
+
+    private func posterQueueTile(field: PlayerFocusField, next: Bool) -> some View {
+        let radius = PosterPlayerSize.footRadius
+        let tag = (next ? controller.nextItem : controller.previousItem)?.posterEpisodeTag
+        let glyph = Image(systemName: next ? "forward.end.fill" : "backward.end.fill")
+            .font(.system(size: PosterPlayerSize.footLabel * 0.85, weight: .bold))
+        let words = VStack(alignment: next ? .trailing : .leading, spacing: PosterPlayerSize.footLabel * 0.12) {
+            Text(next ? "NEXT" : "PREV")
+                .font(Display.font(PosterPlayerSize.footLabel))
+            if let tag, !isPhone {
+                Text(tag)
+                    .font(Mono.font(PosterPlayerSize.footLabel * 0.45, .bold))
+                    .foregroundStyle(Palette.posterTeal)
+            }
+        }
+        return Button {
+            onInteract()
+            Task { if next { await controller.next() } else { await controller.previous() } }
+        } label: {
+            HStack(spacing: PosterPlayerSize.footLabel * 0.45) {
+                if next { words; glyph } else { glyph; words }
+            }
+            .foregroundStyle(.white)
+            .frame(width: PosterPlayerSize.footNarrow, height: PosterPlayerSize.footHeight)
+            .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(.white, lineWidth: PosterPlayerSize.rim * 0.85))
+            .rotationEffect(.degrees(next ? 2 : -2))
+        }
+        .buttonStyle(StickerButtonStyle(cornerRadius: radius, lift: 0))
+        .remoteFocus($focus, equals: field)
+        .accessibilityLabel(next ? "Next video" : "Previous video")
     }
 
     /// **No PREV, no phantom slot.** The task brief cuts PREV outright on

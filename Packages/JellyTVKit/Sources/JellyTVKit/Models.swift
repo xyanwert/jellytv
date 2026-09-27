@@ -248,6 +248,7 @@ extension JellyfinAPI.JellyfinItem {
         show.seasonCount = childCount
         show.premiereYear = productionYear.map(String.init)
         show.logoArt = logoImageURLString(imageBaseURL)
+        show.posterArt = primaryImageURLString(imageBaseURL, maxWidth: 900) ?? show.posterArt
         show.tags = tags ?? []
         show.isFavorite = userData?.isFavorite ?? false
         if let years = formattedYearRange() { show.years = years }
@@ -1070,6 +1071,9 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
     /// `setFavorite`/`clearFavorite`, same endpoint the player's opinion row
     /// uses. Defaulted so every existing caller keeps compiling.
     public var isFavorite: Bool
+    /// The portrait poster (Jellyfin `Primary`, 2:3) — `keyArt` is the
+    /// landscape backdrop. Poster Mode's phone page holds it up as a card.
+    public var posterArt: String?
 
     public init(id: String, title: String, studioLine: String, rating: String,
                 certification: String, runSummary: String, createdBy: String,
@@ -1082,7 +1086,8 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
                 imdbId: String? = nil, externalRatings: ExternalRatings? = nil,
                 awards: MovieAwards? = nil, seasonCount: Int? = nil,
                 premiereYear: String? = nil, network: Network? = nil,
-                logoArt: String? = nil, tags: [String] = [], isFavorite: Bool = false) {
+                logoArt: String? = nil, tags: [String] = [], isFavorite: Bool = false,
+                posterArt: String? = nil) {
         self.id = id
         self.title = title
         self.studioLine = studioLine
@@ -1114,6 +1119,7 @@ public struct Show: Equatable, Sendable, Hashable, Identifiable {
         self.logoArt = logoArt
         self.tags = tags
         self.isFavorite = isFavorite
+        self.posterArt = posterArt
     }
 
     /// Index of the season containing the current/resume episode (or the last).

@@ -24,11 +24,12 @@ struct AirPlayButton: View {
 
     @State private var routeName: String = AirPlayButton.currentRouteName()
     @State private var isExternal: Bool = AirPlayButton.currentRouteIsExternal()
+    @EnvironmentObject private var theme: Theme
 
     private var shape: some Shape { RoundedRectangle(cornerRadius: 18, style: .continuous) }
 
     var body: some View {
-        label
+        Group { if theme.isPoster { posterLabel } else { label } }
             .overlay {
                 #if os(iOS)
                 RoutePickerOverlay()
@@ -41,6 +42,29 @@ struct AirPlayButton: View {
                 isExternal = Self.currentRouteIsExternal()
             }
             .accessibilityLabel("AirPlay — currently \(routeName)")
+    }
+
+    /// Poster Mode: the glyph in a white-rimmed disc, the Night pill's twin.
+    /// Out on another screen it turns teal and names where — the one state
+    /// worth spotting, so the only one that spends words.
+    private var posterLabel: some View {
+        let h = PosterPlayerSize.control
+        return HStack(spacing: h * 0.18) {
+            Image(systemName: "airplayvideo")
+                .font(.system(size: h * 0.4, weight: .bold))
+            if isExternal {
+                Text(routeName.uppercased())
+                    .font(Display.font(h * 0.4))
+                    .lineLimit(1)
+                    .frame(maxWidth: 180, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .foregroundStyle(isExternal ? Palette.posterInk : .white)
+        .padding(.horizontal, isExternal ? h * 0.36 : 0)
+        .frame(minWidth: h, minHeight: h)
+        .background(isExternal ? Palette.posterTeal : Palette.posterInk.opacity(0.45), in: Capsule())
+        .overlay(Capsule().strokeBorder(.white, lineWidth: PosterPlayerSize.rim * 0.7))
     }
 
     private var label: some View {

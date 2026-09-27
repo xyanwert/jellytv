@@ -3,6 +3,7 @@ import JellyTVKit
 import Vision
 import CoreImage
 import CryptoKit
+import ImageIO
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -89,7 +90,9 @@ actor PortraitCutoutCache {
             log("download failed \(urlString)")
             return nil
         }
-        guard let source = UIImage(data: data)?.cgImage else {
+        // Downsampled on the way in: a headshot is 600px, but a wallpaper
+        // can be 4K, and Vision's time and memory grow with every pixel.
+        guard let source = downsampled(data, maxPixel: 1600) ?? UIImage(data: data)?.cgImage else {
             log("undecodable image (\(data.count) bytes) \(urlString)")
             return nil
         }
@@ -98,6 +101,16 @@ actor PortraitCutoutCache {
             try? png.write(to: diskURL, options: .atomic)
         }
         return cutout
+    }
+
+    private nonisolated static func downsampled(_ data: Data, maxPixel: Int) -> CGImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary)
     }
 
     private nonisolated static func segment(_ image: CGImage) -> UIImage? {

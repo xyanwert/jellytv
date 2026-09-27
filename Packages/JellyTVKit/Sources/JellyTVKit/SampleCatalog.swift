@@ -240,7 +240,8 @@ public enum SampleCatalog {
             communityRating: item.rating,
             logoArt: item.logoImage,
             tags: item.tags,
-            isFavorite: item.isFavorite
+            isFavorite: item.isFavorite,
+            posterArt: item.image
         )
     }
 

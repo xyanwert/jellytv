@@ -23,6 +23,8 @@ struct PlayerOpinionRow: View {
     let onInteract: () -> Void
     @FocusState.Binding var focus: PlayerFocusField?
 
+    @EnvironmentObject private var theme: Theme
+
     // iPad-only 25% reduction: this chrome's numbers were tuned for a
     // 10-foot tvOS remote (see `PlayerTransportRow`'s "reads from across the
     // room" reasoning) and just inherited as-is on iPad — fine at arm's
@@ -48,10 +50,63 @@ struct PlayerOpinionRow: View {
     #endif
 
     var body: some View {
-        HStack(spacing: Size.gap) {
-            dislikeButton
-            favoriteButton
+        if theme.isPoster {
+            HStack(spacing: PosterPlayerSize.opinion * 0.42) {
+                posterDislike
+                posterFavorite
+            }
+        } else {
+            HStack(spacing: Size.gap) {
+                dislikeButton
+                favoriteButton
+            }
         }
+    }
+
+    // MARK: - Poster Mode
+
+    /// Coral sticker, tilted left. Hollow glyph until it has been said, filled
+    /// after — the same at-a-glance rule as the Classic circles.
+    var posterDislike: some View {
+        let active = controller.isDisliked
+        return posterSticker(field: .dislike,
+                             glyph: active ? "hand.thumbsdown.fill" : "hand.thumbsdown",
+                             tint: Palette.posterInk, fill: Color(hex: "#F0525F"), tilt: -6,
+                             label: active ? "Undo not for me" : "Not for me") {
+            Task { await controller.dislikeAndAdvance() }
+        }
+    }
+
+    /// White sticker, tilted right; the heart fills coral once liked.
+    var posterFavorite: some View {
+        let active = controller.isFavorite
+        return posterSticker(field: .favorite,
+                             glyph: active ? "heart.fill" : "heart",
+                             tint: active ? Color(hex: "#F0525F") : Palette.posterInk, fill: .white, tilt: 5,
+                             label: active ? "Remove from favourites" : "I like it") {
+            Task { await controller.toggleFavorite() }
+        }
+    }
+
+    private func posterSticker(field: PlayerFocusField, glyph: String, tint: Color, fill: Color,
+                               tilt: Double, label: String,
+                               action: @escaping () -> Void) -> some View {
+        let d = PosterPlayerSize.opinion
+        return Button {
+            onInteract()
+            action()
+        } label: {
+            Image(systemName: glyph)
+                .font(.system(size: d * 0.42, weight: .bold))
+                .foregroundStyle(tint)
+                .frame(width: d, height: d)
+                .background(fill, in: Circle())
+                .overlay(Circle().strokeBorder(.white, lineWidth: PosterPlayerSize.rim * 0.85))
+                .rotationEffect(.degrees(tilt))
+        }
+        .buttonStyle(StickerButtonStyle(cornerRadius: d / 2))
+        .remoteFocus($focus, equals: field)
+        .accessibilityLabel(label)
     }
 
     /// Local-only "not interested" — Jellyfin has no dislike endpoint, so this

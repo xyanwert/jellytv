@@ -328,6 +328,10 @@ struct SeasonRibbon: View {
 struct SeasonWall: View {
     let seasons: [Season]
     let fallbackImage: String?
+    /// A still from inside each season, by season id (`AppState.seasonStills`)
+    /// — preferred over the season's poster, which is often the same design
+    /// every year. Empty until it loads; the posters stand in meanwhile.
+    var stills: [String: String] = [:]
     let selected: Int
     let suggested: Int?
     var onPick: (Int) -> Void
@@ -398,9 +402,9 @@ struct SeasonWall: View {
         return VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .bottomLeading) {
                 // The tile's shape comes from a clear 2:3 box; the art only
-                // fills it. A season with no poster of its own falls back to
-                // the show's *wide* backdrop, which given its own frame spilled
-                // across the neighbouring tiles.
+                // fills it. The season's own poster when it has one; else a
+                // poster made for it (`madePoster`) — never the show's
+                // backdrop repeated down the wall.
                 Color.clear
                     .aspectRatio(2.0 / 3.0, contentMode: .fit)
                     .frame(maxWidth: .infinity)
@@ -450,12 +454,60 @@ struct SeasonWall: View {
     }
 
     @ViewBuilder private func artwork(_ season: Season) -> some View {
-        let source = season.image ?? fallbackImage
-        if let source, let url = URL(string: source) {
-            JellyfinAsyncImage(url: url, fallback: LinearGradient(colors: [Palette.text(0.1), Palette.text(0.03)],
-                                                                   startPoint: .top, endPoint: .bottom))
+        if let poster = season.image, let url = URL(string: poster) {
+            JellyfinAsyncImage(url: url, fallback: blank)
         } else {
-            LinearGradient(colors: [Palette.text(0.1), Palette.text(0.03)], startPoint: .top, endPoint: .bottom)
+            madePoster(season)
         }
+    }
+
+    private var blank: LinearGradient {
+        LinearGradient(colors: [Palette.text(0.1), Palette.text(0.03)], startPoint: .top, endPoint: .bottom)
+    }
+
+    /// A season with no poster of its own gets one made: a still from inside
+    /// that season (`stills`) over ink, the teal/coral stripes where they
+    /// meet, and the number set big enough to find the season by. A season
+    /// the server has no pictures for at all (South Park 19–26 here: no
+    /// poster, no episode stills) gets a ground of its own colour instead —
+    /// the show's backdrop repeated down the wall is what made every one of
+    /// them look the same.
+    private func madePoster(_ season: Season) -> some View {
+        let still = stills[season.id]
+        let numberSize: CGFloat = isTV ? 110 : (DeviceClass.current == .phone ? 58 : 76)
+        // Walk the hue wheel by season so neighbours never match.
+        let hue = (Double(max(season.number, 0)) * 0.137).truncatingRemainder(dividingBy: 1)
+        return GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            ZStack(alignment: .topLeading) {
+                Palette.posterInk
+                PosterStripeBand().opacity(0.8)
+                Group {
+                    if let still, let url = URL(string: still) {
+                        JellyfinAsyncImage(url: url, fallback: blank)
+                    } else {
+                        ZStack {
+                            Color(hue: hue, saturation: 0.55, brightness: 0.78)
+                            PosterPaper(dotColor: .white.opacity(0.22), spacing: 10, radius: 0.9)
+                        }
+                    }
+                }
+                .frame(width: w, height: h * 0.58)
+                .clipped()
+                PosterAccentStripes(angle: .degrees(-12), length: w * 1.6, scale: isTV ? 0.5 : 0.28)
+                    .frame(width: w, height: h * 0.58, alignment: .bottom)
+                    .offset(x: -w * 0.2, y: isTV ? 10 : 6)
+                Text(season.number > 0 ? String(format: "%02d", season.number) : "SP")
+                    .font(Display.font(numberSize))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .padding(.leading, isTV ? 14 : 8)
+                    .frame(width: w, height: h, alignment: .bottomLeading)
+                    .offset(y: numberSize * 0.06)
+            }
+            .frame(width: w, height: h)
+        }
+        .accessibilityHidden(true)
     }
 }

@@ -58,6 +58,14 @@ struct AnimeLibraryView: View {
     /// screen deliberately keeps the same image (the guard below), so tapping
     /// a filter chip doesn't reshuffle the wallpaper under you.
     @State private var backdropItemId: String?
+    /// Poster Mode: the die-cut characters dressing the screen
+    /// (`AppState.animeMascots`) — empty until they are cut, or for good
+    /// where the device can't cut.
+    @State private var mascots: [UIImage] = []
+    /// Poster Mode, tvOS: the title the remote has rested on long enough, and
+    /// its own character — the title focus. Nil keeps the library stage.
+    @State private var focusStageItemId: String?
+    @State private var focusStageCutout: UIImage?
 
     private var allItems: [MediaItem] { items }
 
@@ -197,9 +205,16 @@ struct AnimeLibraryView: View {
 
     var body: some View {
         ZStack {
-            background
-            if let backdropItem {
-                SelectedBackdrop(item: backdropItem, blur: backdropBlur)
+            if theme.isPoster {
+                AnimeGround(variant: .anime,
+                            color: AnimeSkinLayout.focusGround(.anime, itemId: focusStageItemId),
+                            shelfTop: AnimeSkinLayout.shelfTop)
+                    .animation(.easeInOut(duration: 0.4), value: focusStageItemId)
+            } else {
+                background
+                if let backdropItem {
+                    SelectedBackdrop(item: backdropItem, blur: backdropBlur)
+                }
             }
             HStack(spacing: 0) {
                 NavRail(destination: .animeLibrary, isLibrariesOpen: isLibrariesOpen,
@@ -210,12 +225,29 @@ struct AnimeLibraryView: View {
                         controlBar.libraryContentMargin()
                         // tvOS only — see `MoviesLibraryView`'s identical gate.
                         #if os(tvOS)
-                        selectedBand
+                        if theme.isPoster {
+                            if !(hasLoaded && allItems.isEmpty) { posterStage.libraryContentMargin() }
+                        } else {
+                            selectedBand
+                        }
                         #endif
                         if !hasLoaded {
                             loadingGrid
+                        } else if theme.isPoster && allItems.isEmpty {
+                            AnimeEmptyShelf(variant: .anime, mascot: mascots.first,
+                                            onScan: { await appState.scanLibraries(where: { $0 == .anime || $0 == .animefilm }) },
+                                            onBack: { onSelectRail(.home) })
+                                .libraryContentMargin()
                         } else {
                             ScrollView(.vertical, showsIndicators: false) {
+                                #if os(iOS)
+                                if theme.isPoster {
+                                    posterStage
+                                        .libraryContentMargin()
+                                        .padding(.top, 8)
+                                        .padding(.bottom, AnimeSize.pick(tv: 0, pad: 40, phone: 30))
+                                }
+                                #endif
                                 postersSection
                                     .libraryContentMargin()
                                     .padding(.top, 6)
@@ -236,6 +268,10 @@ struct AnimeLibraryView: View {
             // without this the rail stays focus-reachable underneath them.
             .disabled(presentedMovie != nil || presentedShow != nil)
             .pageBehind(presentedMovie != nil || presentedShow != nil)
+
+            if theme.isPoster && DeviceClass.current == .tv && presentedMovie == nil && presentedShow == nil && !allItems.isEmpty {
+                AnimeMascotLayer(mascots: mascots, leadAside: focusStageItemId != nil)
+            }
 
             if let presentedMovie {
                 MovieDetailView(movie: presentedMovie, onDismiss: { self.presentedMovie = nil },
@@ -287,7 +323,13 @@ struct AnimeLibraryView: View {
         // with nothing on screen to receive them.
         #if os(tvOS)
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
+        .task(id: selectedItem?.id) { await armTitleFocus() }
         #endif
+        .task(id: hasLoaded) {
+            guard theme.isPoster, hasLoaded, mascots.isEmpty else { return }
+            let found = await appState.animeMascots(titles: items.map(\.title), sketchy: false)
+            withAnimation(.easeOut(duration: 0.4)) { mascots = found }
+        }
         #if os(tvOS)
         .onExitCommand(perform: exitAction)
         #endif
@@ -308,6 +350,43 @@ struct AnimeLibraryView: View {
                 LibraryHero(content: .show(show, item: item, isLoading: isDossierLoading),
                             accent: Self.accent, castLabel: "Voice cast")
             }
+        }
+    }
+    #endif
+
+    // MARK: - Poster Mode (the anime skin — `AnimeSkin.swift`)
+
+    /// The shared stage (`AnimeSkinStage`), for whatever is selected — on
+    /// touch, the page's pick.
+    private var posterStage: some View {
+        AnimeSkinStage(variant: .anime, item: posterStageItem, count: allItems.count,
+                       focusItem: focusStageItemId.flatMap { id in allItems.first { $0.id == id } },
+                       focusCutout: focusStageCutout, mascots: mascots)
+    }
+
+    private var posterStageItem: MediaItem? {
+        #if os(tvOS)
+        selectedItem ?? filtered.first
+        #else
+        allItems.first { $0.id == backdropItemId } ?? filtered.first
+        #endif
+    }
+
+    #if os(tvOS)
+    /// Two seconds on one title, and if that title has a clean cut-out of its
+    /// own (`AppState.titleCutout`), it takes the stage. Any move before then
+    /// cancels this task, and the stage goes back to the library at once.
+    private func armTitleFocus() async {
+        if focusStageItemId != nil {
+            withAnimation(.easeInOut(duration: 0.3)) { focusStageItemId = nil; focusStageCutout = nil }
+        }
+        guard theme.isPoster, let item = selectedItem else { return }
+        try? await Task.sleep(for: .seconds(2))
+        guard !Task.isCancelled, let cutout = await appState.titleCutout(for: item),
+              !Task.isCancelled, selectedItem?.id == item.id else { return }
+        withAnimation(.easeInOut(duration: 0.35)) {
+            focusStageCutout = cutout
+            focusStageItemId = item.id
         }
     }
     #endif
@@ -334,7 +413,14 @@ struct AnimeLibraryView: View {
         LibraryHeaderLayout {
             Group {
                 if theme.isPoster {
-                    PosterLibraryTitle(title: "Anime", shown: filtered.count, total: allItems.count, badgeColor: Palette.posterTeal)
+                    // The die-cut アニメ lockup on the stage is this screen's
+                    // title; the header keeps only where you are.
+                    Text("LIBRARIES / ANIME · \(LibraryChrome.countLabel(shown: filtered.count, total: allItems.count, noun: "titles").uppercased())")
+                        .font(Mono.font(DeviceClass.current == .tv ? 20 : 13, .bold))
+                        .tracking(2)
+                        .foregroundStyle(Palette.posterInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         #if os(iOS)

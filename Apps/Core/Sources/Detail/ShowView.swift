@@ -53,6 +53,9 @@ struct ShowView: View {
     @State private var nextUpEpisodeId: String?
     /// Every season at once, as posters — `SeasonWall`.
     @State private var showSeasonWall = false
+    /// A still per season for the wall's posterless seasons, loaded the
+    /// first time it opens.
+    @State private var seasonStills: [String: String] = [:]
     /// Poster Mode (tvOS): how far the backdrop and its cut-out rise together
     /// so the subject's face clears the shelf band — measured from the
     /// cut-out, once. 0 until there is one.
@@ -111,6 +114,13 @@ struct ShowView: View {
         // once they're already loaded (or mid-fetch), so this is safe to fire
         // redundantly alongside `loadDetail()`'s own initial-season fetch.
         .task(id: selectedSeason) { await loadEpisodesForSelectedSeasonIfNeeded() }
+        .task(id: showSeasonWall) {
+            // Only posterless seasons use a still — skip the request when
+            // every season has its own poster.
+            guard showSeasonWall, seasonStills.isEmpty,
+                  show.seasons.contains(where: { $0.image == nil }) else { return }
+            seasonStills = await appState.seasonStills(seriesId: show.id)
+        }
         #if os(iOS)
         .onChange(of: focus) { _, newValue in
             if newValue != nil { hasEstablishedFocus = true }
@@ -167,11 +177,16 @@ struct ShowView: View {
     // iPad drawer, which needs a whole screen edge to itself.
     #if os(iOS)
 
+    @ViewBuilder
     private var phoneBody: some View {
+        if theme.isPoster { posterPhoneBody } else { classicPhoneBody }
+    }
+
+    private var classicPhoneBody: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 0) {
-                PhoneShowKeyArt(image: show.keyArt, artwork: show.artwork, onClose: onDismiss, posterTitle: show.title)
-                Group { if theme.isPoster { posterPhoneIdentity } else { phoneIdentity } }
+                PhoneShowKeyArt(image: show.keyArt, artwork: show.artwork, onClose: onDismiss)
+                phoneIdentity
                     .padding(.top, 18)
                     .padding(.horizontal, 20)
 
@@ -181,7 +196,7 @@ struct ShowView: View {
                         .padding(.horizontal, 20)
                 }
 
-                Group { if theme.isPoster { posterPhoneContinue } else { phoneContinueButton } }
+                phoneContinueButton
                     .padding(.top, 14)
                     .padding(.horizontal, 20)
 
@@ -624,7 +639,8 @@ struct ShowView: View {
     }
 
     private var seasonWall: some View {
-        SeasonWall(seasons: show.seasons, fallbackImage: show.keyArt, selected: selectedSeason,
+        SeasonWall(seasons: show.seasons, fallbackImage: show.keyArt, stills: seasonStills,
+                   selected: selectedSeason,
                    suggested: suggestedSeason,
                    onPick: { index in
                        selectedSeason = index
@@ -739,22 +755,141 @@ struct ShowView: View {
         }
     }
 
-    /// iPhone: left-aligned, under the dressed key art.
-    private var posterPhoneIdentity: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            posterSeasonsBar(size: 12)
-            posterShowTitle(40)
-            posterShowChips
+    /// iPhone in Poster Mode (design canvas "iPhone · Show"): the key visual on
+    /// grid paper, then on ink — SEASON sticker and one facts line, the resume
+    /// bar, and the season's episodes as numbered rows with the next one lit.
+    /// The season dial's job moves into the sticker (tap → `SeasonWall`); the
+    /// tabs' DETAILS and CAST follow the episodes as plain sections, since the
+    /// episodes are what somebody opened a show page for.
+    private var posterPhoneBody: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                PhonePosterShowHero(title: show.title, keyArt: show.keyArt,
+                                    // The selected season's own poster, so the
+                                    // card changes with the season.
+                                    posterArt: season?.image ?? show.posterArt,
+                                    artwork: show.artwork,
+                                    lead: show.cast.first(where: \.isLead) ?? show.cast.first,
+                                    isAnimated: show.genreLabel.localizedCaseInsensitiveContains("anim"),
+                                    onBack: onDismiss)
+
+                posterPhoneSeasonLine
+                    .padding(.top, 20)
+                    .padding(.horizontal, 16)
+
+                HStack(spacing: 10) {
+                    Button(action: resumePrimaryEpisode) { PhonePosterResumeBar(title: posterPhoneResumeTitle) }
+                        .buttonStyle(FocusScaleStyle(scale: 1.02, cornerRadius: 999))
+                        .disabled(primaryEpisode == nil)
+                    // Random, as the icon alone: every episode of every
+                    // season, disliked ones left out (`shufflePlayRequest`).
+                    Button(action: shufflePlay) { PhonePosterShuffleDisc(busy: shuffleInFlight) }
+                        .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 999))
+                        .accessibilityLabel("Shuffle all seasons")
+                }
+                .padding(.top, 14)
+                .padding(.horizontal, 16)
+
+                posterPhoneEpisodes
+                    .padding(.top, 16)
+                    .padding(.horizontal, 16)
+
+                posterPhoneExtras
+                    .padding(.top, 30)
+            }
+            .padding(.bottom, 50)
+            .phoneTabBarClearance()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, -34)
+        .background(Palette.posterInk.ignoresSafeArea())
+        .ignoresSafeArea(edges: .top)
     }
 
-    private var posterPhoneContinue: some View {
-        Button(action: resumePrimaryEpisode) { PosterArrowPill(title: resumeLabel, fullWidth: true) }
-            .buttonStyle(FocusScaleStyle(scale: 1.02, cornerRadius: 999))
-            .disabled(primaryEpisode == nil)
+    private var posterPhoneSeasonLine: some View {
+        HStack(spacing: 12) {
+            Button { showSeasonWall = true } label: {
+                PhonePosterSeasonSticker(number: season?.number ?? 1,
+                                         isSpecials: (season?.number ?? 1) <= 0,
+                                         canPick: show.seasons.count > 1)
+            }
+            .buttonStyle(.plain)
+            .disabled(show.seasons.count < 2)
+            .accessibilityLabel("Choose season")
+            Text(posterPhoneFacts)
+                .font(Mono.font(11, .bold)).tracking(0.6)
+                .foregroundStyle(Palette.text(0.55))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Spacer(minLength: 0)
+        }
     }
+
+    /// "TV-MA · 2022 · NETFLIX · 10 EPS" — each part only when it is known.
+    private var posterPhoneFacts: String {
+        var parts: [String] = []
+        if !show.certification.isEmpty { parts.append(show.certification) }
+        if let year = show.premiereYear ?? show.years.split(separator: " ").first.map(String.init), !year.isEmpty {
+            parts.append(year)
+        }
+        if let studio = show.network?.name ?? show.studios.first { parts.append(studio) }
+        let count = season.map { $0.episodes.isEmpty ? ($0.episodeCount ?? 0) : $0.episodes.count } ?? 0
+        if count > 0 { parts.append("\(count) EP\(count == 1 ? "" : "S")") }
+        return parts.joined(separator: " · ").uppercased()
+    }
+
+    /// "RESUME E4 · LUCKY YOU" — the season is named only when it isn't the
+    /// one on screen.
+    private var posterPhoneResumeTitle: String {
+        guard let (episode, epSeason) = primaryEpisode else { return "Play" }
+        let verb = episode.isCurrent ? "Resume" : "Play"
+        let where_ = epSeason.id == season?.id ? "E\(episode.number)" : "S\(epSeason.number) · E\(episode.number)"
+        return "\(verb) \(where_) · \(episode.title)"
+    }
+
+    @ViewBuilder
+    private var posterPhoneEpisodes: some View {
+        if season == nil || episodesLoadingSeasonId == season?.id {
+            HStack(spacing: 10) {
+                ProgressView().tint(Palette.posterTeal)
+                Text("LOADING EPISODES")
+                    .font(Mono.font(11, .bold)).tracking(1)
+                    .foregroundStyle(Palette.text(0.4))
+            }
+            .frame(maxWidth: .infinity, minHeight: 160)
+        } else if let season {
+            let next = primaryEpisode?.episode.id
+            LazyVStack(spacing: 8) {
+                ForEach(season.episodes) { ep in
+                    PhonePosterEpisodeRow(episode: ep, isNext: ep.id == next,
+                                          action: { play(episode: ep, in: season) })
+                }
+            }
+        }
+    }
+
+    /// The heart, then what the tabs used to hold.
+    private var posterPhoneExtras: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                Button(action: toggleFavorite) {
+                    PosterRoundButton(systemImage: effectiveIsFavorite ? "heart.fill" : "heart",
+                                      tint: effectiveIsFavorite ? theme.accent : Palette.textPrimary)
+                }
+                .buttonStyle(FocusScaleStyle(scale: 1.05, cornerRadius: 999))
+                .accessibilityLabel(effectiveIsFavorite ? "Remove from favourites" : "Add to favourites")
+            }
+            .padding(.horizontal, 16)
+
+            PosterSectionHeader(title: "About")
+            phoneDetailsTab.padding(.horizontal, 20)
+
+            if !show.cast.isEmpty {
+                PosterSectionHeader(title: "Cast", count: show.cast.count)
+                    .padding(.top, 8)
+                phoneCastTab.padding(.horizontal, 20)
+            }
+        }
+    }
+
     #endif
 
     // MARK: - iPad (design 2a-drawer)

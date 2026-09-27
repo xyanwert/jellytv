@@ -931,6 +931,116 @@ final class AppState: ObservableObject {
         return image
     }
 
+    // MARK: - Anime library: cut-outs and mascots
+
+    private var titleCutoutCache: [String: UIImage] = [:]
+    private var titleCutoutMisses: Set<String> = []
+    private var mascotCache: [Bool: [UIImage]] = [:]
+
+    /// The title's own character as a die-cut sticker, for the Anime
+    /// library's title focus — nil when there is no clean one, and the screen
+    /// then simply keeps its library layout.
+    ///
+    /// Where it comes from, best first: the YSOJ server's prepared cut-outs
+    /// (Fanart.tv character art, or its backdrop cut by an anime-trained
+    /// model — `YsojAPI.bestCutout`), else the backdrop cut here on the
+    /// device by Vision (`PortraitCutoutCache`, which also gates the result).
+    /// One answer per title per launch, misses included.
+    func titleCutout(for item: MediaItem) async -> UIImage? {
+        if let hit = titleCutoutCache[item.id] { return hit }
+        #if DEBUG
+        // Screenshot hook: `JT_ANIME_CUTOUT` / `RT_ANIME_CUTOUT=<png path on
+        // the Mac>` stands in for every title's cut-out — the simulators
+        // can't run Vision, and this is the only way to see the title focus.
+        if let path = Self.debugEnv("ANIME_CUTOUT"), let image = UIImage(contentsOfFile: path),
+           let sticker = await StickerCut.shared.sticker(image, key: "debug-\(path)") {
+            return sticker
+        }
+        #endif
+        if titleCutoutMisses.contains(item.id) { return nil }
+        var raw: UIImage?
+        if let ysojClient, ysojCapabilities?.offersCutouts == true,
+           let list = try? await ysojClient.fetchCutouts(itemId: item.id),
+           let best = YsojAPI.bestCutout(list),
+           let url = ysojClient.absoluteURL(best.url),
+           let (data, _) = try? await URLSession.shared.data(from: url) {
+            raw = UIImage(data: data)
+        }
+        if raw == nil, PortraitCutoutCache.isSupported,
+           let backdrop = item.backdropImage, backdrop.hasPrefix("http") {
+            raw = await PortraitCutoutCache.shared.cutout(for: backdrop)
+        }
+        guard let raw, let sticker = await StickerCut.shared.sticker(raw, key: "title-\(item.id)") else {
+            titleCutoutMisses.insert(item.id)
+            return nil
+        }
+        titleCutoutCache[item.id] = sticker
+        return sticker
+    }
+
+    /// Up to `count` die-cut characters to dress the Anime library, drawn from
+    /// Wallhaven art **of the titles in the library itself** (anime category,
+    /// SFW only, the community's favourites) and cut on the device — so the
+    /// mascots are Frieren and Nagatoro when those are on the shelf, not
+    /// strangers. Decoration: an empty array on any failure, and the screen
+    /// looks finished without them. Chosen once per launch.
+    ///
+    /// `sketchy` is the Late Night screen's: Wallhaven's middle purity tier
+    /// (suggestive, never explicit — its NSFW tier needs an account key and
+    /// is deliberately never asked for, see `WallhavenClient.Filters`). It is
+    /// only ever asked from a screen the adult door already let you into.
+    func animeMascots(titles: [String], sketchy: Bool, count: Int = 3) async -> [UIImage] {
+        if let cached = mascotCache[sketchy] { return cached }
+        #if DEBUG
+        // Screenshot hook: `JT_ANIME_MASCOTS` / `RT_ANIME_MASCOTS=<png>,<png>`.
+        if let list = Self.debugEnv("ANIME_MASCOTS") {
+            var seeded: [UIImage] = []
+            for path in list.split(separator: ",").map(String.init) {
+                if let image = UIImage(contentsOfFile: path),
+                   let sticker = await StickerCut.shared.sticker(image, key: "debug-\(path)") {
+                    seeded.append(sticker)
+                }
+            }
+            mascotCache[sketchy] = seeded
+            return seeded
+        }
+        #endif
+        guard PortraitCutoutCache.isSupported, !titles.isEmpty else { return [] }
+        var found: [UIImage] = []
+        let client = WallhavenClient()
+        for title in titles.shuffled().prefix(count * 2) where found.count < count {
+            guard let results = try? await client.search(.animeArt(title: title, sketchy: sketchy)),
+                  let url = results.prefix(4).randomElement()?.fullImageURL,
+                  let cut = await PortraitCutoutCache.shared.cutout(for: url.absoluteString),
+                  let sticker = await StickerCut.shared.sticker(cut, key: "mascot-\(url.absoluteString)")
+            else { continue }
+            found.append(sticker)
+        }
+        mascotCache[sketchy] = found
+        return found
+    }
+
+    #if DEBUG
+    private static func debugEnv(_ name: String) -> String? {
+        let env = ProcessInfo.processInfo.environment
+        return env["JT_\(name)"] ?? env["RT_\(name)"]
+    }
+    #endif
+
+    /// Rescans every library of the given kinds — an empty anime screen's
+    /// one action. True when the server took every request (an admin account
+    /// is needed); the shelf then fills in as the scan lands.
+    func scanLibraries(where matches: (MetaCategory) -> Bool) async -> Bool {
+        guard let client else { return false }
+        let libs = browsableLibraries.filter { lib in metaCategory(for: lib).map(matches) ?? false }
+        guard !libs.isEmpty else { return false }
+        var ok = true
+        for lib in libs {
+            do { try await client.refreshItem(itemId: lib.id) } catch { ok = false }
+        }
+        return ok
+    }
+
     /// Server-side search across every library the user can see.
     ///
     /// Deliberately one request against `/Items` with `searchTerm` rather than
@@ -1344,6 +1454,33 @@ final class AppState: ObservableObject {
         let episodes = items.map { $0.toEpisode(imageBaseURL: imageBaseURL, seriesId: seriesId) }.sorted { $0.number < $1.number }
         episodesCache[seasonId] = episodes
         return episodes
+    }
+
+    private var seasonStillsCache: [String: [String: String]] = [:]
+
+    /// One still per season, keyed by season id — the picture on the poster
+    /// the season wall makes for a season that has none of its own (South
+    /// Park 19–26 here), instead of the show's backdrop on every one of them.
+    /// An episode from the season's middle: the first is often a recap or a
+    /// cold open that looks like the last season's. One request for the
+    /// whole series, cached per series.
+    func seasonStills(seriesId: String) async -> [String: String] {
+        if let cached = seasonStillsCache[seriesId] { return cached }
+        guard let client,
+              let items = try? await client.fetchSeriesEpisodeImages(userId: userId, seriesId: seriesId) else { return [:] }
+        var bySeason: [String: [JellyfinAPI.JellyfinItem]] = [:]
+        for item in items where item.seasonId != nil {
+            bySeason[item.seasonId!, default: []].append(item)
+        }
+        var stills: [String: String] = [:]
+        for (seasonId, episodes) in bySeason {
+            let withArt = episodes
+                .sorted { ($0.indexNumber ?? 0) < ($1.indexNumber ?? 0) }
+                .compactMap { $0.toEpisode(imageBaseURL: imageBaseURL).image }
+            if !withArt.isEmpty { stills[seasonId] = withArt[withArt.count / 2] }
+        }
+        seasonStillsCache[seriesId] = stills
+        return stills
     }
 
     // MARK: - Movie night (the tvOS movie page's extras)

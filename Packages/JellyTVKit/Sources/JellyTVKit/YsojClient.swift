@@ -71,6 +71,29 @@ public struct YsojClient: Sendable {
 
     // MARK: - Discover
 
+    // MARK: - Cut-outs
+
+    /// A title's prepared cut-outs. An empty list — never a throw — for a
+    /// server or title that has none (404), so a caller simply falls back to
+    /// cutting on the device.
+    public func fetchCutouts(itemId: String) async throws -> [YsojAPI.Cutout] {
+        guard let url = buildURL(path: "/ysoj/cutouts/\(itemId)", query: nil) else {
+            throw JellyfinRequestError.invalidURL
+        }
+        do {
+            let list: YsojAPI.CutoutList = try await request(url: url)
+            return list.cutouts
+        } catch JellyfinRequestError.server(let status, _) where status == 404 {
+            return []
+        }
+    }
+
+    /// Absolute URL for a server-relative cut-out path.
+    public func absoluteURL(_ path: String) -> URL? {
+        if let url = URL(string: path), url.scheme != nil { return url }
+        return buildURL(path: path, query: nil)
+    }
+
     public func fetchCategories() async throws -> [YsojAPI.DiscoverCategory] {
         guard let url = buildURL(path: "/ysoj/discover/categories", query: nil) else {
             throw JellyfinRequestError.invalidURL

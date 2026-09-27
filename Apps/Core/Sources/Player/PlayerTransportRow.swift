@@ -42,6 +42,8 @@ struct PlayerTransportRow: View {
     /// expires on its own.
     @State private var longPressedAt: Date?
 
+    @EnvironmentObject private var theme: Theme
+
     /// Same blue the old seek strip used for its ±30s tiles, kept so the
     /// chrome's palette didn't gain a colour on the way to losing controls.
     private let blue = Color(OKLCH(l: 0.62, c: 0.16, h: 245))
@@ -100,6 +102,15 @@ struct PlayerTransportRow: View {
     #endif
 
     var body: some View {
+        if theme.isPoster {
+            posterRow
+        } else {
+            classicBody
+        }
+    }
+
+    @ViewBuilder
+    private var classicBody: some View {
         #if os(iOS)
         if isPhone {
             phoneRow
@@ -109,6 +120,101 @@ struct PlayerTransportRow: View {
         #else
         standardRow
         #endif
+    }
+
+    // MARK: - Poster Mode
+
+    /// The design's row on every device: a phantom slot, ↺30, PLAY, ↻30, 1M —
+    /// the slot balancing 1M so PLAY lands dead centre. The phone keeps 1M
+    /// here too (the Poster design's call), at its own size.
+    private var posterRow: some View {
+        HStack(spacing: PosterPlayerSize.transportGap) {
+            Color.clear.frame(width: PosterPlayerSize.jump, height: 1)
+            posterJump(field: .back30, forward: false, number: "30", label: "30 seconds back") {
+                controller.jump(by: -30)
+            }
+            posterPlay
+            posterJump(field: .forward30, forward: true, number: "30", label: "30 seconds ahead") {
+                controller.jump(by: 30)
+            }
+            posterJump(field: .forwardMinute, forward: true, number: "1M", label: "One minute ahead") {
+                controller.jump(by: 60)
+            }
+        }
+    }
+
+    private func posterJump(field: PlayerFocusField, forward: Bool, number: String, label: String,
+                            action: @escaping () -> Void) -> some View {
+        let d = PosterPlayerSize.jump
+        return Button {
+            onInteract()
+            action()
+        } label: {
+            VStack(spacing: 0) {
+                Image(systemName: forward ? "arrow.clockwise" : "arrow.counterclockwise")
+                    .font(.system(size: PosterPlayerSize.jumpGlyph, weight: .heavy))
+                Text(number)
+                    .font(Display.font(PosterPlayerSize.jumpNumber))
+            }
+            .foregroundStyle(.white)
+            .frame(width: d, height: d)
+            .background(Palette.posterInk.opacity(0.6), in: Circle())
+            .overlay(Circle().strokeBorder(.white, lineWidth: PosterPlayerSize.rim))
+        }
+        .buttonStyle(StickerButtonStyle(cornerRadius: d / 2))
+        .remoteFocus($focus, equals: field)
+        .accessibilityLabel(label)
+    }
+
+    /// The teal sticker. Same behaviour as `playCircle` — the spinner, the
+    /// hold for repeat-one and its swallowed tap — drawn as the design's disc:
+    /// teal, thick white rim, ink glyph; a coral rim while repeating.
+    private var posterPlay: some View {
+        let repeating = controller.repeatOne
+        let d = PosterPlayerSize.play
+        return Button {
+            onInteract()
+            if let at = longPressedAt, Date().timeIntervalSince(at) < 1 {
+                longPressedAt = nil
+                return
+            }
+            if repeating {
+                controller.toggleRepeatOne()
+            } else {
+                controller.togglePlay()
+            }
+        } label: {
+            ZStack {
+                Circle().fill(Palette.posterTeal)
+                if controller.isLoading {
+                    ProgressView().controlSize(.large).tint(Palette.posterInk)
+                } else if repeating {
+                    Image(systemName: "repeat.1")
+                        .font(.system(size: PosterPlayerSize.playGlyph * 0.8, weight: .black))
+                        .foregroundStyle(Palette.posterInk)
+                } else {
+                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: PosterPlayerSize.playGlyph, weight: .black))
+                        .foregroundStyle(Palette.posterInk)
+                        .offset(x: controller.isPlaying ? 0 : d * 0.03)
+                }
+            }
+            .frame(width: d, height: d)
+            .overlay(Circle().strokeBorder(repeating ? Color(hex: "#F0525F") : .white,
+                                           lineWidth: PosterPlayerSize.playRim))
+        }
+        .buttonStyle(StickerButtonStyle(cornerRadius: d / 2, lift: PosterPlayerSize.lift * 1.8))
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.6).onEnded { _ in
+                longPressedAt = Date()
+                onInteract()
+                if !controller.repeatOne { controller.toggleRepeatOne() }
+            }
+        )
+        .remoteFocus($focus, equals: .playPause)
+        .accessibilityLabel(repeating ? "Repeating this one — tap to stop repeating"
+                                      : (controller.isPlaying ? "Pause" : "Play"))
+        .accessibilityHint(repeating ? "" : "Press and hold to repeat this one")
     }
 
     /// **No phantom slot, and no +1min circle.** iPad/tvOS hold an empty

@@ -74,6 +74,17 @@ final class PlayerController {
     var repeatOne: Bool { engine.repeatOne }
     var hasNext: Bool { engine.hasNext }
     var hasPrevious: Bool { engine.hasPrevious }
+    /// The queue's neighbours — for a foot tile to name where it goes
+    /// ("E04"), never to act on; NEXT and PREV still go through `next()` /
+    /// `previous()`.
+    var nextItem: PlayableItem? {
+        let i = engine.queueIndex + 1
+        return engine.queue.indices.contains(i) ? engine.queue[i] : nil
+    }
+    var previousItem: PlayableItem? {
+        let i = engine.queueIndex - 1
+        return engine.queue.indices.contains(i) ? engine.queue[i] : nil
+    }
     var queuePositionLabel: String? { engine.queuePositionLabel }
     /// Exposed only so `PlayerLayerView` can attach — chrome should not
     /// reach in here for playback actions, use the methods below.

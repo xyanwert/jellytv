@@ -122,6 +122,8 @@ struct PosterStickerTag: View {
     let name: String
     var sub: String? = nil
     var nameColor: Color = Palette.posterInk
+    /// The sticker's own paper — white, or the key visual's yellow.
+    var paper: Color = .white
     var size: CGFloat = DeviceClass.current == .tv ? 40 : 24
     var tilt: Angle = .degrees(-3)
 
@@ -136,7 +138,7 @@ struct PosterStickerTag: View {
                 .minimumScaleFactor(0.55)
                 .padding(.horizontal, size * 0.34)
                 .padding(.vertical, size * 0.1)
-                .background(Color.white, in: UnevenRoundedRectangle(
+                .background(paper, in: UnevenRoundedRectangle(
                     topLeadingRadius: size * 0.2, bottomLeadingRadius: sub == nil ? size * 0.2 : 0,
                     bottomTrailingRadius: size * 0.2, topTrailingRadius: size * 0.2, style: .continuous))
             if let sub, !sub.isEmpty {

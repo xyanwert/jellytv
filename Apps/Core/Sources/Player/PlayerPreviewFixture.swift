@@ -79,7 +79,10 @@ struct PlayerPreviewFixture: View {
                 // Parked 27 minutes in rather than at zero, so the position
                 // readout shows something worth reading in a screenshot.
                 item: item, currentTime: hook == "skip" ? 40 : 1620,
-                duration: 3316, isPlaying: true, isFavorite: true,
+                // `=paused` holds the chrome up (a paused player never
+                // auto-hides) — the only way to screenshot it on a
+                // simulator slower than the two-second idle.
+                duration: 3316, isPlaying: hook != "paused", isFavorite: true,
                 // Parked one *into* the queue, not at its head, so the foot
                 // renders PREV as well as NEXT — both hide at the ends of a
                 // queue, and a fixture that never shows one is a fixture that

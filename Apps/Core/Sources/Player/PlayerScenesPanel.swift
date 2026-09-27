@@ -33,6 +33,10 @@ struct PlayerScenesPanel: View {
     let accent: Color
     let onDismiss: () -> Void
 
+    @EnvironmentObject private var theme: Theme
+    private let coral = Color(hex: "#F0525F")
+    private let yellow = Color(hex: "#F2E14C")
+
     /// One cell. `image` stays nil until its slice arrives.
     private struct Thumb: Identifiable, Equatable {
         let id: Int
@@ -186,8 +190,9 @@ struct PlayerScenesPanel: View {
             // Opaque: the panel replaces the chrome rather than floating over
             // it, and nothing underneath is moving — the player is paused.
             Color.black.opacity(0.94).ignoresSafeArea()
+            if theme.isPoster { posterGround }
 
-            VStack(spacing: 22) {
+            VStack(spacing: theme.isPoster ? 30 : 22) {
                 header
                 pager
                 footer
@@ -207,7 +212,12 @@ struct PlayerScenesPanel: View {
     /// but everywhere else in *both* apps, including this app's own
     /// `PlayerTopBar`, leaving a screen is a loud labelled pill. Consistency
     /// with the chrome the user just came from wins over v1's local choice.
+    @ViewBuilder
     private var header: some View {
+        if theme.isPoster { posterHeader } else { classicHeader }
+    }
+
+    private var classicHeader: some View {
         HStack(alignment: .center, spacing: 20) {
             backButton
             Spacer(minLength: 0)
@@ -355,7 +365,12 @@ struct PlayerScenesPanel: View {
             .frame(maxWidth: .infinity)
     }
 
+    @ViewBuilder
     private func cell(thumb: Thumb) -> some View {
+        if theme.isPoster { posterCell(thumb: thumb) } else { classicCell(thumb: thumb) }
+    }
+
+    private func classicCell(thumb: Thumb) -> some View {
         Button {
             Task { await go(to: thumb.time) }
         } label: {
@@ -416,7 +431,12 @@ struct PlayerScenesPanel: View {
     /// A grid cell that starts the next (or previous) video. Same footprint as
     /// a thumbnail so the row stays even, accent-filled so it can't be mistaken
     /// for one — this is the only tile in the grid that leaves the film.
+    @ViewBuilder
     private func navigationTile(_ edge: Edge) -> some View {
+        if theme.isPoster { posterNavigationTile(edge) } else { classicNavigationTile(edge) }
+    }
+
+    private func classicNavigationTile(_ edge: Edge) -> some View {
         Button {
             Task { await navigate(edge) }
         } label: {
@@ -453,8 +473,18 @@ struct PlayerScenesPanel: View {
         }
     }
 
+    @ViewBuilder
     private func footerButton(icon: String, label: String, leading: Bool,
                               enabled: Bool, action: @escaping () -> Void) -> some View {
+        if theme.isPoster {
+            posterFooterButton(label: leading ? "‹ EARLIER" : "LATER ›", enabled: enabled, action: action)
+        } else {
+            classicFooterButton(icon: icon, label: label, leading: leading, enabled: enabled, action: action)
+        }
+    }
+
+    private func classicFooterButton(icon: String, label: String, leading: Bool,
+                                     enabled: Bool, action: @escaping () -> Void) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.25)) { action() }
         } label: {
@@ -479,6 +509,155 @@ struct PlayerScenesPanel: View {
             .opacity(enabled ? 1 : 0.32)
         }
         .buttonStyle(FocusScaleStyle(cornerRadius: Layout.footerHeight / 2))
+        .disabled(!enabled)
+    }
+
+    // MARK: - Poster Mode
+
+    /// Ink with the fine hatching, and the stripes running across behind the
+    /// header — one flattened layer each.
+    private var posterGround: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                PosterStripeBand()
+                PosterAccentStripes(angle: .degrees(-3), length: geo.size.width * 1.4,
+                                    scale: DeviceClass.current == .tv ? 1 : 0.6)
+                    .offset(x: -geo.size.width * 0.1, y: geo.size.height * 0.13)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    private var posterHeader: some View {
+        let size: CGFloat = DeviceClass.current == .tv ? 72 : (DeviceClass.current == .phone ? 30 : 44)
+        return HStack(alignment: .center, spacing: size * 0.3) {
+            Text("///").font(Display.font(size)).tracking(-size * 0.08).foregroundStyle(Palette.posterTeal)
+            Text("SCENES").font(Display.font(size)).foregroundStyle(.white)
+            if let first = validTimes(forPage: page).first, let last = validTimes(forPage: page).last {
+                Text(first == last ? formatPlayerClock(first, matching: controller.duration)
+                     : "\(formatPlayerClock(first, matching: controller.duration)) → \(formatPlayerClock(last, matching: controller.duration))")
+                    .font(Mono.font(size * 0.3, .bold))
+                    .tracking(2)
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.posterInk)
+                    .padding(.horizontal, size * 0.2)
+                    .padding(.vertical, size * 0.08)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            Spacer(minLength: 0)
+            Button {
+                dismissReason = .close
+                onDismiss()
+            } label: {
+                Text("BACK")
+                    .font(Display.font(size * 0.4))
+                    .tracking(1)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, size * 0.42)
+                    .frame(height: size)
+                    .background(Palette.posterInk, in: Capsule())
+                    .overlay(Capsule().strokeBorder(.white, lineWidth: PosterPlayerSize.rim * 0.8))
+            }
+            .buttonStyle(StickerButtonStyle(cornerRadius: size / 2, lift: 0))
+        }
+    }
+
+    /// A frame as a sticker: white border, the time on a yellow tag beneath,
+    /// alternate tilts. Focus straightens it (the tilt is `posterTilt`).
+    private func posterCell(thumb: Thumb) -> some View {
+        let border: CGFloat = DeviceClass.current == .tv ? 7 : 4
+        return Button {
+            Task { await go(to: thumb.time) }
+        } label: {
+            VStack(alignment: .leading, spacing: border * 1.4) {
+                Rectangle()
+                    .fill(Palette.text(0.06))
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .overlay {
+                        if let image = thumb.image {
+                            Image(uiImage: image).resizable().scaledToFill()
+                        } else {
+                            ProgressView().tint(Palette.text(0.4))
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: Layout.radius - 4, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Layout.radius - 4, style: .continuous)
+                        .strokeBorder(.white, lineWidth: border))
+                Text(formatPlayerClock(thumb.time, matching: controller.duration))
+                    .font(Display.font(DeviceClass.current == .tv ? 30 : 17))
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.posterInk)
+                    .padding(.horizontal, 10)
+                    .background(yellow, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .posterTilt(index: thumb.id, degrees: 1.5)
+        }
+        .buttonStyle(CardFocusStyle(glow: Palette.posterTeal, scale: 1.06))
+        .accessibilityLabel("Jump to \(formatPlayerClock(thumb.time, matching: controller.duration))")
+    }
+
+    /// NEXT VIDEO as the coral card, naming the episode it plays.
+    private func posterNavigationTile(_ edge: Edge) -> some View {
+        let isTV = DeviceClass.current == .tv
+        let item = edge == .next ? controller.nextItem : controller.previousItem
+        let big = item?.posterEpisodeTag ?? (edge == .next ? "NEXT" : "PREV")
+        let title = item?.posterEpisodeParts?.title ?? item?.title ?? ""
+        return Button {
+            Task { await navigate(edge) }
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                Rectangle()
+                    .fill(coral)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .overlay(alignment: .topLeading) {
+                        Text(edge == .next ? "NEXT VIDEO" : "PREVIOUS VIDEO")
+                            .font(Mono.font(isTV ? 20 : 11, .bold)).tracking(3)
+                            .padding(isTV ? 22 : 12)
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(big).font(Display.font(isTV ? 90 : 44))
+                            if !title.isEmpty {
+                                Text(title.uppercased()).font(Display.font(isTV ? 28 : 15)).lineLimit(1)
+                            }
+                        }
+                        .padding(isTV ? 22 : 12)
+                    }
+                    .foregroundStyle(Palette.posterInk)
+                    .clipShape(RoundedRectangle(cornerRadius: Layout.radius - 4, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Layout.radius - 4, style: .continuous)
+                        .strokeBorder(.white, lineWidth: isTV ? 7 : 4))
+                Text("UP NEXT")
+                    .font(Display.font(isTV ? 30 : 17))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .opacity(edge == .next ? 1 : 0)
+            }
+            .rotationEffect(.degrees(2))
+        }
+        .buttonStyle(CardFocusStyle(glow: Palette.posterTeal, scale: 1.06))
+        .accessibilityLabel(edge == .next ? "Play the next video" : "Play the previous video")
+    }
+
+    private func posterFooterButton(label: String, enabled: Bool,
+                                    action: @escaping () -> Void) -> some View {
+        let h = Layout.footerHeight * (DeviceClass.current == .tv ? 1.1 : 0.8)
+        return Button {
+            withAnimation(.easeInOut(duration: 0.25)) { action() }
+        } label: {
+            Text(label)
+                .font(Display.font(h * 0.4))
+                .tracking(1)
+                .foregroundStyle(.white)
+                .padding(.horizontal, h * 0.5)
+                .frame(height: h)
+                .background(Palette.posterInk, in: Capsule())
+                .overlay(Capsule().strokeBorder(.white, lineWidth: PosterPlayerSize.rim * 0.8))
+                .opacity(enabled ? 1 : 0.32)
+        }
+        .buttonStyle(StickerButtonStyle(cornerRadius: h / 2, lift: 0))
         .disabled(!enabled)
     }
 

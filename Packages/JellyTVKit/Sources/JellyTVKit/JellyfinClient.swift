@@ -282,6 +282,22 @@ public struct JellyfinClient: Sendable {
         return response.items
     }
 
+    /// Every episode of a series in one lean request — ids, season, index and
+    /// image tags only. The season wall picks a still per season from it.
+    public func fetchSeriesEpisodeImages(userId: String, seriesId: String) async throws -> [JellyfinAPI.JellyfinItem] {
+        let query = [
+            URLQueryItem(name: "userId", value: userId),
+            URLQueryItem(name: "fields", value: "ImageTags"),
+            URLQueryItem(name: "enableUserData", value: "false"),
+            URLQueryItem(name: "isMissing", value: "false"),
+        ]
+        guard let url = buildURL(path: "/Shows/\(seriesId)/Episodes", query: query) else {
+            throw URLError(.badURL)
+        }
+        let response: JellyfinAPI.ItemsResponse<JellyfinAPI.JellyfinItem> = try await request(url: url)
+        return response.items
+    }
+
     /// The series' next-up episode, per Jellyfin's own watch tracking — the
     /// in-progress episode, else the first unwatched one after the last watched.
     /// `nil` for a show with nothing next (finished, or never started and
@@ -477,6 +493,23 @@ public struct JellyfinClient: Sendable {
 
     public func setFavorite(userId: String, itemId: String) async throws {
         guard let url = buildURL(path: "/Users/\(userId)/FavoriteItems/\(itemId)", query: nil) else {
+            throw JellyfinRequestError.invalidURL
+        }
+        try await requestVoid(url: url, method: .post)
+    }
+
+    /// Asks the server to rescan a library (or any folder) — new files in,
+    /// missing images fetched, nothing already there replaced. Needs an admin
+    /// account; a 403 surfaces as a thrown error the caller turns into words.
+    public func refreshItem(itemId: String) async throws {
+        let query = [
+            URLQueryItem(name: "Recursive", value: "true"),
+            URLQueryItem(name: "MetadataRefreshMode", value: "Default"),
+            URLQueryItem(name: "ImageRefreshMode", value: "Default"),
+            URLQueryItem(name: "ReplaceAllMetadata", value: "false"),
+            URLQueryItem(name: "ReplaceAllImages", value: "false"),
+        ]
+        guard let url = buildURL(path: "/Items/\(itemId)/Refresh", query: query) else {
             throw JellyfinRequestError.invalidURL
         }
         try await requestVoid(url: url, method: .post)

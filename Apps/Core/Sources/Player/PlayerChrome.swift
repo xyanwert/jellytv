@@ -231,13 +231,19 @@ struct PlayerChrome: View {
                     // a scene was bright — and this version leans harder on white
                     // type and thin strokes than the one it replaced, so it needs
                     // them more. Behind everything, and never hit-testable.
-                    legibilityScrims
+                    if theme.isPoster {
+                        // Poster Mode's ground: the picture tinted teal, the
+                        // episode number in scanlines, the stripes — static.
+                        PosterPlayerBackdrop(item: controller.currentItem)
+                    } else {
+                        legibilityScrims
 
-                    sonarMotif
+                        sonarMotif
+                    }
 
                     #if os(iOS)
                     if DeviceClass.current == .phone {
-                        phoneChromeColumn
+                        if theme.isPoster { posterPhoneColumn } else { phoneChromeColumn }
                     } else {
                         standardChromeColumn
                     }
@@ -494,7 +500,9 @@ struct PlayerChrome: View {
                 // circles to read as belonging to the same block, and
                 // far enough from the clock that the clock still reads
                 // as a caption for the transport rather than for them.
-                VStack(spacing: 20) {
+                // Poster's focused play lifts 10% with a halo, so its
+                // opinions keep a little more air above it.
+                VStack(spacing: theme.isPoster ? PosterPlayerSize.opinion * 0.34 : 20) {
                     PlayerOpinionRow(
                         controller: controller, accent: accent,
                         onInteract: interact, focus: $focus
@@ -608,6 +616,62 @@ struct PlayerChrome: View {
             .padding(.bottom, 18)
         }
     }
+
+    /// **Phone in Poster Mode** (the design's iPhone artboard): the one
+    /// column the TV and iPad have, fitted to a landscape phone. It is too
+    /// short for the opinions to sit above the transport, so they take the
+    /// left and right edges at its height — thumbs-down under the left thumb,
+    /// the heart under the right — and PREV · SCENES · NEXT run along the foot.
+    #if os(iOS)
+    private var posterPhoneColumn: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                PlayerTopBar(
+                    item: controller.currentItem,
+                    tags: controller.currentTags,
+                    accent: accent,
+                    night: night,
+                    onBack: onClose,
+                    onToggleNight: toggleNight,
+                    onEditTags: appState.canEditItemMetadata == false ? nil : openTags,
+                    focus: $focus
+                )
+                Spacer(minLength: 0)
+                VStack(spacing: 8) {
+                    PlayerTransportRow(controller: controller, accent: accent,
+                                       onInteract: interact, focus: $focus)
+                    PlayerClockReadout(currentTime: controller.displayTime,
+                                       duration: controller.duration)
+                }
+                Spacer(minLength: 0)
+                PlayerFootActions(controller: controller, accent: accent,
+                                  onInteract: interact, onOpenScenes: openScenes, focus: $focus)
+            }
+            .padding(.top, 12)
+            .padding(.bottom, 12)
+            .padding(.horizontal, 20)
+
+            let opinions = PlayerOpinionRow(controller: controller, accent: accent,
+                                            onInteract: interact, focus: $focus)
+            HStack {
+                opinions.posterDislike
+                Spacer(minLength: 0)
+                opinions.posterFavorite
+            }
+            .padding(.horizontal, 30)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if controller.activeSegment == nil, let parts = controller.currentItem?.posterEpisodeParts,
+               !parts.title.isEmpty {
+                PosterStickerTag(name: parts.title, sub: parts.code, paper: Color(hex: "#F2E14C"), size: 13)
+                    .frame(maxWidth: 150, alignment: .trailing)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 16)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+    #endif
 
     /// Full-bleed invisible tap target, so an input while the chrome is
     /// hidden reveals it again instead of doing nothing (nothing else is

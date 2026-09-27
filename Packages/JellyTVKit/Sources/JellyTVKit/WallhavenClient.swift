@@ -33,14 +33,30 @@ public struct WallhavenClient: Sendable {
         public var purity: String
         public var atLeast: String
         public var ratios: String
+        /// `random` (the default: repeat visits differ) or `favorites`.
+        public var sorting: String
 
         public init(query: String, categories: String = "100", purity: String = "100",
-                    atLeast: String = "1920x1080", ratios: String = "16x9,16x10,21x9") {
+                    atLeast: String = "1920x1080", ratios: String = "16x9,16x10,21x9",
+                    sorting: String = "random") {
             self.query = query
             self.categories = categories
             self.purity = purity
             self.atLeast = atLeast
             self.ratios = ratios
+            self.sorting = sorting
+        }
+
+        /// Art for one anime title, for the Anime library's mascots: the
+        /// anime category only, **SFW only** (the bitmask is the whole guard),
+        /// the community's favourites first — the best-drawn, and the likeliest
+        /// to be the character alone rather than a crowded scene.
+        ///
+        /// `sketchy` raises the ceiling to Wallhaven's middle tier for the
+        /// Late Night (adult anime) screen — suggestive, never explicit; the
+        /// NSFW bit stays off for the reason on `Filters`.
+        public static func animeArt(title: String, sketchy: Bool = false) -> Filters {
+            Filters(query: title, categories: "010", purity: sketchy ? "110" : "100", sorting: "favorites")
         }
 
         /// Landscape wallpapers loosely about home video. Strictly SFW: the
@@ -102,7 +118,7 @@ public struct WallhavenClient: Sendable {
             URLQueryItem(name: "ratios", value: filters.ratios),
             // Wallhaven reshuffles server-side per request, so repeat visits
             // don't all land on the same top-24.
-            URLQueryItem(name: "sorting", value: "random"),
+            URLQueryItem(name: "sorting", value: filters.sorting),
         ]
         if let apiKey, !apiKey.isEmpty {
             query.append(URLQueryItem(name: "apikey", value: apiKey))

@@ -74,6 +74,8 @@ struct NightLockOverlay: View {
 
     private static let badgeSeconds: Double = 4
 
+    @EnvironmentObject private var theme: Theme
+
     var body: some View {
         ZStack {
             catcher
@@ -81,6 +83,11 @@ struct NightLockOverlay: View {
                 badgeControl
                 dislikeButton
             }
+            // Poster Mode sets the pair along the foot, where the design
+            // puts it — out of the picture's middle in a dark room.
+            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                   alignment: theme.isPoster ? .bottom : .center)
+            .padding(.bottom, theme.isPoster ? PosterPlayerSize.footHeight * 0.45 : 0)
             .opacity(badgeShown ? 1 : 0)
             .animation(.easeInOut(duration: 0.45), value: badgeShown)
         }
@@ -148,7 +155,45 @@ struct NightLockOverlay: View {
         }
     }
 
+    @ViewBuilder
     private var badge: some View {
+        if theme.isPoster { posterBadge } else { classicBadge }
+    }
+
+    /// Poster Mode: an amber pill — the moon inside a ring that fills as
+    /// the hold goes, HOLD TO UNLOCK, and the sleep timer beneath it.
+    private var posterBadge: some View {
+        let h = PosterPlayerSize.footHeight * 0.75
+        return HStack(spacing: h * 0.22) {
+            ZStack {
+                Circle().stroke(NightPalette.amberBright.opacity(0.25), lineWidth: h * 0.07)
+                Circle().trim(from: 0, to: max(0.02, holdProgress))
+                    .stroke(NightPalette.amberBright, style: StrokeStyle(lineWidth: h * 0.07, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: "moon.zzz.fill")
+                    .font(.system(size: h * 0.3, weight: .bold))
+            }
+            .frame(width: h * 0.72, height: h * 0.72)
+            VStack(alignment: .leading, spacing: h * 0.06) {
+                Text("HOLD TO UNLOCK")
+                    .font(Display.font(h * 0.34))
+                    .tracking(1)
+                Text("SLEEP IN \(remainingLabel)")
+                    .font(Mono.font(h * 0.16, .bold))
+                    .tracking(2)
+                    .monospacedDigit()
+                    .opacity(0.7)
+            }
+        }
+        .foregroundStyle(NightPalette.amberBright)
+        .padding(.leading, h * 0.14)
+        .padding(.trailing, h * 0.4)
+        .frame(height: h)
+        .background(Color(hex: "#0B0806").opacity(0.85), in: Capsule())
+        .rotationEffect(.degrees(-2))
+    }
+
+    private var classicBadge: some View {
         VStack(spacing: 14) {
             Image(systemName: "moon.zzz.fill")
                 .font(.system(size: 30, weight: .semibold))
@@ -188,6 +233,37 @@ struct NightLockOverlay: View {
             guard seen else { return }
             onDislike()
         } label: {
+            if theme.isPoster {
+                posterDislikeLabel
+            } else {
+                classicDislikeLabel
+            }
+        }
+        .buttonStyle(NightControlStyle(cornerRadius: 22))
+        #if os(tvOS)
+        .focused($focused, equals: .dislike)
+        #endif
+        .accessibilityLabel("Not for me — skip to the next")
+    }
+
+    private var posterDislikeLabel: some View {
+        let h = PosterPlayerSize.footHeight * 0.62
+        return HStack(spacing: h * 0.2) {
+            Image(systemName: "hand.thumbsdown")
+                .font(.system(size: h * 0.36, weight: .bold))
+            Text("NOT FOR ME")
+                .font(Display.font(h * 0.36))
+                .tracking(1)
+        }
+        .foregroundStyle(NightPalette.amberBright)
+        .padding(.horizontal, h * 0.4)
+        .frame(height: h)
+        .background(Color(hex: "#0B0806").opacity(0.6), in: Capsule())
+        .overlay(Capsule().strokeBorder(NightPalette.amberBright.opacity(0.8), lineWidth: max(2, PosterPlayerSize.rim * 0.6)))
+        .rotationEffect(.degrees(2))
+    }
+
+    private var classicDislikeLabel: some View {
             VStack(spacing: 12) {
                 Image(systemName: "hand.thumbsdown.fill")
                     .font(.system(size: 30, weight: .semibold))
@@ -203,12 +279,6 @@ struct NightLockOverlay: View {
             .padding(.vertical, 22)
             .background(Palette.page.opacity(0.72), in: shape)
             .overlay { NeonTube(shape: shape, accent: NightPalette.amber, intensity: 0.35) }
-        }
-        .buttonStyle(NightControlStyle(cornerRadius: 22))
-        #if os(tvOS)
-        .focused($focused, equals: .dislike)
-        #endif
-        .accessibilityLabel("Not for me — skip to the next")
     }
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 22, style: .continuous) }

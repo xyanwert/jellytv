@@ -589,6 +589,40 @@ must `fixedSize()` and be clipped, never `minimumScaleFactor`/ellipsis. A row he
 competes with its rule for width — the title takes `fixedSize` + `layoutPriority`.
 Resting tilt is seeded from the item id's scalars, not `hashValue` (reseeded per launch).
 
+## Poster Mode's player chrome and the anime skins
+
+**The player chrome in Poster Mode is the same Grandma menu in sticker clothes** (design canvas
+"Player Chrome — Poster Mode"; `Player/PosterPlayerKit.swift`). Every chrome component branches
+its *drawing* on `theme.isPoster` and keeps its fields, actions and focus: white-rimmed stickers
+with a hard ink offset shadow (`StickerButtonStyle` — focus lifts the sticker with a teal halo
+instead of the LED ring), a teal Play disc, PREV/NEXT naming the episode they go to
+(`PlayerController.nextItem`/`previousItem`, display only), the clock with LEFT and ENDS chips,
+and `PosterPlayerBackdrop` (teal colour blend, the episode number in scanlines, the stripes —
+static). The phone keeps the one column; its opinions take the left and right edges.
+`JT_SHOW_PLAYER=paused` / `RT_SHOW_PLAYER=paused` holds the chrome up for a screenshot — the
+two-second idle hide is faster than the iPad and TV simulators can capture.
+
+**The Anime and Late Night libraries wear the Zenless-Zone-Zero skin in Poster Mode**
+(`MetaLibrary/AnimeSkin.swift`, canvas "Anime Library Skin"): coral (Anime) or night violet
+with an 18+ sticker (Late Night, `AnimeSkinVariant`), a die-cut アニメ / 深夜アニメ lockup, the
+selected title's key art pinned up on a fixed-height stage, the ink shelf below. Three states:
+the library; the **title focus** (tvOS — two seconds on a title whose own character cuts out
+cleanly: its colour takes the ground and its character the stage); and the **empty shelf**,
+whose one button rescans the libraries (`AppState.scanLibraries`, admin only).
+
+**Cut-outs, best first** (`AppState.titleCutout`): the YSOJ server's prepared ones when
+`capabilities.features.cutouts` says so (`GET /ysoj/cutouts/{itemId}`, `YsojAPI.bestCutout`:
+Fanart.tv character art > clear art > a segmented backdrop, nothing under 0.55 — tested), else
+Vision on the device. `StickerCut` bakes the white die-cut border once (Core Image morphology),
+never per frame. **Mascots** (`AppState.animeMascots`) are Wallhaven art *of the titles on the
+shelf*, anime category, SFW — the Late Night screen asks Wallhaven's sketchy tier, never NSFW —
+cut on the device. **Decoration never covers anything reachable**: on TV one mascot stands in
+the stage band and one sits on the shelf's edge (the first cut covered the search field and the
+last posters); on iPad and iPhone they ride on the stage, right of the key art card and partly off the
+edge. AniDB synopses carry `<br>`; `AnimeText.plain` strips markup. The simulators can't cut:
+`JT_ANIME_CUTOUT=<png>` and `JT_ANIME_MASCOTS=<png>,<png>` (or `RT_`, DEBUG only) feed pre-cut
+files from the Mac.
+
 ## Launch splash — the mark draws itself
 
 **A launch that restores a saved session opens on `LaunchSplash`**

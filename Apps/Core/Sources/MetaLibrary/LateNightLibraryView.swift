@@ -58,6 +58,11 @@ struct LateNightLibraryView: View {
     /// screen deliberately keeps the same image (the guard below), so tapping
     /// a filter chip doesn't reshuffle the wallpaper under you.
     @State private var backdropItemId: String?
+    /// Poster Mode: the night variant of the anime skin (`AnimeSkin.swift`) —
+    /// its mascots, and the title focus. See `AnimeLibraryView`.
+    @State private var mascots: [UIImage] = []
+    @State private var focusStageItemId: String?
+    @State private var focusStageCutout: UIImage?
 
     private var allItems: [MediaItem] { items }
 
@@ -157,9 +162,16 @@ struct LateNightLibraryView: View {
 
     var body: some View {
         ZStack {
-            background
-            if let backdropItem {
-                SelectedBackdrop(item: backdropItem, blur: backdropBlur)
+            if theme.isPoster {
+                AnimeGround(variant: .lateNight,
+                            color: AnimeSkinLayout.focusGround(.lateNight, itemId: focusStageItemId),
+                            shelfTop: AnimeSkinLayout.shelfTop)
+                    .animation(.easeInOut(duration: 0.4), value: focusStageItemId)
+            } else {
+                background
+                if let backdropItem {
+                    SelectedBackdrop(item: backdropItem, blur: backdropBlur)
+                }
             }
             HStack(spacing: 0) {
                 NavRail(destination: .lateNight, isLibrariesOpen: isLibrariesOpen,
@@ -170,15 +182,30 @@ struct LateNightLibraryView: View {
                         controlBar.libraryContentMargin()
                         // tvOS only — see `MoviesLibraryView`'s identical gate.
                         #if os(tvOS)
-                        if let selectedItem, let dossierShow {
+                        if theme.isPoster {
+                            if !(hasLoaded && allItems.isEmpty) { posterStage.libraryContentMargin() }
+                        } else if let selectedItem, let dossierShow {
                             LibraryHero(content: .show(dossierShow, item: selectedItem, isLoading: isDossierLoading),
                                         accent: Self.accent, castLabel: "Voice cast")
                         }
                         #endif
                         if !hasLoaded {
                             loadingGrid
+                        } else if theme.isPoster && allItems.isEmpty {
+                            AnimeEmptyShelf(variant: .lateNight, mascot: mascots.first,
+                                            onScan: { await appState.scanLibraries(where: { $0 == .hentai }) },
+                                            onBack: { onSelectRail(.home) })
+                                .libraryContentMargin()
                         } else {
                             ScrollView(.vertical, showsIndicators: false) {
+                                #if os(iOS)
+                                if theme.isPoster {
+                                    posterStage
+                                        .libraryContentMargin()
+                                        .padding(.top, 8)
+                                        .padding(.bottom, AnimeSize.pick(tv: 0, pad: 40, phone: 30))
+                                }
+                                #endif
                                 postersSection
                                     .libraryContentMargin()
                                     .padding(.top, 6)
@@ -199,6 +226,10 @@ struct LateNightLibraryView: View {
             // rail stays focus-reachable underneath it.
             .disabled(presentedShow != nil)
             .pageBehind(presentedShow != nil)
+
+            if theme.isPoster && DeviceClass.current == .tv && presentedShow == nil && !allItems.isEmpty {
+                AnimeMascotLayer(mascots: mascots, leadAside: focusStageItemId != nil)
+            }
 
             if let presentedShow {
                 ShowView(show: presentedShow, onDismiss: { self.presentedShow = nil })
@@ -236,11 +267,50 @@ struct LateNightLibraryView: View {
         // with nothing on screen to receive them.
         #if os(tvOS)
         .task(id: selectedItem?.id) { await loadSelectedDetail() }
+        .task(id: selectedItem?.id) { await armTitleFocus() }
         #endif
+        .task(id: hasLoaded) {
+            guard theme.isPoster, hasLoaded, mascots.isEmpty else { return }
+            let found = await appState.animeMascots(titles: items.map(\.title), sketchy: true)
+            withAnimation(.easeOut(duration: 0.4)) { mascots = found }
+        }
         #if os(tvOS)
         .onExitCommand(perform: exitAction)
         #endif
     }
+
+    // MARK: - Poster Mode (the night variant of the anime skin)
+
+    private var posterStage: some View {
+        AnimeSkinStage(variant: .lateNight, item: posterStageItem, count: allItems.count,
+                       focusItem: focusStageItemId.flatMap { id in allItems.first { $0.id == id } },
+                       focusCutout: focusStageCutout, mascots: mascots)
+    }
+
+    private var posterStageItem: MediaItem? {
+        #if os(tvOS)
+        selectedItem ?? filtered.first
+        #else
+        allItems.first { $0.id == backdropItemId } ?? filtered.first
+        #endif
+    }
+
+    #if os(tvOS)
+    /// See `AnimeLibraryView.armTitleFocus`.
+    private func armTitleFocus() async {
+        if focusStageItemId != nil {
+            withAnimation(.easeInOut(duration: 0.3)) { focusStageItemId = nil; focusStageCutout = nil }
+        }
+        guard theme.isPoster, let item = selectedItem else { return }
+        try? await Task.sleep(for: .seconds(2))
+        guard !Task.isCancelled, let cutout = await appState.titleCutout(for: item),
+              !Task.isCancelled, selectedItem?.id == item.id else { return }
+        withAnimation(.easeInOut(duration: 0.35)) {
+            focusStageCutout = cutout
+            focusStageItemId = item.id
+        }
+    }
+    #endif
 
     private var dossierShow: Show? {
         guard let item = selectedItem else { return nil }
@@ -265,7 +335,14 @@ struct LateNightLibraryView: View {
         LibraryHeaderLayout {
             Group {
                 if theme.isPoster {
-                    PosterLibraryTitle(title: "Late Night", shown: filtered.count, total: allItems.count, badgeColor: Palette.posterBlush, isAdult: true)
+                    // The die-cut 深夜アニメ lockup (with its 18+) is this
+                    // screen's title; the header keeps only where you are.
+                    Text("LIBRARIES / LATE NIGHT · \(LibraryChrome.countLabel(shown: filtered.count, total: allItems.count, noun: "titles").uppercased())")
+                        .font(Mono.font(DeviceClass.current == .tv ? 20 : 13, .bold))
+                        .tracking(2)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         #if os(iOS)

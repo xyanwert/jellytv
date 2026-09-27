@@ -26,6 +26,8 @@ import JellyTVKit
 struct PlayerIdentityMark: View {
     let item: PlayableItem?
 
+    @EnvironmentObject private var theme: Theme
+
     /// Narrow on purpose — see the note above about the foot row. iPad has
     /// roughly 280pt of clear space to the right of that row at its widest;
     /// tvOS has twice as much.
@@ -44,7 +46,7 @@ struct PlayerIdentityMark: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
             content
-            subtitle
+            if theme.isPoster { posterSticker } else { subtitle }
         }
         .frame(maxWidth: Self.maxWidth, alignment: .trailing)
         .allowsHitTesting(false)
@@ -96,7 +98,34 @@ struct PlayerIdentityMark: View {
         }
     }
 
+    /// Poster Mode: the episode's own title on yellow, "S28 · E3" on the ink
+    /// bar under it — the name tag the show page slaps on its hero.
+    @ViewBuilder
+    private var posterSticker: some View {
+        if let parts = item?.posterEpisodeParts {
+            PosterStickerTag(name: parts.title.isEmpty ? parts.code : parts.title,
+                             sub: parts.title.isEmpty ? nil : parts.code,
+                             paper: Color(hex: "#F2E14C"),
+                             size: Self.subtitleSize * 1.3)
+        }
+    }
+
+    @ViewBuilder
     private var titleText: some View {
+        if theme.isPoster {
+            Text((item?.title ?? "").uppercased())
+                .font(Display.font(Self.titleSize * 1.7))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+                .shadow(color: Palette.posterInk, radius: 0, x: 4, y: 4)
+        } else {
+            classicTitleText
+        }
+    }
+
+    private var classicTitleText: some View {
         Text(item?.title ?? "")
             .font(Typography.font(Self.titleSize, .black))
             .foregroundStyle(Palette.text(0.9))

@@ -24,7 +24,61 @@ struct PlayerGlance: View {
     let controller: PlayerController
     let accent: Color
 
+    @EnvironmentObject private var theme: Theme
+
     var body: some View {
+        if theme.isPoster { poster } else { classic }
+    }
+
+    /// Poster Mode: one sticker at the top centre — the glyph in a teal disc,
+    /// the clock beside it (or LIKED) — tilted, with the hard ink shadow.
+    private var poster: some View {
+        HStack(spacing: 18) {
+            switch kind {
+            case .favorite:
+                let on = controller.isFavorite
+                Image(systemName: on ? "heart.fill" : "heart")
+                    .font(.system(size: 36, weight: .bold))
+                    .foregroundStyle(on ? Color(hex: "#F0525F") : Palette.posterInk)
+                    .frame(width: 84, height: 84)
+                    .background(.white, in: Circle())
+                Text(on ? "LIKED" : "LIKE REMOVED")
+                    .font(Display.font(52))
+            case .seek(let delta):
+                VStack(spacing: 0) {
+                    Image(systemName: delta < 0 ? "arrow.counterclockwise" : "arrow.clockwise")
+                        .font(.system(size: 26, weight: .heavy))
+                    Text(delta < 0 ? "-30" : "+30")
+                        .font(Display.font(24))
+                }
+                .foregroundStyle(Palette.posterInk)
+                .frame(width: 84, height: 84)
+                .background(Palette.posterTeal, in: Circle())
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(formatPlayerClock(controller.displayTime, matching: controller.duration))
+                        .font(Display.font(64))
+                    Text("/ \(formatPlayerClock(controller.duration, matching: controller.duration))")
+                        .font(Display.font(34))
+                        .foregroundStyle(Palette.text(0.5))
+                }
+                .monospacedDigit()
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.leading, 12)
+        .padding(.trailing, 32)
+        .padding(.vertical, 12)
+        .background(Palette.posterInk, in: Capsule())
+        .overlay(Capsule().strokeBorder(.white, lineWidth: 5))
+        .compositingGroup()
+        .shadow(color: Palette.posterInk.opacity(0.6), radius: 0, x: 8, y: 8)
+        .rotationEffect(.degrees(-2))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.top, 70)
+        .allowsHitTesting(false)
+    }
+
+    private var classic: some View {
         VStack(spacing: 18) {
             switch kind {
             case .favorite:

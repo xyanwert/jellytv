@@ -30,11 +30,23 @@ struct PlayerTopBar: View {
     var onEditTags: (() -> Void)?
     @FocusState.Binding var focus: PlayerFocusField?
 
+    @EnvironmentObject private var theme: Theme
+
     var body: some View {
         HStack(alignment: .top, spacing: 40) {
-            VStack(alignment: .leading, spacing: 20) {
-                backButton
-                tagRow
+            Group {
+                if theme.isPoster {
+                    // One line: the disc, then the stickers beside it.
+                    HStack(spacing: PosterPlayerSize.back * 0.28) {
+                        posterBackButton
+                        tagRow
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 20) {
+                        backButton
+                        tagRow
+                    }
+                }
             }
             // Takes whatever the cluster on the right doesn't. That is what
             // gives `ViewThatFits` below a truthful width to measure against
@@ -54,7 +66,7 @@ struct PlayerTopBar: View {
                     #if os(iOS)
                     AirPlayButton(accent: accent)
                     #endif
-                    nightButton
+                    if theme.isPoster { posterNightButton } else { nightButton }
                 }
                 if let nightCaption {
                     Text(nightCaption)
@@ -82,7 +94,7 @@ struct PlayerTopBar: View {
             Button(action: onEditTags) {
                 chips
             }
-            .buttonStyle(FocusScaleStyle(cornerRadius: 24))
+            .buttonStyle(tagButtonStyle)
             .remoteFocus($focus, equals: .tags)
             .accessibilityLabel(tags.isEmpty ? "Add tags"
                                              : "Tags: \(tags.joined(separator: ", ")). Edit.")
@@ -111,7 +123,57 @@ struct PlayerTopBar: View {
     /// Descending, because `ViewThatFits` takes the first that fits.
     private static let chipCounts = [8, 7, 6, 5, 4, 3, 2, 1, 0]
 
+    private var tagButtonStyle: AnyButtonStyle {
+        theme.isPoster ? AnyButtonStyle(StickerButtonStyle(cornerRadius: 10, lift: 0, focusScale: 1.06))
+                       : AnyButtonStyle(FocusScaleStyle(cornerRadius: 24))
+    }
+
+    @ViewBuilder
     private func chipRow(showing count: Int) -> some View {
+        if theme.isPoster { posterChipRow(showing: count) } else { classicChipRow(showing: count) }
+    }
+
+    /// Stickers: the tag in the display face on white or yellow, each tilted
+    /// its own way; the count and the way to add one dashed.
+    private func posterChipRow(showing count: Int) -> some View {
+        HStack(spacing: PosterPlayerSize.tag * 0.45) {
+            if tags.isEmpty {
+                posterDashed("+ ADD TAGS")
+            } else {
+                ForEach(Array(tags.prefix(count).enumerated()), id: \.element) { index, tag in
+                    Text(tag.uppercased())
+                        .font(Display.font(PosterPlayerSize.tag))
+                        .tracking(1)
+                        .foregroundStyle(Palette.posterInk)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, PosterPlayerSize.tag * 0.6)
+                        .padding(.vertical, PosterPlayerSize.tag * 0.22)
+                        .background(index % 2 == 0 ? Color.white : Color(hex: "#F2E14C"),
+                                    in: RoundedRectangle(cornerRadius: PosterPlayerSize.tag * 0.3, style: .continuous))
+                        .rotationEffect(.degrees(index % 2 == 0 ? -2 : 1.5))
+                }
+                if tags.count > count { posterDashed("+\(tags.count - count)") }
+                if onEditTags != nil { posterDashed("+ TAG") }
+            }
+        }
+    }
+
+    private func posterDashed(_ text: String) -> some View {
+        Text(text)
+            .font(Display.font(PosterPlayerSize.tag))
+            .tracking(1)
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, PosterPlayerSize.tag * 0.6)
+            .padding(.vertical, PosterPlayerSize.tag * 0.15)
+            .background(Palette.posterInk.opacity(0.4), in: RoundedRectangle(cornerRadius: PosterPlayerSize.tag * 0.3, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: PosterPlayerSize.tag * 0.3, style: .continuous)
+                .strokeBorder(.white.opacity(0.85), style: StrokeStyle(lineWidth: max(2, PosterPlayerSize.rim * 0.5), dash: [6, 4])))
+    }
+
+    private func classicChipRow(showing count: Int) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "tag")
                 .font(.system(size: 18, weight: .semibold))
@@ -173,6 +235,54 @@ struct PlayerTopBar: View {
         }
         .buttonStyle(FocusScaleStyle(cornerRadius: 30))
         .remoteFocus($focus, equals: .back)
+    }
+
+    // MARK: - Poster Mode controls
+
+    /// BACK as the white disc: the chevron alone, the one leaving gesture
+    /// everyone knows, in the chrome's biggest corner target.
+    private var posterBackButton: some View {
+        let d = PosterPlayerSize.back
+        return Button(action: onBack) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: d * 0.38, weight: .black))
+                .foregroundStyle(Palette.posterInk)
+                .frame(width: d, height: d)
+                .background(.white, in: Circle())
+        }
+        .buttonStyle(StickerButtonStyle(cornerRadius: d / 2))
+        .remoteFocus($focus, equals: .back)
+        .accessibilityLabel("Back")
+    }
+
+    /// NIGHT in a white-rimmed pill; on, it goes amber and carries the sleep
+    /// timer's countdown, like the Classic toggle. The phone keeps the moon
+    /// alone.
+    private var posterNightButton: some View {
+        let on = night.isOn
+        let h = PosterPlayerSize.control
+        let isPhone = DeviceClass.current == .phone
+        return Button(action: onToggleNight) {
+            HStack(spacing: h * 0.18) {
+                Image(systemName: on ? "moon.zzz.fill" : "moon")
+                    .font(.system(size: h * 0.4, weight: .bold))
+                if !isPhone || on {
+                    Text(on ? nightChip : "NIGHT")
+                        .font(Display.font(h * 0.42))
+                        .tracking(1)
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(on ? NightPalette.ink : .white)
+            .padding(.horizontal, isPhone && !on ? 0 : h * 0.36)
+            .frame(minWidth: h, minHeight: h)
+            .background(on ? NightPalette.amber : Palette.posterInk.opacity(0.45), in: Capsule())
+            .overlay(Capsule().strokeBorder(on ? NightPalette.amberBright : .white,
+                                            lineWidth: PosterPlayerSize.rim * 0.7))
+        }
+        .buttonStyle(StickerButtonStyle(cornerRadius: h / 2, lift: 0))
+        .remoteFocus($focus, equals: .night)
+        .accessibilityLabel("Night mode — \(nightChip)")
     }
 
     /// The line under the toggle — only ever says something Night mode is

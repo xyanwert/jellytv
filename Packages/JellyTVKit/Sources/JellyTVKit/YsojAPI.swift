@@ -43,7 +43,17 @@ public enum YsojAPI {
             public let libraryOverrides: LibraryOverrides?
             /// Pairing a phone to this server's TVs. Absent on servers predating it.
             public let remote: Remote?
+            /// Character cut-outs the server prepares per title (`fetchCutouts`).
+            /// Absent on servers predating it, and the app then cuts on the device.
+            public let cutouts: Cutouts?
         }
+
+        public struct Cutouts: Decodable, Sendable, Equatable {
+            public let enabled: Bool
+        }
+
+        /// Whether `GET /ysoj/cutouts/{itemId}` is worth asking.
+        public var offersCutouts: Bool { features.cutouts?.enabled ?? false }
 
         public struct Discover: Decodable, Sendable, Equatable {
             public let enabled: Bool
@@ -522,5 +532,52 @@ public enum YsojAPI {
 
     struct ConfirmRequest: Encodable, Sendable {
         let planId: String
+    }
+
+    // MARK: - Cut-outs
+
+    /// One transparent PNG of a title's characters, prepared on the server —
+    /// Fanart.tv's own character art where it exists, else the title's
+    /// backdrop cut by an anime-trained segmentation model.
+    public struct Cutout: Decodable, Sendable, Equatable {
+        /// Server-relative (`/ysoj/cutouts/{itemId}/0.png`), served without a
+        /// token like Jellyfin's own images.
+        public let url: String
+        /// `characterart`, `clearart` or `segmented`.
+        public let source: String
+        /// 0…1: the server's own judgement of how clean the cut is.
+        public let score: Double
+        public let width: Int?
+        public let height: Int?
+        /// The character's name when the server knows it (character art is
+        /// filed per character; a segmented cut has none).
+        public let character: String?
+
+        public init(url: String, source: String, score: Double, width: Int? = nil,
+                    height: Int? = nil, character: String? = nil) {
+            self.url = url
+            self.source = source
+            self.score = score
+            self.width = width
+            self.height = height
+            self.character = character
+        }
+    }
+
+    public struct CutoutList: Decodable, Sendable {
+        public let itemId: String
+        public let cutouts: [Cutout]
+    }
+
+    /// Which cut-out a title's page shows, if any: official character art
+    /// first (drawn transparent, never a guess), then the cleanest segmented
+    /// cut — and none below `minimumScore`, because a ragged cut-out on the
+    /// biggest thing on screen is worse than the plain layout it replaces.
+    public static func bestCutout(_ cutouts: [Cutout], minimumScore: Double = 0.55) -> Cutout? {
+        let usable = cutouts.filter { $0.score >= minimumScore }
+        func rank(_ c: Cutout) -> Int { c.source == "characterart" ? 0 : (c.source == "clearart" ? 1 : 2) }
+        return usable.min { a, b in
+            rank(a) != rank(b) ? rank(a) < rank(b) : a.score > b.score
+        }
     }
 }

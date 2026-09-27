@@ -28,6 +28,8 @@ struct PlayerSkipButton: View {
     let onSkip: () -> Void
     @FocusState.Binding var focus: PlayerFocusField?
 
+    @EnvironmentObject private var theme: Theme
+
     private var isPhone: Bool {
         #if os(iOS)
         DeviceClass.current == .phone
@@ -84,13 +86,49 @@ struct PlayerSkipButton: View {
     /// braces. Keeping it a `Button` is also what keeps it a button to
     /// VoiceOver, which `.onTapGesture` would quietly cost.
     var body: some View {
-        Button(action: onSkip) { label.contentShape(shape) }
-        #if os(tvOS)
-            .buttonStyle(FocusScaleStyle(cornerRadius: radius))
-        #else
-            .buttonStyle(.plain)
-        #endif
-            .remoteFocus($focus, equals: .skipSegment)
-            .transition(.opacity.combined(with: .move(edge: .trailing)))
+        if theme.isPoster {
+            Button(action: onSkip) { posterLabel.contentShape(Capsule()) }
+                .buttonStyle(StickerButtonStyle(cornerRadius: posterHeight / 2, lift: PosterPlayerSize.lift * 1.6,
+                                                focusScale: 1.08))
+                .remoteFocus($focus, equals: .skipSegment)
+                .transition(.posterSlap)
+        } else {
+            Button(action: onSkip) { label.contentShape(shape) }
+            #if os(tvOS)
+                .buttonStyle(FocusScaleStyle(cornerRadius: radius))
+            #else
+                .buttonStyle(.plain)
+            #endif
+                .remoteFocus($focus, equals: .skipSegment)
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
+        }
+    }
+
+    // MARK: - Poster Mode
+
+    private var posterHeight: CGFloat { DeviceClass.current == .tv ? 118 : (isPhone ? 52 : 72) }
+
+    /// The white arrow pill: SKIP INTRO in the display face, the ink disc
+    /// with the skip glyph at its end. It arrives with the sticker slap —
+    /// one small layer, and the thing on screen that most needs noticing.
+    private var posterLabel: some View {
+        let h = posterHeight
+        return HStack(spacing: h * 0.26) {
+            Text(segment.kind.actionLabel.uppercased())
+                .font(Display.font(h * 0.46))
+                .tracking(1)
+                .lineLimit(1)
+                .fixedSize()
+            Image(systemName: "forward.end.fill")
+                .font(.system(size: h * 0.3, weight: .black))
+                .foregroundStyle(.white)
+                .frame(width: h * 0.75, height: h * 0.75)
+                .background(Palette.posterInk, in: Circle())
+        }
+        .foregroundStyle(Palette.posterInk)
+        .padding(.leading, h * 0.38)
+        .padding(.trailing, h * 0.125)
+        .frame(height: h)
+        .background(.white, in: Capsule())
     }
 }
