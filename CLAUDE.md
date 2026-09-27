@@ -10,6 +10,19 @@ Screens"* (screen ids like `3a` Home, `4a` Movies) — read it via the `/design-
 (see Verification below). When something feels off, iterate against a real screenshot, not by
 reasoning about the code alone.
 
+**Nothing moves because something loaded. (A rule, not a preference.)** A screen's layout is
+decided on its first frame and data arriving only *fills* it: every text line, chip row, logo,
+synopsis and readout gets a fixed slot (`.frame(height:)`, a reserved line, `Color.clear` while an
+image loads) and is shown or hidden with `.opacity`, never inserted with `if`. It matters most in
+bottom-aligned heroes, where one late line pushes everything above it up. Chip rows that fill in
+as a detail lands carry `.transaction { $0.animation = nil }` so an ambient animation cannot slide
+them. Selection changes (Left/Right on a season, a focus move) keep the same geometry too — a
+selected item rises by `.offset`, never by a taller frame. Cases fixed on 2026-09-27 and the
+pattern to copy: the show page's hero slots and its key-visual lift (applied only in the page's
+first 0.35s, otherwise remembered for next visit — `ShowView.rememberLift`), the season strip,
+`LibraryHero.metaRow`, the movie and show chip rows. Before shipping any screen, open it cold
+and watch for a shift; if something moves, it needs a slot.
+
 **Reuse the design system — never hardcode.**
 - Colors: `Palette` (`Palette.text(_:)` opacity tiers, `Color(hex:)`, `Color(OKLCH:)`). Primary
   accent is `theme.accent`; `theme.secondaryAccent` is its complement (`Color.complementary`,
@@ -549,7 +562,14 @@ the shelf lands on it (`defaultFocus` + `scrollTo`) and it wears an UP NEXT stic
 Specials last. tvOS: the *whole bar* (~1300pt) is one focusable control — Left/Right step seasons
 (`onMoveCommand`), Select opens the poster wall of every season; the narrow dial alone, inside
 the header row's own `.focusSection()`, could not be reached from above (two stacked sections).
-Touch: ‹ › step, drag along the ribbon scrubs, tap the number for the wall (a sheet).
+Touch: ‹ › step, drag along the ribbon scrubs, tap the number for the wall (a sheet). In Poster Mode on the TV the bar is
+`PosterSeasonStrip`: no plate — a white SEASON sticker hung off the band's teal stripe, a fixed
+readout column (UP NEXT shown/hidden, never inserted), and the run as a tape of tabs filled teal
+to what has been watched, the selected tab a raised white one. A boxed grey plate read as an
+afterthought, and an UP NEXT tag that came and went resized it and jumped the episode shelf on
+every Left/Right. The iPad's episode drawer wears the same strip stacked for touch (`PosterSeasonStrip`
+with `onSelect`: the sticker opens the wall, ‹ › step, tabs tap and scrub); the iPhone keeps its
+own compact SEASON chip.
 **Driving the tvOS simulator: the first System Events key after a launch is swallowed** (the
 window taking focus) — send a throwaway key first, or a "focus can't get there" finding is the
 harness, not the app.
@@ -589,6 +609,21 @@ must `fixedSize()` and be clipped, never `minimumScaleFactor`/ellipsis. A row he
 competes with its rule for width — the title takes `fixedSize` + `layoutPriority`.
 Resting tilt is seeded from the item id's scalars, not `hashValue` (reseeded per launch).
 
+**Search in Poster Mode is the "night paper"** (canvas "TV · Search — night paper" and "iPhone ·
+Search"; `MetaLibrary/PosterSearch.swift`, drawn from `SearchLibraryView.nightPaper` — the
+search logic, filters and opening a result stay in `SearchLibraryView`, Classic untouched):
+dark dotted paper, a coral SEARCH tab hung off the top edge, the query printed huge in Anton
+(capitals, sized from its own length so the cyan cursor sits right after the last letter —
+a fit-to-width text claimed the whole line), scope chips carrying counts, the best hit on a
+coral TOP MATCH card (search returns no people, so it is the first result's poster as a
+framed sticker, not the artboard's person), the rest as shelves of name-tagged sticker
+posters, RECENT as dashed chips. TV: the query line is one focusable control over the
+`TVTextField` bridge, the ring on focus is cyan (white already means *selected*). iPad: the
+TV's layout at 0.62 with a real `TextField`. iPhone: one scrolling column with the field at
+the top over a white rule (the floating bottom field is Classic-only now), a full-width card,
+tilted small stickers. A new search keeps the last results with SEARCHING… in its own slot.
+`JT_SEARCH_QUERY` / `RT_SEARCH_QUERY=<term>` (DEBUG) opens with a term typed.
+
 ## Poster Mode's player chrome and the anime skins
 
 **The player chrome in Poster Mode is the same Grandma menu in sticker clothes** (design canvas
@@ -606,7 +641,7 @@ two-second idle hide is faster than the iPad and TV simulators can capture.
 (`MetaLibrary/AnimeSkin.swift`, canvas "Anime Library Skin"): coral (Anime) or night violet
 with an 18+ sticker (Late Night, `AnimeSkinVariant`), a die-cut アニメ / 深夜アニメ lockup, the
 selected title's key art pinned up on a fixed-height stage, the ink shelf below. Three states:
-the library; the **title focus** (tvOS — two seconds on a title whose own art holds a clean
+the library; the **title focus** (tvOS — at once, on any title whose own art holds a clean
 figure: the screen is keyed to that character); and the **empty shelf**, whose one button
 rescans the libraries (`AppState.scanLibraries`, admin only).
 
@@ -644,11 +679,19 @@ wordmark on white paper would vanish); Anton die-cut type is the fallback and on
 The title runs huge in scanlines (`PosterScanlineTitle`) behind the figure, faded at both ends so
 no stray letter peeks out past the character (`AnimeText.ghost`: the first word or two, brackets
 stripped). The figure stands *upright* on the shelf line — a character is not a slapped sticker,
-only mascots tilt — arriving with a step in from the right while the disc swells behind it, once,
-card-sized (`arrived`, per title via `.id`). The column's slots are fixed (logo 860×210, chips
+only mascots tilt. **One title to the next is a plain crossfade** — the figure layer and the
+column each carry the title's `.id` with `.transition(.opacity)`; a step-in, a swelling disc and
+an SFX slap were built and turned down, and without the column's own `.id` the logo visibly
+shrank and grew between two titles' sizes. The column's slots are fixed (logo 860×210, chips
 44, card) so one title's three-line wordmark and the next's one-liner leave nothing jumping.
 `AnimeGround` is split so the per-title colour is a crossfade of one quad and one band under a
 static halftone-and-shelf `Canvas`, never a repaint of four thousand dots per frame.
+
+**Touch opens on the key visual too.** iPad and iPhone have no focus, so the featured title
+(`posterStageItem`) takes the title focus as soon as its figure resolves: `AnimeTitleFocusStage`
+scaled (`s`, 0.62 iPad / 0.42 phone) over `AnimeStagedFigure` (the TV's burst, disc, lit figure
+and SFX in a box of their own), masked at the stage's foot so the character stands behind the
+shelf. A title without a figure keeps the key-art card with a shelf figure beside it.
 
 **The mascots are the shelf's own characters** (`AppState.shelfFigures`): figures from the titles
 on the shelf, cut through the same gate, sampled from the top 24 (what is on screen — a draw
@@ -668,7 +711,7 @@ thin manga ink line only — and `AnimeSceneFigure` lights them: the silhouette 
 off register up-left (the lit edge), a halftone ink shadow down-right. Behind: `AnimeSpeedLines`
 (one static `Canvas` burst in the slash colour, running off the screen's edge, feathered under
 the header) and `AnimeHalftoneDisc`. In front: a katakana SFX (`AnimeSFX` — ドドド, ドン!, バーン!;
-ドキッ! on Late Night), die-cut and slapped on 0.3s after the figure lands. The figure runs ~7%
+ドキッ! on Late Night), die-cut. The figure runs ~7%
 past the shelf line and is masked there, so it stands *behind the counter* and the art's own
 crop line is never seen. A `.softLight` palette wash over the art was tried and dropped — it
 bleached the characters. The idle mascot gets the same staging, its burst capped so it never
@@ -1231,6 +1274,21 @@ feedback is what stops someone pressing again to check. v1 never gated seeks at 
 plan states the principle it didn't apply here: *"coalesce + busy gate solves mash, debounce alone
 does not."*
 
+**The jump step ramps with the tapping** (`PlayerController.jump(forward:)`, 2026-09-27). One
+tap moves 10 s; taps within 0.7 s of each other are one *run* and climb `jumpLadder` — 15, 30,
+45, then 60 s a tap — so a spammer covers ground fast while a single press stays fine-grained;
+a pause or a press the other way starts over at 10, which is what makes overshoot-and-tap-back
+precise. The circles show the *next* step live (`jumpStep(forward:)` — Classic draws it with
+`goforward.10 … .60`, the values the ladder is limited to for that reason), the jump preview
+carries the run's total ("+2:15"), and the run is still one seek: it rides the coalesce below.
+A tap landing while a seek is in flight builds on `seekInFlightTarget`, not `currentTime`
+(which still reads the old position until AVPlayer has moved) — without it a run straddling a
+commit lost everything before the commit. The same ramp serves the hidden-chrome Left/Right
+on tvOS, the ↻1M circle stays a flat minute, and the paired phone's ↻/↺ (which only send
+`FastForward`/`Rewind`) climb through the TV's own ramp, so their glyphs no longer say 30.
+Built for someone who "spams the button and expects it to work": their rhythm *is* the speed
+control — no hold gesture to learn. `JT_TRY_JUMP` mashes ↻ eighteen times: expect +15:40.
+
 **The position readout is `M:SS` / `H:MM:SS`, never hours:minutes.** The design mockup drew
 `00:27/01:17`; implemented literally that changes once a minute (looks frozen against the engine's
 4Hz tick) and `00:27` reads as twenty-seven *seconds*. `formatPlayerClock(_:matching:)` formats
@@ -1280,7 +1338,7 @@ decoded once (`preparingForDisplay`), not on every crop. **A moment maps to the 
 The panel **prefetches the sheets for the pages either side** after each page loads.
 
 **Jumps show where they land** (`PlayerJumpPreview` / `PlayerSceneFrame`): with the chrome up, a
-↺30 / ↻30 / ↻1min burst shows the frame at the pending target beside the transport, on the side it
+↺ / ↻ / ↻1min burst shows the frame at the pending target (and the run's total under it) beside the transport, on the side it
 is heading, and lingers 1.3s after the seek commits; on the phone it rises above the edge stickers
 (the heart sits closer to 1M than a frame is wide). With the chrome hidden on tvOS the same frame
 sits under the `PlayerGlance` sticker. The geometry is resolved once per item and cached on the
@@ -1591,7 +1649,8 @@ idle-hide → nudge cycle left focus on BACK — the geometrically-first control
 premise is "press without aiming", the stray Select after a reveal *exited playback*.
 
 **The tvOS remote, with the chrome hidden, is four commands and Menu** (`PlayerChrome.handleMove`
-/ `handleMenuPress`): Up likes (toggles the favourite), Left and Right jump ∓30 s, Down brings the
+/ `handleMenuPress`): Up likes (toggles the favourite), Left and Right jump (10 s, ramping under
+repeated presses — see "The jump step ramps"), Down brings the
 chrome up; Menu with the chrome showing hides it, Menu with it hidden leaves the player, and
 under the Night lock Menu is inert like every other press. Each hidden-chrome press leaves a
 `PlayerGlance` for a beat — the heart as it now stands, or the jump glyph over the clock, which

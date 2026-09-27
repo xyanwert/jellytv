@@ -60,6 +60,7 @@ struct ShowView: View {
     /// so the subject's face clears the shelf band — measured from the
     /// cut-out, once. 0 until there is one.
     @State private var keyVisualLift: CGFloat = 0
+    @State private var pageAppearedAt = Date()
     #if os(iOS)
     /// Phone only — which of the EPISODES/DETAILS/CAST tabs is showing.
     @State private var phoneTab: PhoneShowTab = .episodes
@@ -685,13 +686,18 @@ struct ShowView: View {
         Group {
             if let logo = show.logoArt, let url = URL(string: logo) {
                 AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase {
+                    switch phase {
+                    case .success(let image):
                         image.resizable().scaledToFit()
                             .frame(maxWidth: size * 5, maxHeight: size * 1.3, alignment: .leading)
                             .shadow(color: .black.opacity(0.6), radius: 14, y: 3)
                             .accessibilityLabel(show.title)
-                    } else {
+                    case .failure:
                         posterShowTitleType(size)
+                    default:
+                        // Nothing while the logo loads — never the title in
+                        // type swapping to the logo a beat later.
+                        Color.clear
                     }
                 }
                 .frame(height: size * 1.3, alignment: .bottomLeading)
@@ -715,6 +721,7 @@ struct ShowView: View {
             if !show.years.isEmpty { PosterChip(text: show.years) }
             if !genreTail.isEmpty { PosterChip(text: genreTail) }
         }
+        .transaction { $0.animation = nil } // chips fill in as the detail lands; they never slide
     }
 
     /// iPad: the dossier column's title block in Poster Mode.
@@ -722,17 +729,21 @@ struct ShowView: View {
         VStack(alignment: .leading, spacing: 14) {
             posterSeasonsBar(size: 16)
             posterShowTitle(64)
+            // Fixed slots, filled as the detail and the scores land — the
+            // block never grows under the reader (CLAUDE.md: nothing moves
+            // because something loaded).
             posterShowChips
+                .frame(height: 28, alignment: .leading)
             HStack(spacing: 10) {
                 RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
                 if show.awards?.academyAwardsLabel != nil { AwardsBadge(awards: show.awards) }
             }
-            if !show.synopsis.isEmpty {
-                Text(show.synopsis)
-                    .font(Typography.font(18, .semibold)).foregroundStyle(Palette.text(0.8))
-                    .lineSpacing(5).lineLimit(4)
-                    .frame(maxWidth: 520, alignment: .leading)
-            }
+            .frame(height: 30, alignment: .leading)
+            .transaction { $0.animation = nil }
+            Text(show.synopsis)
+                .font(Typography.font(18, .semibold)).foregroundStyle(Palette.text(0.8))
+                .lineSpacing(5).lineLimit(4)
+                .frame(width: 520, height: 108, alignment: .topLeading)
         }
         .frame(maxWidth: 620, alignment: .leading)
     }
@@ -1243,7 +1254,13 @@ struct ShowView: View {
                         // Put the top of the subject ~60pt from the top of the
                         // screen, lifting at most 260pt (the shelf band covers
                         // what comes up behind).
-                        keyVisualLift = min(260, max(0, top * geo.size.height - 60))
+                        let lift = min(260, max(0, top * geo.size.height - 60))
+                        Self.rememberLift(lift, for: show.keyArt)
+                        // Only while the page is still arriving: lifting a
+                        // full-screen backdrop that is already on screen was
+                        // the page jumping as it opened. A late cut applies
+                        // next visit, from the remembered value.
+                        if Date().timeIntervalSince(pageAppearedAt) < 0.35 { keyVisualLift = lift }
                     })
                     .offset(y: -keyVisualLift)
                 }
@@ -1253,6 +1270,22 @@ struct ShowView: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+    }
+
+    /// The key visual's lift per backdrop, remembered across launches so a
+    /// show's page opens already framed on its character.
+    private static let liftKey = "jelly:show.keyVisualLift"
+    private static func rememberedLift(for art: String?) -> CGFloat {
+        guard let art, let saved = UserDefaults.standard.dictionary(forKey: liftKey)?[art] as? Double else { return 0 }
+        return saved
+    }
+    private static func rememberLift(_ lift: CGFloat, for art: String?) {
+        guard let art else { return }
+        var all = UserDefaults.standard.dictionary(forKey: liftKey) ?? [:]
+        guard (all[art] as? Double) != Double(lift) else { return }
+        if all.count > 400 { all.removeAll() }
+        all[art] = Double(lift)
+        UserDefaults.standard.set(all, forKey: liftKey)
     }
 
     /// The genre tail of `genreLabel` ("TV Shows / Sci-Fi Drama" → "Sci-Fi
@@ -1335,6 +1368,10 @@ struct ShowView: View {
             }
         }
         .ignoresSafeArea()
+        .onAppear {
+            pageAppearedAt = Date()
+            keyVisualLift = Self.rememberedLift(for: show.keyArt)
+        }
     }
 
     private var posterTVHero: some View {
@@ -1360,20 +1397,33 @@ struct ShowView: View {
                 .background(Palette.posterInk, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
 
-            if let logo = show.logoArt, let url = URL(string: logo) {
-                AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase {
-                        image.resizable().scaledToFit()
-                            .frame(maxWidth: 560, maxHeight: 112, alignment: .leading)
-                            .shadow(color: .black.opacity(0.6), radius: 20, y: 2)
-                            .accessibilityLabel(show.title)
-                    } else {
-                        posterTitleText
+            // Every slot below holds its size from the first frame: the hero
+            // is bottom-aligned, so a logo, a chip row or a synopsis arriving
+            // late pushed everything above it up — the page "moved a little"
+            // as it opened.
+            Group {
+                if let logo = show.logoArt, let url = URL(string: logo) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFit()
+                                .frame(maxWidth: 560, maxHeight: 112, alignment: .leading)
+                                .shadow(color: .black.opacity(0.6), radius: 20, y: 2)
+                                .accessibilityLabel(show.title)
+                        case .failure:
+                            posterTitleText
+                        default:
+                            // Not the title in type and then the logo: nothing,
+                            // then the logo (CLAUDE.md — a logo'd title never
+                            // swaps).
+                            Color.clear
+                        }
                     }
+                } else {
+                    posterTitleText
                 }
-            } else {
-                posterTitleText
             }
+            .frame(height: 112, alignment: .bottomLeading)
 
             HStack(spacing: 10) {
                 if !show.certification.isEmpty { PosterChip(text: show.certification, inverted: true) }
@@ -1382,14 +1432,15 @@ struct ShowView: View {
                 if !genreTail.isEmpty { PosterChip(text: genreTail) }
                 RatingChips(imdb: imdbRating, rottenTomatoes: rottenTomatoes, metacritic: metacritic)
             }
+            .frame(height: 44, alignment: .leading)
+            .transaction { $0.animation = nil } // chips fill in as the detail lands; they never slide
 
-            if !show.synopsis.isEmpty {
-                Text(show.synopsis)
-                    .font(Typography.font(20, .semibold)).foregroundStyle(Palette.text(0.82))
-                    .lineLimit(2).lineSpacing(4)
-                    // Held left of where the cut-out figure starts showing.
-                    .frame(maxWidth: 640, alignment: .leading)
-            }
+            // Two lines reserved whether or not the synopsis is here yet.
+            Text(show.synopsis)
+                .font(Typography.font(20, .semibold)).foregroundStyle(Palette.text(0.82))
+                .lineLimit(2).lineSpacing(4)
+                // Held left of where the cut-out figure starts showing.
+                .frame(width: 640, height: 58, alignment: .topLeading)
 
             HStack(spacing: 18) {
                 Button(action: resumePrimaryEpisode) {
@@ -1573,17 +1624,26 @@ struct ShowView: View {
     /// (`horizontalEdgeFade`) instead of hard-cutting at a margin.
     private var tvShelves: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .firstTextBaseline, spacing: 20) {
-                Text("EPISODES")
-                    .font(Typography.font(15, .heavy)).tracking(2).foregroundStyle(Palette.text(0.55))
+            if theme.isPoster {
+                // The strip is the band's own header: the sticker hangs off
+                // the stripe, the tape runs to the right margin.
                 seasonSelector
-                Spacer(minLength: 0)
-                if let season, episodesLoadingSeasonId != season.id, !season.episodes.isEmpty {
-                    Text("\(season.episodes.count) EPISODES")
+                    .padding(.horizontal, 80)
+                    .padding(.top, 8)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 20) {
+                    Text("EPISODES")
+                        .font(Typography.font(15, .heavy)).tracking(2).foregroundStyle(Palette.text(0.55))
+                    seasonSelector
+                    Spacer(minLength: 0)
+                    // Laid out always, shown once known: the count arriving
+                    // must not reflow the row.
+                    Text("\(season?.episodes.count ?? 0) EPISODES")
                         .font(Mono.font(13, .bold)).tracking(1.5).foregroundStyle(Palette.text(0.35))
+                        .opacity(season.map { episodesLoadingSeasonId != $0.id && !$0.episodes.isEmpty } ?? false ? 1 : 0)
                 }
+                .padding(.horizontal, 80)
             }
-            .padding(.horizontal, 80)
             // No focus section needed any more: the season bar is one
             // ~1300pt control, so Up from any episode card overlaps it. (The
             // section that used to make the narrow chip row reachable from

@@ -931,6 +931,11 @@ struct SelectedBackdrop: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
+                if HeroArtStyle.current != .classic {
+                    // Experimental treatments (`JT_HERO_STYLE`, HeroArt.swift).
+                    HeroArtLayer(item: item, url: imageURL, size: CGSize(width: geo.size.width, height: Self.height),
+                                 style: HeroArtStyle.current)
+                } else {
                 heroImage(width: geo.size.width, blur: CGFloat(blur))
                     .opacity(0.9)
                 // A softly-blurred copy of the image, shown only across the
@@ -942,6 +947,7 @@ struct SelectedBackdrop: View {
                 heroImage(width: geo.size.width, blur: max(18, CGFloat(blur)))
                     .opacity(0.9)
                     .mask(topBlur)
+                }
                 scrims
             }
             .frame(width: geo.size.width, height: Self.height, alignment: .top)

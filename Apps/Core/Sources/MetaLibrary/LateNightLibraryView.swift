@@ -207,7 +207,9 @@ struct LateNightLibraryView: View {
                                 #endif
                                 postersSection
                                     .libraryContentMargin()
-                                    .padding(.top, 6)
+                                    // Room for the focused poster to grow: the ScrollView clips, and at 6pt
+                                    // a focused card lost its top edge (seen on the TV).
+                                    .padding(.top, DeviceClass.current == .tv ? 34 : 6)
                                     .padding(.bottom, 60)
                                     .phoneTabBarClearance()
                                     #if os(iOS)
@@ -269,14 +271,24 @@ struct LateNightLibraryView: View {
         .task(id: selectedItem?.id) { await armTitleFocus() }
         #endif
         #if os(iOS)
-        // Touch has no title focus; the featured title's own character stands
-        // beside its key art instead, when its art holds one.
+        // Touch opens straight on the featured title's key visual, like the
+        // TV's title focus, when its art holds a figure; otherwise the key
+        // art card, with a shelf figure beside it.
         .task(id: posterStageItem?.id) {
             guard theme.isPoster, let item = posterStageItem else { return }
-            let figure = await appState.titleFigure(for: item)
+            async let figureTask = appState.titleFigure(for: item)
+            async let logoTask = appState.titleLogoSticker(for: item)
+            let figure = await figureTask
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.3)) {
-                featureFigure = figure?.standsBesideACard == true ? figure?.sticker : nil
+            let lead = figure.map { f in
+                { (logo: UIImage?) in AnimeLead(item: item, figure: f.sticker, logo: logo,
+                                                palette: .keyed(to: f.hue, variant: .lateNight)) }
+            }
+            let made = await lead?(logoTask)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.35)) {
+                focusLead = made
+                featureFigure = nil
             }
         }
         #endif
@@ -313,18 +325,45 @@ struct LateNightLibraryView: View {
     #if os(tvOS)
     /// See `AnimeLibraryView.armTitleFocus`.
     private func armTitleFocus() async {
-        if focusLead != nil {
-            withAnimation(.easeInOut(duration: 0.3)) { focusLead = nil }
+        guard theme.isPoster, let item = selectedItem else {
+            if focusLead != nil { withAnimation(.easeInOut(duration: 0.3)) { focusLead = nil } }
+            return
         }
-        guard theme.isPoster, let item = selectedItem else { return }
-        try? await Task.sleep(for: .seconds(2))
-        guard !Task.isCancelled else { return }
+        // A beat while a key visual is already up, so a remote sweeping along
+        // the shelf doesn't cut to every poster it passes — the current one
+        // holds meanwhile, never dropping back to the library layout between
+        // two titles. The first landing waits for nothing.
+        if focusLead != nil {
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else { return }
+        }
         async let figureTask = appState.titleFigure(for: item)
         async let logoTask = appState.titleLogoSticker(for: item)
-        guard let figure = await figureTask, !Task.isCancelled, selectedItem?.id == item.id else { return }
+        let figure = await figureTask
+        guard !Task.isCancelled, selectedItem?.id == item.id else { return }
+        guard let figure else {
+            // No clean figure in this title's art: the library layout.
+            if focusLead != nil { withAnimation(.easeInOut(duration: 0.3)) { focusLead = nil } }
+            return
+        }
         let lead = AnimeLead(item: item, figure: figure.sticker, logo: await logoTask,
                              palette: .keyed(to: figure.hue, variant: .lateNight))
         withAnimation(.easeInOut(duration: 0.35)) { focusLead = lead }
+        warmNeighbours(of: item)
+    }
+
+    /// Cuts the titles either side of the focused one in the background, so
+    /// the next move lands straight on its key visual.
+    private func warmNeighbours(of item: MediaItem) {
+        guard let i = filtered.firstIndex(where: { $0.id == item.id }) else { return }
+        let near = [i + 1, i - 1, i + 2].filter(filtered.indices.contains).map { filtered[$0] }
+        Task(priority: .utility) {
+            for next in near {
+                async let figure = appState.titleFigure(for: next)
+                async let logo = appState.titleLogoSticker(for: next)
+                _ = await (figure, logo)
+            }
+        }
     }
     #endif
 

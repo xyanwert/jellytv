@@ -161,8 +161,9 @@ final class RemoteControl: ObservableObject {
             case .previousTrack: _ = await controller.previous()
             case .seek:
                 if let seekTicks { await controller.seek(to: Double(seekTicks) / 10_000_000) }
-            case .rewind: controller.jump(by: -30)
-            case .fastForward: controller.jump(by: 30)
+            // The same ramp as the TV's own circles: a phone spamming ↻ climbs too.
+            case .rewind: controller.jump(forward: false)
+            case .fastForward: controller.jump(forward: true)
             }
 
         case .general(let name, let arguments):

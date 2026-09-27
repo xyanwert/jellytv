@@ -275,8 +275,8 @@ struct TVRemoteSheet: View {
 
     private var transport: some View {
         HStack(spacing: isPhone ? 22 : 28) {
-            circle(glyph: "gobackward.30", diameter: isPhone ? 66 : 76, glyphSize: isPhone ? 24 : 27,
-                   fill: .black.opacity(0.52), tint: .white, label: "30 seconds back") {
+            circle(glyph: "gobackward", diameter: isPhone ? 66 : 76, glyphSize: isPhone ? 24 : 27,
+                   fill: .black.opacity(0.52), tint: .white, label: "Jump back") {
                 link.jump(by: -30)
             }
             circle(glyph: link.isPaused ? "play.fill" : "pause.fill",
@@ -285,8 +285,8 @@ struct TVRemoteSheet: View {
                    label: link.isPaused ? "Play" : "Pause") {
                 link.togglePlayPause()
             }
-            circle(glyph: "goforward.30", diameter: isPhone ? 66 : 76, glyphSize: isPhone ? 24 : 27,
-                   fill: .black.opacity(0.52), tint: .white, label: "30 seconds ahead") {
+            circle(glyph: "goforward", diameter: isPhone ? 66 : 76, glyphSize: isPhone ? 24 : 27,
+                   fill: .black.opacity(0.52), tint: .white, label: "Jump ahead") {
                 link.jump(by: 30)
             }
         }

@@ -37,7 +37,11 @@ struct SeasonDial<Field: Hashable>: View {
 
     var body: some View {
         Group {
-            if compact {
+            if compact && theme.isPoster && DeviceClass.current == .pad {
+                // The iPad drawer wears the TV's strip, stacked for touch.
+                PosterSeasonStrip(seasons: seasons, order: order, selected: selected, suggested: suggested,
+                                  position: position, onSelect: { selected = $0 }, onOpenAll: onOpenAll, s: 0.72)
+            } else if compact {
                 VStack(alignment: .leading, spacing: 12) {
                     dial
                     SeasonRibbon(seasons: seasons, order: order, selected: $selected, suggested: suggested,
@@ -50,11 +54,16 @@ struct SeasonDial<Field: Hashable>: View {
                 // from any episode below lands on it. The narrower dial alone
                 // was unreachable straight down from Play (verified).
                 Button(action: onOpenAll) {
-                    HStack(alignment: .center, spacing: 34) {
-                        dialFace(focused: false)
-                        SeasonRibbon(seasons: seasons, order: order, selected: $selected, suggested: suggested,
-                                     color: progressColor, height: 46)
-                            .frame(width: 760)
+                    if theme.isPoster {
+                        PosterSeasonStrip(seasons: seasons, order: order, selected: selected,
+                                          suggested: suggested, position: position)
+                    } else {
+                        HStack(alignment: .center, spacing: 34) {
+                            dialFace(focused: false)
+                            SeasonRibbon(seasons: seasons, order: order, selected: $selected, suggested: suggested,
+                                         color: progressColor, height: 46)
+                                .frame(width: 760)
+                        }
                     }
                 }
                 .buttonStyle(SeasonDialStyle(poster: theme.isPoster))
@@ -134,7 +143,10 @@ struct SeasonDial<Field: Hashable>: View {
             }
             .frame(minWidth: isTV ? 120 : 80, alignment: .leading)
             VStack(alignment: .leading, spacing: 6) {
-                if selected == suggested {
+                // Both slots are always laid out and only shown or hidden:
+                // an UP NEXT tag that came and went changed the bar's height
+                // on every Left/Right, and the episode shelf under it jumped.
+                do {
                     Text("UP NEXT")
                         .font(theme.isPoster ? Display.font(isTV ? 18 : 12) : Mono.font(isTV ? 13 : 10, .heavy))
                         .tracking(1.2)
@@ -142,16 +154,14 @@ struct SeasonDial<Field: Hashable>: View {
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(Color(hex: "#F0525F"), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                         .rotationEffect(.degrees(theme.isPoster ? -3 : 0))
-                        .transition(.posterSlap)
+                        .opacity(selected == suggested ? 1 : 0)
                 }
                 if let current {
                     let readout = SeasonGuide.readout(for: current)
-                    if !readout.isEmpty {
-                        Text(readout)
-                            .font(theme.isPoster ? Display.font(isTV ? 22 : 14) : Mono.font(isTV ? 15 : 11, .bold))
-                            .tracking(1)
-                            .opacity(0.75)
-                    }
+                    Text(readout.isEmpty ? " " : readout)
+                        .font(theme.isPoster ? Display.font(isTV ? 22 : 14) : Mono.font(isTV ? 15 : 11, .bold))
+                        .tracking(1)
+                        .opacity(0.75)
                     Text("\(position + 1) OF \(seasons.count)")
                         .font(Mono.font(isTV ? 13 : 10, .bold))
                         .tracking(1)
@@ -216,6 +226,23 @@ private struct SeasonDialStyle: ButtonStyle {
         let poster: Bool
 
         var body: some View {
+            #if os(tvOS)
+            if poster {
+                // The Poster strip draws its own focus (the sticker lifts, the
+                // tape lights): no plate — a box around it was what made the
+                // bar read as an afterthought on the ink band.
+                configuration.label
+                    .environment(\.seasonStripFocused, focused)
+                    .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            } else {
+                plate
+            }
+            #else
+            plate
+            #endif
+        }
+
+        private var plate: some View {
             configuration.label
                 .foregroundStyle(Palette.textPrimary)
                 .padding(.horizontal, 26)
@@ -233,6 +260,230 @@ private struct SeasonDialStyle: ButtonStyle {
                 .shadow(color: .black.opacity(focused ? 0.45 : 0), radius: 18, y: 8)
                 .animation(.spring(response: 0.28, dampingFraction: 0.62), value: focused)
         }
+    }
+}
+
+// MARK: - Poster strip (tvOS)
+
+private struct SeasonStripFocusedKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    fileprivate var seasonStripFocused: Bool {
+        get { self[SeasonStripFocusedKey.self] }
+        set { self[SeasonStripFocusedKey.self] = newValue }
+    }
+}
+
+/// The season bar in Poster Mode on the TV, drawn *into* the ink band rather
+/// than boxed on top of it: the season is a white sticker hung off the teal
+/// stripe above (big Anton number, like the episode cards'), a fixed readout
+/// column beside it, and the run of the show as a tape of tabs out to the
+/// screen's edge — each filled teal to how much has been watched, the
+/// selected one a raised white tab.
+///
+/// **Nothing in it changes size when the season changes.** Every slot has a
+/// fixed frame, the UP NEXT tag is shown or hidden rather than inserted, the
+/// selected tab rises by an offset rather than by growing — Left/Right used
+/// to resize the bar and jump the episode shelf under it.
+private struct PosterSeasonStrip: View {
+    let seasons: [Season]
+    let order: [Int]
+    let selected: Int
+    let suggested: Int?
+    let position: Int
+    /// Touch (the iPad's episode drawer): the strip stacks — sticker and
+    /// readout over the tape — the sticker opens the wall, ‹ › step, and the
+    /// tabs take a tap or a drag. Nil on the TV, where the whole strip is one
+    /// focusable button and Left/Right step.
+    var onSelect: ((Int) -> Void)? = nil
+    var onOpenAll: (() -> Void)? = nil
+    /// Size, off the TV's 1.
+    var s: CGFloat = 1
+
+    @Environment(\.seasonStripFocused) private var focused
+
+    private var touch: Bool { onSelect != nil }
+    private var height: CGFloat { 96 * s }
+    private var current: Season? { seasons.indices.contains(selected) ? seasons[selected] : nil }
+
+    var body: some View {
+        Group {
+            if touch {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .center, spacing: 18) {
+                        sticker
+                            .onTapGesture { onOpenAll?() }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel("Season \(current?.number ?? 0), show every season")
+                        readout
+                        Spacer(minLength: 0)
+                        stepButton(-1, "chevron.left")
+                        stepButton(1, "chevron.right")
+                    }
+                    // The sticker's full height (tilt and shadow included): at
+                    // the readout's it ran down into the tape.
+                    .frame(height: 128 * s)
+                    tape.frame(height: 52)
+                }
+            } else {
+                HStack(alignment: .center, spacing: 30) {
+                    sticker
+                        // Clear of the right chevron, which rides past the sticker's edge.
+                        .padding(.trailing, 16)
+                    readout
+                    tape.frame(height: 64)
+                }
+                .frame(height: height)
+            }
+        }
+        .animation(.snappy(duration: 0.2), value: selected)
+        .animation(.spring(response: 0.28, dampingFraction: 0.7), value: focused)
+    }
+
+    // The season as a sticker, hung off the stripe above the band.
+    private var sticker: some View {
+        VStack(spacing: -6 * s) {
+            Text("SEASON")
+                .font(Display.font(18 * s)).tracking(2 * s)
+            Text(current.map { $0.number > 0 ? "\($0.number)" : "SP" } ?? "—")
+                .font(Display.font(66 * s))
+                .monospacedDigit()
+                .contentTransition(.numericText(value: Double(current?.number ?? 0)))
+                .lineLimit(1).minimumScaleFactor(0.5)
+        }
+        .foregroundStyle(Palette.posterInk)
+        .frame(width: 138 * s, height: 116 * s)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12 * s, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12 * s, style: .continuous)
+                .strokeBorder(focused ? Palette.posterTeal : .clear, lineWidth: 5)
+        }
+        // TV: chevrons ride the sticker's edges while it has the remote.
+        .overlay(alignment: .leading) { if !touch { chevron("chevron.left", on: position > 0).offset(x: -22) } }
+        .overlay(alignment: .trailing) { if !touch { chevron("chevron.right", on: position < order.count - 1).offset(x: 22) } }
+        .compositingGroup()
+        .shadow(color: Palette.posterInk, radius: 0, x: 7 * s, y: 7 * s)
+        .rotationEffect(.degrees(focused ? 0 : -3))
+        .scaleEffect(focused ? 1.07 : 1)
+        // TV: hangs up across the band's stripe — an offset, so the bar's
+        // own height never includes it.
+        .offset(y: touch ? 0 : -22)
+    }
+
+    private func chevron(_ name: String, on: Bool) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 17, weight: .black))
+            .foregroundStyle(Palette.posterInk)
+            .frame(width: 34, height: 34)
+            .background(Color.white, in: Circle())
+            .overlay(Circle().strokeBorder(Palette.posterInk, lineWidth: 2.5))
+            .opacity(focused && on ? 1 : 0)
+    }
+
+    private func stepButton(_ delta: Int, _ name: String) -> some View {
+        let next = position + delta
+        let enabled = order.indices.contains(next)
+        return Button { if enabled { onSelect?(order[next]) } } label: {
+            Image(systemName: name)
+                .font(.system(size: 16, weight: .black))
+                .foregroundStyle(Palette.posterInk)
+                .frame(width: 44, height: 44)
+                .background(Color.white, in: Circle())
+                .overlay(Circle().strokeBorder(Palette.posterInk, lineWidth: 2.5))
+                .compositingGroup()
+                .shadow(color: Palette.posterInk, radius: 0, x: 3, y: 3)
+        }
+        .buttonStyle(.plain)
+        .opacity(enabled ? 1 : 0.3)
+        .disabled(!enabled)
+        .accessibilityLabel(delta < 0 ? "Previous season" : "Next season")
+    }
+
+    private var readout: some View {
+        VStack(alignment: .leading, spacing: 4 * s) {
+            Text("UP NEXT")
+                .font(Display.font(19 * s)).tracking(1.2)
+                .foregroundStyle(Palette.posterInk)
+                .padding(.horizontal, 8 * s).padding(.vertical, 2 * s)
+                .background(Color(hex: "#F0525F"), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .rotationEffect(.degrees(-3))
+                .opacity(selected == suggested ? 1 : 0)
+            Text(current.map { SeasonGuide.readout(for: $0) }.flatMap { $0.isEmpty ? nil : $0 } ?? " ")
+                .font(Display.font(28 * s)).tracking(1)
+                .foregroundStyle(Palette.textPrimary)
+            Text("\(position + 1) OF \(seasons.count)")
+                .font(Mono.font(13 * s, .bold)).tracking(1.5)
+                .foregroundStyle(Palette.text(0.5))
+        }
+        .lineLimit(1)
+        .frame(width: 170 * s, height: height, alignment: .leading)
+    }
+
+    // The whole run as a tape of tabs. Numbers on every tab up to 16
+    // seasons, every fifth past that; the tape never scrolls.
+    private var tape: some View {
+        GeometryReader { geo in
+            let count = max(order.count, 1)
+            let spacing: CGFloat = count > 40 ? 3 : 6
+            let width = min(110, max(6, (geo.size.width - spacing * CGFloat(count - 1)) / CGFloat(count)))
+            HStack(spacing: spacing) {
+                ForEach(Array(order.enumerated()), id: \.element) { _, index in
+                    tab(seasons[index], index: index, width: width,
+                        labelled: count <= 16 || seasons[index].number % 5 == 0 || seasons[index].number == 1)
+                }
+            }
+            .frame(height: geo.size.height, alignment: .center)
+            #if os(iOS)
+            // Tap a tab, or drag along the tape to scrub.
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                let slot = width + spacing
+                let i = min(max(Int((value.location.x / slot).rounded(.down)), 0), order.count - 1)
+                if order.indices.contains(i), selected != order[i] { onSelect?(order[i]) }
+            })
+            #endif
+        }
+        .opacity(focused || touch ? 1 : 0.85)
+    }
+
+    private func tab(_ season: Season, index: Int, width: CGFloat, labelled: Bool) -> some View {
+        let isSelected = index == selected
+        let fill: Double = {
+            switch SeasonGuide.state(of: season) {
+            case .finished: return 1
+            case .inProgress(let f): return max(f, 0.1)
+            case .unwatched: return 0
+            }
+        }()
+        let tabHeight: CGFloat = 44 * max(s, 0.8)
+        let shape = RoundedRectangle(cornerRadius: min(8, width / 3), style: .continuous)
+        return ZStack(alignment: .leading) {
+            shape.fill(isSelected ? Color.white : Color(hex: "#262830"))
+            if !isSelected {
+                // Watched, left to right, like tape wound on.
+                shape.fill(Palette.posterTeal.opacity(season.number == 0 ? 0.6 : 1))
+                    .frame(width: width * fill)
+            }
+            if labelled && width >= 22 {
+                Text(season.number == 0 ? "SP" : "\(season.number)")
+                    .font(Display.font(width >= 44 ? 24 * max(s, 0.8) : 16))
+                    .foregroundStyle(isSelected ? Palette.posterInk : (fill >= 0.5 ? Palette.posterInk : Palette.text(0.7)))
+                    .frame(width: width)
+            }
+        }
+        .frame(width: width, height: tabHeight)
+        .clipShape(shape)
+        .overlay(alignment: .top) {
+            if index == suggested {
+                Circle().fill(Color(hex: "#F0525F"))
+                    .overlay(Circle().strokeBorder(Palette.posterInk, lineWidth: 2))
+                    .frame(width: 14, height: 14)
+                    .offset(y: -9)
+            }
+        }
+        .compositingGroup()
+        .shadow(color: Palette.posterInk, radius: 0, x: isSelected ? 5 : 0, y: isSelected ? 5 : 0)
+        // Raised by an offset, not a taller frame: the strip keeps its height.
+        .offset(y: isSelected ? -8 : 0)
     }
 }
 
